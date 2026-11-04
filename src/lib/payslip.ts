@@ -227,6 +227,11 @@ export async function createPayslipBlob(
     { label: '加班工资', value: settlement.otPay },
     { label: '奖金补贴', value: settlement.bonus + settlement.extraBonus },
     { label: '扣款', value: settlement.deduction + settlement.extraDeduction, negative: true },
+    {
+      label: '超休扣款',
+      value: settlement.overRestDeduction ?? 0,
+      negative: true,
+    },
     { label: '借支抵扣', value: settlement.advanceTotal, negative: true },
   ].filter((row) => row.value > 0);
 

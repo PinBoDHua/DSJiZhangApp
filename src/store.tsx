@@ -20,7 +20,7 @@ import type {
   ToastAction,
   ToastTone,
 } from './types';
-import { nowISO } from './lib/date';
+import { nowISO, todayISO } from './lib/date';
 import { createId } from './lib/id';
 import { createEmptyState, loadState, saveState, clearStoredState } from './lib/storage';
 import { createDemoState } from './lib/seed';
@@ -65,7 +65,18 @@ interface StoreValue {
     extraBonus: number,
     extraDeduction: number,
     note?: string,
+    overRestEnabled?: boolean,
+    overRestAmount?: number,
   ) => Settlement | null;
+  setSettlementPayment: (
+    settlementId: string,
+    input: {
+      paidAmount: number;
+      paidAt?: string;
+      method?: string;
+      note?: string;
+    },
+  ) => boolean;
   undoSettlement: (settlementId: string) => boolean;
   updateProfile: (patch: Partial<Profile>) => void;
   updateSettings: (patch: Partial<Settings>) => void;
@@ -394,6 +405,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       extraBonus: number,
       extraDeduction: number,
       note?: string,
+      overRestEnabled = true,
+      overRestAmount?: number,
     ) => {
       const current = stateRef.current;
       const job = current.jobs.find((item) => item.id === jobId);
@@ -406,6 +419,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         extraBonus,
         extraDeduction,
         current.restDays,
+        overRestEnabled,
+        overRestAmount,
       );
       if (draft.entries.length === 0) return null;
       const settlement = makeSettlement(draft, createId('settlement'), nowISO(), note?.trim() || undefined);
@@ -424,6 +439,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ),
       }));
       return settlement;
+    },
+    [],
+  );
+
+  const setSettlementPayment = useCallback(
+    (
+      settlementId: string,
+      input: {
+        paidAmount: number;
+        paidAt?: string;
+        method?: string;
+        note?: string;
+      },
+    ) => {
+      const current = stateRef.current;
+      const settlement = current.settlements.find((item) => item.id === settlementId);
+      if (!settlement) return false;
+      const net = Math.max(0, settlement.net);
+      const paid = Math.min(net, Math.max(0, Math.round(input.paidAmount * 100) / 100));
+      const paymentStatus = paid <= 0 ? 'unpaid' : paid >= net ? 'paid' : 'partial';
+      setState((prev) => ({
+        ...prev,
+        settlements: prev.settlements.map((item) =>
+          item.id === settlementId
+            ? {
+                ...item,
+                paymentStatus,
+                paidAmount: paid,
+                paidAt: paid > 0 ? input.paidAt || todayISO() : undefined,
+                paymentMethod: paid > 0 ? input.method?.trim() || undefined : undefined,
+                paymentNote: paid > 0 ? input.note?.trim() || undefined : undefined,
+              }
+            : item,
+        ),
+      }));
+      return true;
     },
     [],
   );
@@ -517,6 +568,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     deleteAdvance,
     restoreAdvance,
     settleJob,
+    setSettlementPayment,
     undoSettlement,
     updateProfile,
     updateSettings,

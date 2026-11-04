@@ -19,6 +19,12 @@ import {
 } from './date';
 import { formatMoney, round2 } from './money';
 import { payForEntry } from './pay';
+import {
+  PAYMENT_STATUS_LABEL,
+  paidAmountOf,
+  paymentStatusOf,
+  remainingAmountOf,
+} from './payment';
 
 const EMPTY_TOTALS: Totals = {
   base: 0,
@@ -164,6 +170,8 @@ export function buildSettlementDraft(
   extraBonus = 0,
   extraDeduction = 0,
   restDays: RestDay[] = [],
+  overRestEnabled = true,
+  overRestAmount?: number,
 ): SettlementDraft {
   const jobEntries = entries
     .filter(
@@ -185,7 +193,6 @@ export function buildSettlementDraft(
   const advanceTotal = totalAdvanceAmount(includedAdvances);
   const safeBonus = round2(Math.max(0, extraBonus));
   const safeDeduction = round2(Math.max(0, extraDeduction));
-  const net = round2(totals.total + safeBonus - safeDeduction - advanceTotal);
   const latestEntry = jobEntries[jobEntries.length - 1];
   const payType = latestEntry?.rule.payType ?? job.rule.payType;
   const monthlyMode = latestEntry?.rule.monthlyMode ?? job.rule.monthlyMode;
@@ -196,6 +203,31 @@ export function buildSettlementDraft(
   const restCount = restDays.filter(
     (rest) => rest.jobId === job.id && periodContains(period, rest.date),
   ).length;
+  const isFixedMonthly = payType === 'monthly' && monthlyMode === 'fixed';
+  const policy = job.rule;
+  const overRestDays = isFixedMonthly
+    ? Math.max(0, restCount - Math.max(0, policy.restDaysPerMonth))
+    : 0;
+  const dailyRate =
+    policy.overRestDailyRate > 0
+      ? policy.overRestDailyRate
+      : policy.rate / Math.max(1, policy.expectedDays);
+  const autoOverRestDeduction = round2(overRestDays * dailyRate);
+  const overRestDeduction =
+    isFixedMonthly && policy.overRestDeduct && overRestEnabled
+      ? round2(
+          Math.min(
+            Math.max(0, totals.base),
+            Math.max(
+              0,
+              overRestAmount === undefined ? autoOverRestDeduction : overRestAmount,
+            ),
+          ),
+        )
+      : 0;
+  const net = round2(
+    totals.total + safeBonus - safeDeduction - advanceTotal - overRestDeduction,
+  );
 
   return {
     jobId: job.id,
@@ -215,6 +247,8 @@ export function buildSettlementDraft(
     deduction: totals.deduction,
     extraBonus: safeBonus,
     extraDeduction: safeDeduction,
+    overRestDays,
+    overRestDeduction,
     advanceTotal,
     net,
     hours: totals.hours,
@@ -316,6 +350,8 @@ export function makeSettlement(
     otPay: draft.otPay,
     bonus: draft.bonus,
     deduction: draft.deduction,
+    overRestDays: draft.overRestDays,
+    overRestDeduction: draft.overRestDeduction,
     advanceTotal: draft.advanceTotal,
     extraBonus: draft.extraBonus,
     extraDeduction: draft.extraDeduction,
@@ -327,6 +363,8 @@ export function makeSettlement(
     advanceIds: draft.advanceIds,
     note,
     createdAt,
+    paymentStatus: 'unpaid',
+    paidAmount: 0,
   };
 }
 
@@ -399,8 +437,19 @@ export function settlementCopyText(settlement: Settlement): string {
     `加班工资：${formatMoney(settlement.otPay, { symbol: true })}`,
     `奖金：${formatMoney(settlement.bonus + settlement.extraBonus, { symbol: true })}`,
     `扣款：${formatMoney(settlement.deduction + settlement.extraDeduction, { symbol: true })}`,
+    ...(settlement.overRestDeduction
+      ? [
+          `超休扣款：${formatMoney(settlement.overRestDeduction, {
+            symbol: true,
+          })}（超休 ${settlement.overRestDays ?? 0} 天）`,
+        ]
+      : []),
     `借支抵扣：${formatMoney(settlement.advanceTotal, { symbol: true })}`,
     `应发净额：${formatMoney(settlement.net, { symbol: true })}`,
+    `收款：${PAYMENT_STATUS_LABEL[paymentStatusOf(settlement)]} · 已收 ${formatMoney(
+      paidAmountOf(settlement),
+      { symbol: true },
+    )} · 待收 ${formatMoney(remainingAmountOf(settlement), { symbol: true })}`,
   ];
   if (settlement.note) lines.push(`备注：${settlement.note}`);
   lines.push('—— 薪时 · 每一小时都算数');

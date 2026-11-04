@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import {
   ArrowUpRight,
+  BellRing,
   Check,
   ChevronRight,
   ClipboardList,
@@ -41,6 +42,7 @@ import { formatHours } from '../lib/money';
 import { cycleLabel, jobColor, rateLabel } from '../lib/meta';
 import { computeOutstanding, dailySeries, getSettlementOverview, sumEntries, sumEntriesCapped } from '../lib/settlement';
 import { backupDueText, backupIsDue } from '../lib/backupStatus';
+import { daysUntilPayday } from '../lib/payment';
 
 interface HomeProps {
   onAddEntry: (jobId?: string) => void;
@@ -105,6 +107,11 @@ export function Home({
       ? lastUsedJobId
       : activeJobs[0]?.id);
   const backupDue = backupIsDue(state);
+  const paydayReminder = activeJobs
+    .filter((job) => job.cycle === 'monthly' && job.payday)
+    .map((job) => ({ job, days: daysUntilPayday(job.payday as number, today) }))
+    .filter((item) => item.days <= 3)
+    .sort((a, b) => a.days - b.days)[0];
   const todayTotals = sumEntries(todayEntries);
   const todayHasFixedMonthly = todayEntries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
@@ -207,6 +214,26 @@ export function Home({
           <span className="backup-nudge-copy">
             <strong>该给账本留个底了</strong>
             <em>{backupDueText(state)}，换手机或清缓存会丢账。</em>
+          </span>
+          <ChevronRight size={16} />
+        </button>
+      ) : null}
+
+      {paydayReminder ? (
+        <button type="button" className="payday-nudge" onClick={onGoSettlements}>
+          <span className="payday-nudge-icon">
+            <BellRing size={17} />
+          </span>
+          <span className="payday-nudge-copy">
+            <strong>
+              {paydayReminder.days === 0
+                ? '今天发薪'
+                : paydayReminder.days === 1
+                  ? '明天发薪'
+                  : `还有 ${paydayReminder.days} 天发薪`}{' '}
+              · {paydayReminder.job.name}
+            </strong>
+            <em>去核对结算，登记收款状态。</em>
           </span>
           <ChevronRight size={16} />
         </button>

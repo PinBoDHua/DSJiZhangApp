@@ -9,6 +9,8 @@ function rule(overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): 
     expectedDays: 22,
     monthlyMode: 'prorated',
     restDaysPerMonth: 0,
+    overRestDeduct: false,
+    overRestDailyRate: 0,
     unitLabel: '件',
     otEnabled: true,
     weekdayOT: 1.5,
@@ -103,6 +105,7 @@ export function createDemoState(): AppState {
     shift: { startTime: '09:00', endTime: '17:00', breakMinutes: 120 },
     cycle: 'monthly',
     archived: false,
+    payday: 5,
     createdAt,
   };
   const pieceRule = rule({
@@ -194,7 +197,7 @@ export function createDemoState(): AppState {
     },
   ];
   return {
-    version: 4,
+    version: 5,
     profile: { name: '李师傅', hideAmounts: false },
     settings: {
       weekStartsOn: 1,

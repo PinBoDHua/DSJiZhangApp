@@ -705,9 +705,27 @@ ul {
   width: 44px;
   height: 26px;
   flex: none;
+  border: 0;
   border-radius: 999px;
   background: var(--line-strong);
   transition: background 0.18s ease;
+}
+
+button.switch {
+  padding: 0;
+}
+
+.overrest-meta {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.overrest-field {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
 }
 
 .switch i {
@@ -985,6 +1003,60 @@ ul {
 }
 
 .backup-nudge > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.payday-nudge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(20, 86, 61, 0.16);
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 160% at 100% 0%, rgba(20, 86, 61, 0.08), transparent 62%),
+    var(--primary-soft);
+  color: var(--ink);
+  text-align: left;
+}
+
+.payday-nudge-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(20, 86, 61, 0.1);
+  color: var(--primary);
+}
+
+.payday-nudge-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.payday-nudge-copy strong {
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.payday-nudge-copy em {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 9.5px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payday-nudge > svg {
   flex: 0 0 auto;
   color: var(--muted);
 }
@@ -2174,6 +2246,73 @@ ul {
   font-size: 8.5px;
 }
 
+.history-status--unpaid {
+  color: var(--accent-ink) !important;
+}
+
+.history-status--partial {
+  color: var(--primary) !important;
+}
+
+.history-status--paid {
+  color: var(--muted) !important;
+}
+
+.month-settle-card {
+  margin-bottom: 20px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.month-settle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.month-settle-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.month-settle-head span {
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.month-settle-head strong {
+  font-size: 12.5px;
+}
+
+.month-settle-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.month-settle-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.month-settle-stats span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.month-settle-stats .money {
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .history-empty {
   display: flex;
   align-items: center;
@@ -2398,6 +2537,101 @@ ul {
 
 .detail-card-head .text-link {
   font-size: 10px;
+}
+
+.pay-status {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.pay-status--unpaid {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.pay-status--partial {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.pay-status--paid {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.payment-track {
+  height: 5px;
+  margin: 7px 0 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.payment-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 0.25s ease;
+}
+
+.payment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.payment-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-bottom: 16px;
+}
+
+.payment-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.payment-summary span {
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.payment-summary .money {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.payment-quick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.payment-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 4px;
+}
+
+.payment-methods .job-choice {
+  min-width: 54px;
+  justify-content: center;
 }
 
 .amount-list {

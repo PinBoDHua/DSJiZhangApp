@@ -9,6 +9,8 @@ const rule = {
   expectedDays: 22,
   monthlyMode: 'prorated' as const,
   restDaysPerMonth: 0,
+  overRestDeduct: false,
+  overRestDailyRate: 0,
   unitLabel: '件',
   otEnabled: true,
   weekdayOT: 1.5,
@@ -44,7 +46,7 @@ describe('存储升级', () => {
     const imported = validateImport(
       JSON.stringify({ app: 'xinshi', version: 1, data: v1State }),
     );
-    expect(imported.version).toBe(4);
+    expect(imported.version).toBe(5);
     expect(imported.settings.theme).toBe('system');
     expect(imported.settings.reminder).toEqual({ enabled: false, time: '21:00' });
     expect(imported.activeTimer).toBeNull();
@@ -64,7 +66,7 @@ describe('存储升级', () => {
       activeTimer: { jobId: 'job-1', startedAt: '2026-11-04T00:00:00.000Z' },
     };
     const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 2, data: v2 }));
-    expect(imported.version).toBe(4);
+    expect(imported.version).toBe(5);
     expect(imported.settings.theme).toBe('dark');
     expect(imported.settings.weekStartsOn).toBe(0);
     expect(imported.settings.reminder).toEqual({ enabled: true, time: '08:15' });
@@ -92,7 +94,7 @@ describe('存储升级', () => {
       ],
     };
     const imported = validateImport(JSON.stringify(v3));
-    expect(imported.version).toBe(4);
+    expect(imported.version).toBe(5);
     expect(imported.jobs[0].shift).toEqual({
       startTime: '08:00',
       endTime: '17:00',
@@ -101,6 +103,54 @@ describe('存储升级', () => {
     expect(imported.jobs[0].rule.monthlyMode).toBe('prorated');
     expect(imported.jobs[0].rule.restDaysPerMonth).toBe(0);
     expect(imported.restDays[0].date).toBe('2026-11-06');
+  });
+
+  it('v0.4 数据补齐超休 / 收款默认值', () => {
+    const legacyJob = {
+      ...job,
+      rule: {
+        ...rule,
+        overRestDeduct: undefined,
+        overRestDailyRate: undefined,
+      },
+      payday: undefined,
+    };
+    const v4 = {
+      ...v1State,
+      version: 4,
+      jobs: [legacyJob],
+      settlements: [
+        {
+          id: 'settlement-1',
+          jobId: 'job-1',
+          jobName: '旧账本工作',
+          cycle: 'weekly',
+          periodStart: '2026-11-03',
+          periodEnd: '2026-11-09',
+          base: 200,
+          otPay: 0,
+          bonus: 0,
+          deduction: 0,
+          advanceTotal: 0,
+          extraBonus: 0,
+          extraDeduction: 0,
+          net: 200,
+          hours: 8,
+          days: 1,
+          otHours: 0,
+          entryIds: [],
+          advanceIds: [],
+          createdAt: '2026-11-09T12:00:00.000Z',
+        },
+      ],
+    };
+    const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 4, data: v4 }));
+    expect(imported.version).toBe(5);
+    expect(imported.jobs[0].rule.overRestDeduct).toBe(false);
+    expect(imported.jobs[0].rule.overRestDailyRate).toBe(0);
+    expect(imported.jobs[0].payday).toBeUndefined();
+    expect(imported.settlements[0].paymentStatus).toBe('unpaid');
+    expect(imported.settlements[0].paidAmount).toBe(0);
   });
 
   it('旧工记补齐 quantity / unitLabel 默认值', () => {
@@ -140,7 +190,7 @@ describe('存储升级', () => {
     expect(imported.activeTimer).toBeNull();
   });
 
-  it('导出的备份使用 v4 并携带当前状态', () => {
+  it('导出的备份使用 v5 并携带当前状态', () => {
     const state: AppState = {
       ...createEmptyState('导出测试'),
       jobs: [job],
@@ -148,15 +198,15 @@ describe('存储升级', () => {
     };
     const payload = JSON.parse(buildExportPayload(state));
     expect(payload.app).toBe('xinshi');
-    expect(payload.version).toBe(4);
-    expect(payload.data.version).toBe(4);
+    expect(payload.version).toBe(5);
+    expect(payload.data.version).toBe(5);
     expect(payload.data.jobs[0].name).toBe('旧账本工作');
   });
 
   it('拒绝未来版本与坏 JSON', () => {
     expect(() => validateImport('{')).toThrow('文件不是有效的 JSON');
     expect(() =>
-      validateImport(JSON.stringify({ app: 'xinshi', version: 5, data: v1State })),
+      validateImport(JSON.stringify({ app: 'xinshi', version: 6, data: v1State })),
     ).toThrow('更新版本');
   });
 });

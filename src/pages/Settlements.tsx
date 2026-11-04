@@ -1,12 +1,20 @@
 import type { CSSProperties } from 'react';
-import { ArrowUpRight, CheckCircle2, ClipboardList } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, ClipboardList, Download } from 'lucide-react';
 import { useStore } from '../store';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
 import { Money } from '../components/Money';
-import { formatDateShort } from '../lib/date';
+import { formatDateShort, periodOf, todayISO } from '../lib/date';
 import { formatHours } from '../lib/money';
 import { CYCLE_LABEL, jobColor } from '../lib/meta';
+import {
+  PAYMENT_STATUS_LABEL,
+  paidAmountOf,
+  paymentStatusOf,
+  remainingAmountOf,
+} from '../lib/payment';
+import { buildSettlementCsv } from '../lib/csv';
+import { saveTextFile } from '../lib/native';
 import { getSettlementOverview } from '../lib/settlement';
 
 interface SettlementsProps {
@@ -22,12 +30,40 @@ export function Settlements({
   onAddEntry,
   onOpenJobs,
 }: SettlementsProps) {
-  const { state } = useStore();
+  const { state, toast } = useStore();
   const overview = getSettlementOverview(state);
   const history = [...state.settlements].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const month = periodOf('monthly', todayISO(), state.settings.weekStartsOn);
+  const monthSettlements = history.filter(
+    (settlement) =>
+      settlement.periodStart <= month.end && settlement.periodEnd >= month.start,
+  );
+  const monthNet = monthSettlements.reduce((sum, item) => sum + item.net, 0);
+  const monthPaid = monthSettlements.reduce((sum, item) => sum + paidAmountOf(item), 0);
+  const monthRemaining = monthSettlements.reduce(
+    (sum, item) => sum + remainingAmountOf(item),
+    0,
+  );
   const pendingJobs = overview.jobs.filter((item) => item.draft.entries.length > 0);
   const hasPending = overview.jobs.length > 0;
   const clear = pendingJobs.length === 0 && overview.advanceTotal === 0;
+
+  const exportCsv = async () => {
+    if (monthSettlements.length === 0) {
+      toast('本月还没有结算记录', 'info');
+      return;
+    }
+    try {
+      const result = await saveTextFile(
+        `薪时-工资流水-${month.start.slice(0, 7)}.csv`,
+        buildSettlementCsv(monthSettlements),
+        'text/csv;charset=utf-8',
+      );
+      toast(result === 'native' ? 'CSV 已保存到「下载/Xinshi」' : 'CSV 已下载');
+    } catch {
+      toast('CSV 导出失败，请稍后再试', 'error');
+    }
+  };
 
   return (
     <div className="page settlements-page">
@@ -76,6 +112,38 @@ export function Settlements({
             <strong>
               <Money value={overview.advanceTotal} />
             </strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="month-settle-card">
+        <div className="month-settle-head">
+          <div>
+            <span>本月结算流水</span>
+            <strong>{monthSettlements.length} 张结算单</strong>
+          </div>
+          <button
+            type="button"
+            className="btn btn--soft btn--sm"
+            onClick={exportCsv}
+            disabled={monthSettlements.length === 0}
+          >
+            <Download size={14} />
+            导出 CSV
+          </button>
+        </div>
+        <div className="month-settle-stats">
+          <div>
+            <span>应发</span>
+            <Money value={monthNet} />
+          </div>
+          <div>
+            <span>已收</span>
+            <Money value={monthPaid} />
+          </div>
+          <div>
+            <span>待收</span>
+            <Money value={monthRemaining} />
           </div>
         </div>
       </section>
@@ -198,7 +266,9 @@ export function Settlements({
                 </span>
                 <span className="history-amount">
                   <Money value={settlement.net} />
-                  <span>已结</span>
+                  <span className={`history-status history-status--${paymentStatusOf(settlement)}`}>
+                    {PAYMENT_STATUS_LABEL[paymentStatusOf(settlement)]}
+                  </span>
                 </span>
               </button>
             ))}

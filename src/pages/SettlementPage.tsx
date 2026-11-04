@@ -18,6 +18,7 @@ import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
 import { Money } from '../components/Money';
 import { PayslipSheet } from '../components/PayslipSheet';
+import { PaymentSheet } from '../components/PaymentSheet';
 import { SubPage } from '../components/SubPage';
 import {
   formatDateShort,
@@ -36,6 +37,12 @@ import {
 } from '../lib/settlement';
 import { copyText } from '../lib/clipboard';
 import { pushNativeBack } from '../lib/nativeBack';
+import {
+  PAYMENT_STATUS_LABEL,
+  paidAmountOf,
+  paymentStatusOf,
+  remainingAmountOf,
+} from '../lib/payment';
 
 interface DraftPageProps {
   jobId: string;
@@ -107,12 +114,30 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [advanceToDelete, setAdvanceToDelete] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [overRestEnabled, setOverRestEnabled] = useState(
+    state.jobs.find((item) => item.id === jobId)?.rule.overRestDeduct ?? false,
+  );
+  const [overRestAmount, setOverRestAmount] = useState('');
   const dirtyRef = useRef(false);
 
   useEffect(() => {
+    const policyEnabled =
+      state.jobs.find((item) => item.id === jobId)?.rule.overRestDeduct ?? false;
     dirtyRef.current =
-      extraBonus.trim() !== '' || extraDeduction.trim() !== '' || note.trim() !== '';
-  }, [extraBonus, extraDeduction, note]);
+      extraBonus.trim() !== '' ||
+      extraDeduction.trim() !== '' ||
+      note.trim() !== '' ||
+      overRestAmount.trim() !== '' ||
+      overRestEnabled !== policyEnabled;
+  }, [
+    extraBonus,
+    extraDeduction,
+    note,
+    overRestAmount,
+    overRestEnabled,
+    jobId,
+    state.jobs,
+  ]);
 
   const requestBack = () => {
     if (dirtyRef.current) {
@@ -140,6 +165,8 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
             toAmount(extraBonus),
             toAmount(extraDeduction),
             state.restDays,
+            overRestEnabled,
+            overRestAmount.trim() === '' ? undefined : toAmount(overRestAmount),
           )
         : null,
     [
@@ -151,6 +178,8 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
       period.end,
       extraBonus,
       extraDeduction,
+      overRestEnabled,
+      overRestAmount,
     ],
   );
   const today = todayISO();
@@ -179,6 +208,7 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
     '--slip-soft': meta.soft,
   } as CSSProperties;
   const hasEntries = draft.entries.length > 0;
+  const isFixedDraft = draft.payType === 'monthly' && draft.monthlyMode === 'fixed';
 
   const handleConfirm = () => {
     const settlement = settleJob(
@@ -187,6 +217,8 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
       toAmount(extraBonus),
       toAmount(extraDeduction),
       note,
+      overRestEnabled,
+      overRestAmount.trim() === '' ? undefined : toAmount(overRestAmount),
     );
     setConfirmOpen(false);
     if (!settlement) {
@@ -346,6 +378,14 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
             {draft.extraDeduction > 0 ? (
               <AmountRow label="额外扣款" amount={draft.extraDeduction} negative />
             ) : null}
+            {draft.overRestDeduction > 0 ? (
+              <AmountRow
+                label="超休扣款"
+                note={`超休 ${draft.overRestDays} 天`}
+                amount={draft.overRestDeduction}
+                negative
+              />
+            ) : null}
             {draft.advanceTotal > 0 ? (
               <AmountRow label="借支抵扣" note="已经拿到的钱" amount={draft.advanceTotal} negative />
             ) : null}
@@ -384,6 +424,65 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
             <p className="calc-note">计件明细按每条记录的数量 × 当时单价累计。</p>
           ) : null}
         </section>
+
+        {isFixedDraft && job.rule.overRestDeduct ? (
+          <section className="detail-card overrest-card">
+            <div className="detail-card-head">
+              <div>
+                <h2>超休扣款</h2>
+                <p className="overrest-meta">
+                  本月休息 {draft.restDays} 天 · 额度 {job.rule.restDaysPerMonth} 天
+                  {draft.overRestDays > 0 ? ` · 超休 ${draft.overRestDays} 天` : ' · 未超休'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className={`switch ${overRestEnabled ? 'is-on' : ''}`}
+                role="switch"
+                aria-checked={overRestEnabled}
+                aria-label="本期扣超休"
+                onClick={() => setOverRestEnabled((value) => !value)}
+              >
+                <i />
+              </button>
+            </div>
+            {overRestEnabled && draft.overRestDays > 0 ? (
+              <label className="field overrest-field">
+                <span className="field-label">本期扣款金额</span>
+                <div className="inline-number">
+                  <span>¥</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={overRestAmount}
+                    onChange={(event) => setOverRestAmount(event.target.value)}
+                    placeholder={String(
+                      Math.round(
+                        (job.rule.overRestDailyRate > 0
+                          ? job.rule.overRestDailyRate
+                          : job.rule.rate / Math.max(1, job.rule.expectedDays)) *
+                          draft.overRestDays *
+                          100,
+                      ) / 100,
+                    )}
+                    inputMode="decimal"
+                  />
+                  <span>元</span>
+                </div>
+                <p className="field-hint">
+                  留空 = 按 {draft.overRestDays} 天自动计算；这次结算可以单独关掉或改金额。
+                </p>
+              </label>
+            ) : (
+              <p className="field-hint">
+                {draft.overRestDays > 0
+                  ? '本期不扣超休工资；确认结算前都可以再打开。'
+                  : '休息没有超过额度，本期不产生超休扣款。'}
+              </p>
+            )}
+          </section>
+        ) : null}
 
         <section className="detail-card">
           <div className="detail-card-head">
@@ -489,7 +588,7 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
       <ConfirmDialog
         open={discardOpen}
         title="放弃这次奖扣？"
-        description="额外奖金、扣款和备注还没有结算，返回后这些输入会丢失。"
+        description="额外奖金、扣款、超休设置和备注还没有结算，返回后这些输入会丢失。"
         confirmLabel="放弃"
         danger
         onCancel={() => setDiscardOpen(false)}
@@ -536,6 +635,7 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
   const { state, undoSettlement, toast } = useStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [payslipOpen, setPayslipOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const settlement = state.settlements.find((item) => item.id === settlementId);
   if (!settlement) {
     return (
@@ -565,6 +665,9 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
   const advances = settlement.advanceIds
     .map((id) => state.advances.find((advance) => advance.id === id))
     .filter((advance): advance is Advance => Boolean(advance));
+  const paymentStatus = paymentStatusOf(settlement);
+  const paidAmount = paidAmountOf(settlement);
+  const remainingAmount = remainingAmountOf(settlement);
 
   const handleCopy = async () => {
     const ok = await copyText(settlementCopyText(settlement));
@@ -716,6 +819,14 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
             {settlement.extraDeduction > 0 ? (
               <AmountRow label="额外扣款" amount={settlement.extraDeduction} negative />
             ) : null}
+            {settlement.overRestDeduction && settlement.overRestDeduction > 0 ? (
+              <AmountRow
+                label="超休扣款"
+                note={`超休 ${settlement.overRestDays ?? 0} 天`}
+                amount={settlement.overRestDeduction}
+                negative
+              />
+            ) : null}
             {settlement.advanceTotal > 0 ? (
               <AmountRow label="借支抵扣" amount={settlement.advanceTotal} negative />
             ) : null}
@@ -723,6 +834,44 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
             <AmountRow label="应发净额" amount={settlement.net} strong />
           </div>
           {settlement.note ? <p className="calc-note">备注：{settlement.note}</p> : null}
+        </section>
+
+        <section className="detail-card payment-card">
+          <div className="detail-card-head">
+            <div>
+              <h2>收款</h2>
+              <p className="overrest-meta">
+                已收 <Money value={paidAmount} /> · 还剩 <Money value={remainingAmount} />
+              </p>
+            </div>
+            <span className={`pay-status pay-status--${paymentStatus}`}>
+              {PAYMENT_STATUS_LABEL[paymentStatus]}
+            </span>
+          </div>
+          <div className="payment-track" aria-hidden="true">
+            <span
+              style={{
+                width: `${settlement.net > 0 ? Math.min(100, (paidAmount / settlement.net) * 100) : 0}%`,
+              }}
+            />
+          </div>
+          <div className="payment-row">
+            <span>
+              {settlement.paidAt
+                ? `${settlement.paidAt} · ${settlement.paymentMethod || '收款'}`
+                : '还没有登记收款'}
+            </span>
+            <button
+              type="button"
+              className="btn btn--soft btn--sm"
+              onClick={() => setPaymentOpen(true)}
+            >
+              {paidAmount > 0 ? '修改收款' : '登记收款'}
+            </button>
+          </div>
+          {settlement.paymentNote ? (
+            <p className="calc-note">收款备注：{settlement.paymentNote}</p>
+          ) : null}
         </section>
 
         {entries.length > 0 ? (
@@ -789,6 +938,12 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
           onClose={() => setPayslipOpen(false)}
         />
       ) : null}
+
+      <PaymentSheet
+        open={paymentOpen}
+        settlement={settlement}
+        onClose={() => setPaymentOpen(false)}
+      />
     </>
   );
 }

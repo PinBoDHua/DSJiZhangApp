@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Advance, AppState, Entry, Job, PayRule } from '../types';
+import type { Advance, AppState, Entry, Job, PayRule, RestDay } from '../types';
 import { buildSettlementDraft, computeOutstanding, getSettlementOverview, sumEntriesCapped } from './settlement';
 import { payForEntry } from './pay';
 import { addMonths, endOfWeek, hoursBetween, periodOf, shiftPeriod, startOfWeek } from './date';
@@ -10,6 +10,8 @@ const rule = (overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): 
   expectedDays: 22,
   monthlyMode: 'prorated',
   restDaysPerMonth: 0,
+  overRestDeduct: false,
+  overRestDailyRate: 0,
   unitLabel: '件',
   otEnabled: true,
   weekdayOT: 1.5,
@@ -55,7 +57,7 @@ const advance = (overrides: Partial<Advance> & Pick<Advance, 'date'>): Advance =
 });
 
 const state = (partial: Partial<AppState>): AppState => ({
-  version: 4,
+  version: 5,
   profile: { name: '测试', hideAmounts: false },
   settings: {
     weekStartsOn: 1,
@@ -429,6 +431,72 @@ describe('结算汇总', () => {
     );
     expect(draft.base).toBe(3409.09);
     expect(draft.net).toBe(2909.09);
+  });
+
+  it('固定月薪超休按天扣款，单期可关闭或改金额', () => {
+    const fixedJob = job({
+      cycle: 'monthly',
+      rule: rule({
+        payType: 'monthly',
+        rate: 3500,
+        standardHours: 6,
+        monthlyMode: 'fixed',
+        restDaysPerMonth: 5,
+        overRestDeduct: true,
+        otEnabled: false,
+      }),
+    });
+    const work = entry({
+      date: '2026-11-03',
+      hours: 6,
+      rule: fixedJob.rule,
+    });
+    const restDays: RestDay[] = [1, 2, 4, 5, 6, 7, 8].map((day) => ({
+      id: `rest-${day}`,
+      jobId: 'job-1',
+      date: `2026-11-${String(day).padStart(2, '0')}`,
+      createdAt: '2026-11-01T00:00:00.000Z',
+    }));
+    const period = periodOf('monthly', '2026-11-03', 1);
+    const draft = buildSettlementDraft(
+      fixedJob,
+      [work],
+      [],
+      period,
+      0,
+      0,
+      restDays,
+    );
+    expect(draft.overRestDays).toBe(2);
+    expect(draft.overRestDeduction).toBe(318.18);
+    expect(draft.net).toBe(3181.82);
+
+    const noDeduct = buildSettlementDraft(
+      fixedJob,
+      [work],
+      [],
+      period,
+      0,
+      0,
+      restDays,
+      false,
+    );
+    expect(noDeduct.overRestDeduction).toBe(0);
+    expect(noDeduct.net).toBe(3500);
+
+    const override = buildSettlementDraft(
+      fixedJob,
+      [work],
+      [],
+      period,
+      0,
+      0,
+      restDays,
+      true,
+      200,
+    );
+    expect(override.overRestDeduction).toBe(200);
+    expect(override.net).toBe(3300);
   });
 
   it('全部未结金额扣除借支', () => {

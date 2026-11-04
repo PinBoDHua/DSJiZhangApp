@@ -49,6 +49,8 @@ export function Onboarding() {
         expectedDays: 22,
         monthlyMode: 'prorated',
         restDaysPerMonth: 0,
+        overRestDeduct: false,
+        overRestDailyRate: 0,
         unitLabel: unitLabel.trim() || '件',
         otEnabled: payType !== 'piece',
         weekdayOT: 1.5,
@@ -69,7 +71,7 @@ export function Onboarding() {
             <Logo size={34} light />
             <Wordmark light />
           </div>
-          <span className="onboarding-badge">v0.4.4 · MVP</span>
+          <span className="onboarding-badge">v0.5.0 · MVP</span>
         </div>
         <div className="onboarding-copy">
           <p className="onboarding-eyebrow">工时 · 薪资 · 结算</p>

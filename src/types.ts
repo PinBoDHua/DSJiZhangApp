@@ -9,6 +9,8 @@ export interface ToastAction {
   label: string;
   onClick: () => void;
 }
+
+export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type ThemeMode = 'system' | 'light' | 'dark';
 
 export interface PayRule {
@@ -22,6 +24,10 @@ export interface PayRule {
   monthlyMode: MonthlyMode;
   /** 固定月薪岗位的月休额度，仅用于统计和提示 */
   restDaysPerMonth: number;
+  /** 固定月薪时，超出月休额度是否自动扣款 */
+  overRestDeduct: boolean;
+  /** 超休每天扣款；0 表示按 月薪 / 计薪天数 自动计算 */
+  overRestDailyRate: number;
   /** 计件单位，例如 件 / 米 / 平方 */
   unitLabel: string;
   otEnabled: boolean;
@@ -46,6 +52,8 @@ export interface Job {
   shift: ShiftTemplate;
   cycle: Cycle;
   archived: boolean;
+  /** 每月发薪日 1–31，仅做提醒 */
+  payday?: number;
   createdAt: string;
 }
 
@@ -106,6 +114,8 @@ export interface Settlement {
   otPay: number;
   bonus: number;
   deduction: number;
+  overRestDays?: number;
+  overRestDeduction?: number;
   advanceTotal: number;
   extraBonus: number;
   extraDeduction: number;
@@ -117,6 +127,11 @@ export interface Settlement {
   advanceIds: string[];
   note?: string;
   createdAt: string;
+  paymentStatus?: PaymentStatus;
+  paidAmount?: number;
+  paidAt?: string;
+  paymentMethod?: string;
+  paymentNote?: string;
 }
 
 export interface Profile {
@@ -140,7 +155,7 @@ export interface WorkTimer {
 }
 
 export interface AppState {
-  version: 4;
+  version: 5;
   profile: Profile;
   settings: Settings;
   jobs: Job[];
@@ -202,6 +217,8 @@ export interface SettlementDraft {
   deduction: number;
   extraBonus: number;
   extraDeduction: number;
+  overRestDays: number;
+  overRestDeduction: number;
   advanceTotal: number;
   net: number;
   hours: number;

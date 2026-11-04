@@ -39,6 +39,13 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
   const [restDaysPerMonth, setRestDaysPerMonth] = useState(
     existing ? String(existing.rule.restDaysPerMonth) : '5',
   );
+  const [overRestDeduct, setOverRestDeduct] = useState(
+    existing?.rule.overRestDeduct ?? false,
+  );
+  const [overRestDailyRate, setOverRestDailyRate] = useState(
+    existing?.rule.overRestDailyRate ? String(existing.rule.overRestDailyRate) : '',
+  );
+  const [payday, setPayday] = useState(existing?.payday ? String(existing.payday) : '');
   const [standardHours, setStandardHours] = useState(
     existing ? String(existing.rule.standardHours) : isTemplate ? '6' : '8',
   );
@@ -75,6 +82,9 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     cycle,
     monthlyMode,
     restDaysPerMonth,
+    overRestDeduct,
+    overRestDailyRate,
+    payday,
     standardHours,
     expectedDays,
     shiftStart,
@@ -98,6 +108,9 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       cycle !== initial.cycle ||
       monthlyMode !== initial.monthlyMode ||
       restDaysPerMonth !== initial.restDaysPerMonth ||
+      overRestDeduct !== initial.overRestDeduct ||
+      overRestDailyRate !== initial.overRestDailyRate ||
+      payday !== initial.payday ||
       standardHours !== initial.standardHours ||
       expectedDays !== initial.expectedDays ||
       shiftStart !== initial.shiftStart ||
@@ -117,6 +130,9 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     cycle,
     monthlyMode,
     restDaysPerMonth,
+    overRestDeduct,
+    overRestDailyRate,
+    payday,
     standardHours,
     expectedDays,
     shiftStart,
@@ -225,6 +241,9 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       expectedDays: parsedExpected,
       monthlyMode: payType === 'monthly' ? monthlyMode : 'prorated',
       restDaysPerMonth: isFixedMonthly ? parsedRestDays : 0,
+      overRestDeduct: isFixedMonthly ? overRestDeduct : false,
+      overRestDailyRate:
+        isFixedMonthly && overRestDeduct ? Math.max(0, toAmount(overRestDailyRate)) : 0,
       unitLabel: parsedUnit,
       otEnabled: isPiece ? false : otEnabled,
       weekdayOT: weekday,
@@ -237,6 +256,10 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       breakMinutes: parsedBreak,
     };
     const normalizedCycle: Cycle = payType === 'monthly' ? 'monthly' : cycle;
+    const parsedPayday =
+      normalizedCycle === 'monthly' && payday.trim() !== ''
+        ? Math.max(1, Math.min(31, Math.round(toAmount(payday))))
+        : undefined;
     setError('');
     if (existing) {
       const next: Job = {
@@ -247,6 +270,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
         rule,
         shift,
         cycle: normalizedCycle,
+        payday: parsedPayday,
       };
       updateJob(next);
       toast('工作设置已保存');
@@ -258,6 +282,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
         rule,
         shift,
         cycle: normalizedCycle,
+        payday: parsedPayday,
       });
       toast('工作已创建');
     }
@@ -583,30 +608,94 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
                   />
                   <p className="field-hint">
                     {isFixedMonthly
-                      ? '整月固定发放，不因 4–5 天随机休息少发；超出月休的缺勤请在结算里用扣款调整。'
+                      ? overRestDeduct
+                        ? '整月固定发放，不因随机休息少发；超休按下方规则扣款。'
+                        : '整月固定发放，不因 4–5 天随机休息少发；超出月休的缺勤可在结算里用扣款调整。'
                       : '按出勤天数 × 日折算，超过整月月薪时封顶。'}
                   </p>
                 </div>
                 {isFixedMonthly ? (
-                  <label className="field">
-                    <span className="field-label">月休额度</span>
-                    <div className="inline-number">
-                      <input
-                        type="number"
-                        min={0}
-                        max={31}
-                        step={1}
-                        value={restDaysPerMonth}
-                        onChange={(event) => setRestDaysPerMonth(event.target.value)}
-                        inputMode="numeric"
-                      />
-                      <span>天 / 月</span>
-                    </div>
-                    <p className="field-hint">
-                      只用于统计「已休 / 剩余」，不会自动扣固定月薪。
-                    </p>
-                  </label>
+                  <>
+                    <label className="field">
+                      <span className="field-label">月休额度</span>
+                      <div className="inline-number">
+                        <input
+                          type="number"
+                          min={0}
+                          max={31}
+                          step={1}
+                          value={restDaysPerMonth}
+                          onChange={(event) => setRestDaysPerMonth(event.target.value)}
+                          inputMode="numeric"
+                        />
+                        <span>天 / 月</span>
+                      </div>
+                      <p className="field-hint">
+                        {overRestDeduct
+                          ? '额度内休息不扣；超过额度后按超休规则扣款。'
+                          : '只用于统计「已休 / 剩余」，不会自动扣固定月薪。'}
+                      </p>
+                    </label>
+
+                    <button
+                      type="button"
+                      className={`switch-row ${overRestDeduct ? 'is-on' : ''}`}
+                      role="switch"
+                      aria-checked={overRestDeduct}
+                      onClick={() => setOverRestDeduct((value) => !value)}
+                    >
+                      <span>
+                        超休扣款
+                        <em>超过月休额度后，按天扣工资；默认关闭</em>
+                      </span>
+                      <span className="switch-track">
+                        <i />
+                      </span>
+                    </button>
+                    {overRestDeduct ? (
+                      <label className="field">
+                        <span className="field-label">超休每天扣</span>
+                        <div className="inline-number">
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={overRestDailyRate}
+                            onChange={(event) => setOverRestDailyRate(event.target.value)}
+                            placeholder={String(
+                              Math.round(
+                                (toAmount(rate) / Math.max(1, toAmount(expectedDays, 22))) * 100,
+                              ) / 100,
+                            )}
+                            inputMode="decimal"
+                          />
+                          <span>元 / 天</span>
+                        </div>
+                        <p className="field-hint">
+                          留空 = 月薪 ÷ 计薪天数；结算时还可以单期关掉或改金额。
+                        </p>
+                      </label>
+                    ) : null}
+                  </>
                 ) : null}
+
+                <label className="field">
+                  <span className="field-label">发薪日（选填）</span>
+                  <div className="inline-number">
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      step={1}
+                      value={payday}
+                      onChange={(event) => setPayday(event.target.value)}
+                      inputMode="numeric"
+                      placeholder="例如 15"
+                    />
+                    <span>号</span>
+                  </div>
+                  <p className="field-hint">只做发薪提醒，不影响结算金额和周期。</p>
+                </label>
               </>
             ) : null}
             {!isPiece ? (

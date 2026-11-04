@@ -37,13 +37,14 @@ export async function saveBlobFile(blob: Blob, filename: string): Promise<SaveRe
   return 'web';
 }
 
-export async function saveTextFile(filename: string, text: string): Promise<SaveResult> {
+export async function saveTextFile(
+  filename: string,
+  text: string,
+  mimeType = 'application/json;charset=utf-8',
+): Promise<SaveResult> {
   if (isNativeApp()) {
-    return saveBlobFile(
-      new Blob([text], { type: 'application/json;charset=utf-8' }),
-      filename,
-    );
+    return saveBlobFile(new Blob([text], { type: mimeType }), filename);
   }
-  downloadText(filename, text);
+  downloadText(filename, text, mimeType);
   return 'web';
 }

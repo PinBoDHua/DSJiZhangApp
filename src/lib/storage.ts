@@ -16,15 +16,15 @@ import type {
 import { JOB_COLORS } from './meta';
 import { nowISO } from './date';
 
-export const STORAGE_KEY = 'xinshi.state.v4';
-export const LEGACY_STORAGE_KEYS = ['xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
+export const STORAGE_KEY = 'xinshi.state.v5';
+export const LEGACY_STORAGE_KEYS = ['xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
 export const THEME_KEY = 'xinshi.theme';
 export const EXPORT_APP = 'xinshi';
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export function createEmptyState(name = ''): AppState {
   return {
-    version: 4,
+    version: 5,
     profile: { name, hideAmounts: false },
     settings: {
       weekStartsOn: 1,
@@ -88,8 +88,12 @@ export function buildExportPayload(state: AppState): string {
   );
 }
 
-export function downloadText(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+export function downloadText(
+  filename: string,
+  text: string,
+  mimeType = 'application/json;charset=utf-8',
+): void {
+  const blob = new Blob([text], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -176,6 +180,11 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
     0,
     Math.min(31, Math.round(asNumber(raw.restDaysPerMonth, base?.restDaysPerMonth ?? 0))),
   );
+  const overRestDeduct = asBoolean(raw.overRestDeduct, base?.overRestDeduct ?? false);
+  const overRestDailyRate = Math.max(
+    0,
+    asNumber(raw.overRestDailyRate, base?.overRestDailyRate ?? 0),
+  );
   const unitLabelRaw = asString(raw.unitLabel, base?.unitLabel ?? '件').trim();
   const unitLabel = (unitLabelRaw || '件').slice(0, 8);
   const weekdayOT = Math.max(1, asNumber(raw.weekdayOT, base?.weekdayOT ?? 1.5));
@@ -188,6 +197,8 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
     expectedDays,
     monthlyMode,
     restDaysPerMonth,
+    overRestDeduct,
+    overRestDailyRate,
     unitLabel,
     otEnabled: asBoolean(raw.otEnabled, base?.otEnabled ?? false),
     weekdayOT,
@@ -230,6 +241,10 @@ function normalizeJob(value: unknown): Job {
     shift: normalizeShift(raw.shift),
     cycle: pick(raw.cycle, CYCLES, 'weekly'),
     archived: asBoolean(raw.archived),
+    payday:
+      raw.payday === undefined
+        ? undefined
+        : Math.max(1, Math.min(31, Math.round(asNumber(raw.payday, 1)))),
     createdAt: asString(raw.createdAt, nowISO()),
   };
 }
@@ -302,6 +317,15 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
   if (!id) throw new Error('结算数据缺少 ID');
   const job = jobs.get(jobId);
   if (!job) throw new Error('结算引用了不存在的工作');
+  const net = asNumber(raw.net);
+  const paidAmount = Math.max(0, asNumber(raw.paidAmount));
+  const paymentStatus = raw.paymentStatus
+    ? pick(raw.paymentStatus, ['unpaid', 'partial', 'paid'] as const, 'unpaid')
+    : paidAmount <= 0
+      ? 'unpaid'
+      : paidAmount >= net
+        ? 'paid'
+        : 'partial';
   return {
     id,
     jobId,
@@ -320,10 +344,16 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
     otPay: asNumber(raw.otPay),
     bonus: asNumber(raw.bonus),
     deduction: asNumber(raw.deduction),
+    overRestDays:
+      raw.overRestDays === undefined ? undefined : Math.max(0, asNumber(raw.overRestDays)),
+    overRestDeduction:
+      raw.overRestDeduction === undefined
+        ? undefined
+        : Math.max(0, asNumber(raw.overRestDeduction)),
     advanceTotal: asNumber(raw.advanceTotal),
     extraBonus: asNumber(raw.extraBonus),
     extraDeduction: asNumber(raw.extraDeduction),
-    net: asNumber(raw.net),
+    net,
     hours: asNumber(raw.hours),
     days: asNumber(raw.days),
     otHours: asNumber(raw.otHours),
@@ -331,6 +361,11 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
     advanceIds: Array.isArray(raw.advanceIds) ? raw.advanceIds.map(String) : [],
     note: asString(raw.note) || undefined,
     createdAt: asString(raw.createdAt, now),
+    paymentStatus,
+    paidAmount,
+    paidAt: raw.paidAt ? asDate(raw.paidAt) : undefined,
+    paymentMethod: asString(raw.paymentMethod) || undefined,
+    paymentNote: asString(raw.paymentNote) || undefined,
   };
 }
 
@@ -345,7 +380,7 @@ export function validateImport(text: string): AppState {
   if (wrapper && 'app' in wrapper && wrapper.app !== EXPORT_APP) {
     throw new Error('这不是薪时的备份文件');
   }
-  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 4) {
+  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 5) {
     throw new Error('备份来自更新版本的薪时，请升级后再导入');
   }
   const raw = wrapper && isRecord(wrapper.data) ? wrapper.data : parsed;
@@ -390,7 +425,7 @@ export function validateImport(text: string): AppState {
   const activeTimer = normalizeTimer(raw.activeTimer, jobMap);
 
   return {
-    version: 4,
+    version: 5,
     profile: {
       name: asString(profileRaw.name),
       hideAmounts: asBoolean(profileRaw.hideAmounts),
