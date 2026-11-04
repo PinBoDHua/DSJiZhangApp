@@ -1280,6 +1280,103 @@ button.switch {
   color: var(--muted);
 }
 
+.plan-week-card {
+  margin-top: 14px;
+  padding: 14px 13px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.plan-week-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 11px;
+}
+
+.plan-week-head h2 {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.plan-week-head p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.plan-week-head > span {
+  max-width: 46%;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.plan-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.plan-week-day {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 7px 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.plan-week-day > span {
+  font-size: 8.5px;
+}
+
+.plan-week-day strong {
+  color: var(--ink);
+  font-family: var(--font-num);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.plan-week-day em {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 8px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.plan-week-day.is-work {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.plan-week-day.is-worked {
+  background: var(--primary);
+  color: #f8f2e5;
+}
+
+.plan-week-day.is-worked strong {
+  color: #f8f2e5;
+}
+
+.plan-week-day.is-rest,
+.plan-week-day.is-off {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.plan-week-day.is-today {
+  border-color: var(--accent);
+}
+
 .trend-card {
   margin-top: 16px;
   padding: 17px 16px 12px;
@@ -4508,6 +4605,42 @@ html[data-theme="dark"] .longterm-template {
   line-height: 1.55;
 }
 
+.plan-conflict-list {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: 9.5px;
+}
+
+.plan-conflict-list summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 650;
+}
+
+.plan-conflict-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.plan-conflict-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.45;
+}
+
+.plan-conflict-list li em {
+  color: var(--muted);
+  font-style: normal;
+  text-align: right;
+}
+
 .plan-weekdays,
 .plan-grid {
   display: grid;
@@ -6294,6 +6427,34 @@ html[data-theme="dark"] .longterm-template {
   font-size: 7.5px;
   font-weight: 700;
   line-height: 1;
+}
+
+.cal-day.has-plan:not(.is-selected) {
+  background: var(--primary-soft);
+}
+
+.cal-plan-flag {
+  position: absolute;
+  bottom: 4px;
+  left: 5px;
+  color: var(--primary);
+  font-size: 7.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cal-day.is-selected .cal-plan-flag {
+  color: #f8f2e5;
+}
+
+.plan-day-note {
+  margin-top: 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .cal-day.is-selected .cal-rest-flag {

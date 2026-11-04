@@ -5,12 +5,14 @@ import { useStore } from '../store';
 import {
   addMonths,
   eachDay,
+  formatDateShort,
   formatMonthTitle,
   periodOf,
   startOfMonth,
   todayISO,
 } from '../lib/date';
 import { JobDot } from './JobDot';
+import { formatWorkWeekdays } from '../lib/plan';
 import { Sheet } from './Sheet';
 
 interface RestPlanSheetProps {
@@ -75,7 +77,6 @@ export function RestPlanSheet({
   ).length;
   const quota = job?.rule.restDaysPerMonth ?? 0;
   const template = job?.workWeekdays;
-  const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六'];
   const days = eachDay(period.start, period.end);
 
   const canPick = (date: string) =>
@@ -84,6 +85,17 @@ export function RestPlanSheet({
   const conflictCount = days.filter(
     (date) => date >= today && (entryDates.has(date) || settledDates.has(date)),
   ).length;
+  const conflictItems = days
+    .filter((date) => date >= today && (entryDates.has(date) || settledDates.has(date)))
+    .map((date) => ({
+      date,
+      reason: entryDates.has(date) ? '已有工记' : '已结算',
+    }));
+  const templateConflicts = template
+    ? [...selected]
+        .filter((date) => template.includes(new Date(`${date}T00:00:00`).getDay()))
+        .sort()
+    : [];
   const overQuota = quota > 0 && existingCount + selected.size > quota;
 
   const applyTemplate = () => {
@@ -180,7 +192,7 @@ export function RestPlanSheet({
         {template && template.length > 0 && template.length < 7 ? (
           <div className="plan-template-row">
             <span>
-              固定上班：{template.map((day) => `周${weekdayLabels[day]}`).join('、')}
+              固定上班：{template ? formatWorkWeekdays(template) : ''}
             </span>
             <button type="button" className="text-link" onClick={applyTemplate}>
               按周排班选休息日
@@ -243,6 +255,25 @@ export function RestPlanSheet({
               ? `已休 + 已选超过额度 ${quota} 天；仍可保存，是否扣款由超休规则决定。`
               : ''}
           </div>
+        ) : null}
+        {conflictItems.length > 0 || templateConflicts.length > 0 ? (
+          <details className="plan-conflict-list">
+            <summary>查看冲突逐日清单</summary>
+            <ul>
+              {conflictItems.map((item) => (
+                <li key={`hard-${item.date}`}>
+                  <span>{formatDateShort(item.date)}</span>
+                  <em>{item.reason}，不能排休</em>
+                </li>
+              ))}
+              {templateConflicts.map((date) => (
+                <li key={`template-${date}`}>
+                  <span>{formatDateShort(date)}</span>
+                  <em>按固定周排班应上班，已选为休息</em>
+                </li>
+              ))}
+            </ul>
+          </details>
         ) : null}
         <p className="field-hint">
           只能选今天及以后、没有工记且未结算的日期；保存后会按「排休计划」写入休息记录。

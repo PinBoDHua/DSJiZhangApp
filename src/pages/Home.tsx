@@ -44,6 +44,7 @@ import { cycleLabel, jobColor, rateLabel } from '../lib/meta';
 import { computeOutstanding, dailySeries, getSettlementOverview, sumEntries, sumEntriesCapped } from '../lib/settlement';
 import { backupDueText, backupIsDue } from '../lib/backupStatus';
 import { daysUntilPayday } from '../lib/payment';
+import { planStatusForJob, shortWeekday, formatWorkWeekdays } from '../lib/plan';
 
 interface HomeProps {
   onAddEntry: (jobId?: string) => void;
@@ -115,6 +116,35 @@ export function Home({
     .map((job) => ({ job, days: daysUntilPayday(job.payday as number, today) }))
     .filter((item) => item.days <= 3)
     .sort((a, b) => a.days - b.days)[0];
+  const planJob = activeJobs.find(
+    (job) => job.workWeekdays && job.workWeekdays.length > 0,
+  );
+  const nextPlanDays = planJob
+    ? Array.from({ length: 7 }, (_, index) => {
+        const date = addDays(today, index);
+        const status = planStatusForJob(
+          planJob,
+          date,
+          state.entries,
+          state.restDays,
+        );
+        return {
+          date,
+          status,
+          label:
+            status === 'worked'
+              ? '已记'
+              : status === 'work'
+                ? '上班'
+                : status === 'rest' || status === 'off'
+                  ? '休息'
+                  : '—',
+        };
+      })
+    : [];
+  const todayPlan = planJob
+    ? planStatusForJob(planJob, today, state.entries, state.restDays)
+    : 'none';
   const todayTotals = sumEntries(todayEntries);
   const todayHasFixedMonthly = todayEntries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
@@ -330,7 +360,11 @@ export function Home({
                 ? `今天已记 ${todayEntries.length} 笔`
                 : todayRestDays.length > 0
                   ? '今天休息'
-                  : '今天还没记工'}
+                  : todayPlan === 'work'
+                    ? '今天计划上班'
+                    : todayPlan === 'off'
+                      ? '今天安排休息'
+                      : '今天还没记工'}
             </h3>
             <p>
               {todayEntries.length > 0 ? (
@@ -360,7 +394,11 @@ export function Home({
                   本月已休 {monthRestDays.length} 天
                 </>
               ) : activeJobs.length > 0 ? (
-                '干完活花 10 秒记上，月底不用再翻聊天记录。'
+                todayPlan === 'work'
+                  ? '按周排班今天是上班日，干完花 10 秒记上。'
+                  : todayPlan === 'off'
+                    ? '按周排班今天不上班，好好休息；临时上工也可以补记。'
+                    : '干完活花 10 秒记上，月底不用再翻聊天记录。'
               ) : (
                 '先建一份工作，再开始记工。'
               )}
@@ -402,6 +440,38 @@ export function Home({
           </div>
         </section>
       )}
+
+      {planJob ? (
+        <section className="plan-week-card">
+          <div className="plan-week-head">
+            <div>
+              <h2>接下来 7 天</h2>
+              <p>{planJob.name} · 按固定周排班</p>
+            </div>
+            <span>
+              {planJob.workWeekdays ? formatWorkWeekdays(planJob.workWeekdays) : ''}
+            </span>
+          </div>
+          <div className="plan-week-grid">
+            {nextPlanDays.map((day) => (
+              <div
+                key={day.date}
+                className={[
+                  'plan-week-day',
+                  `is-${day.status}`,
+                  day.date === today ? 'is-today' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <span>{shortWeekday(day.date)}</span>
+                <strong>{Number(day.date.slice(8))}</strong>
+                <em>{day.label}</em>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="card trend-card">
         <div className="section-head section-head--tight">

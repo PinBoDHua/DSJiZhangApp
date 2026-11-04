@@ -27,6 +27,7 @@ import {
   weekdayCN,
 } from '../lib/date';
 import { formatHours } from '../lib/money';
+import { plannedWorkDates, planStatusForJob } from '../lib/plan';
 import { sumEntries, sumEntriesCapped } from '../lib/settlement';
 
 interface RecordsProps {
@@ -85,6 +86,25 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
       ? monthRestDays
       : monthRestDays.filter((rest) => rest.jobId === effectiveFilter);
   const totals = sumEntriesCapped(filtered);
+  const planJobs =
+    effectiveFilter === 'all'
+      ? state.jobs.filter((job) => !job.archived && job.workWeekdays)
+      : state.jobs.filter(
+          (job) =>
+            job.id === effectiveFilter && !job.archived && job.workWeekdays,
+        );
+  const plannedDates = plannedWorkDates(
+    planJobs,
+    state.entries,
+    state.restDays,
+    monthPeriod.start,
+    monthPeriod.end,
+  ).filter((date) => date >= today);
+  const selectedPlannedWork = plannedDates.includes(selectedDate);
+  const selectedPlanJob = planJobs[0];
+  const selectedPlanStatus = selectedPlanJob
+    ? planStatusForJob(selectedPlanJob, selectedDate, state.entries, state.restDays)
+    : 'none';
   const selectedEntries = sortEntries(filtered.filter((entry) => entry.date === selectedDate));
   const selectedRestDays = filteredRestDays.filter((rest) => rest.date === selectedDate);
   const selectedTotals = sumEntries(selectedEntries);
@@ -279,6 +299,7 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
               monthStart={monthPeriod.start}
               entries={filtered}
               restDays={filteredRestDays}
+              plannedWorkDates={plannedDates}
               jobs={state.jobs}
               weekStartsOn={state.settings.weekStartsOn}
               selectedDate={selectedDate}
@@ -346,6 +367,11 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
           ) : selectedRestDays.length === 0 ? (
             <div className="card calendar-empty">
               <p>这天没有工记</p>
+              {selectedPlannedWork ? (
+                <p className="plan-day-note">按固定周排班，这天计划上班。</p>
+              ) : selectedPlanStatus === 'off' ? (
+                <p className="plan-day-note">按固定周排班，这天计划休息。</p>
+              ) : null}
               <div className="calendar-empty-actions">
                 <button
                   type="button"

@@ -15,6 +15,7 @@ interface MonthCalendarProps {
   monthStart: string;
   entries: Entry[];
   restDays?: RestDay[];
+  plannedWorkDates?: string[];
   jobs: Job[];
   weekStartsOn: WeekStart;
   selectedDate: string;
@@ -25,6 +26,7 @@ export function MonthCalendar({
   monthStart,
   entries,
   restDays = [],
+  plannedWorkDates = [],
   jobs,
   weekStartsOn,
   selectedDate,
@@ -48,6 +50,7 @@ export function MonthCalendar({
     else restByDate.set(rest.date, [rest]);
   }
   const jobMap = new Map(jobs.map((job) => [job.id, job]));
+  const plannedSet = new Set(plannedWorkDates);
 
   return (
     <div className="calendar">
@@ -66,6 +69,7 @@ export function MonthCalendar({
           }
           const dayEntries = byDate.get(date) ?? [];
           const dayRest = restByDate.get(date) ?? [];
+          const plannedWork = plannedSet.has(date) && dayRest.length === 0;
           const totals = dayEntries.length > 0 ? sumEntries(dayEntries) : null;
           const colors = Array.from(
             new Set(
@@ -81,6 +85,7 @@ export function MonthCalendar({
                 'cal-day',
                 dayEntries.length > 0 ? 'has-entry' : '',
                 dayRest.length > 0 ? 'has-rest' : '',
+                plannedWork ? 'has-plan' : '',
                 date === today ? 'is-today' : '',
                 selected ? 'is-selected' : '',
               ]
@@ -90,10 +95,13 @@ export function MonthCalendar({
               aria-pressed={selected}
               aria-label={`${date}，${dayEntries.length} 笔工记${
                 dayRest.length > 0 ? `，休息 ${dayRest.length} 个岗位` : ''
-              }${totals ? `，${formatCompactMoney(totals.total)} 元` : ''}`}
+              }${plannedWork ? '，计划上班' : ''}${
+                totals ? `，${formatCompactMoney(totals.total)} 元` : ''
+              }`}
             >
               <span className="cal-day-num">{day}</span>
               {dayRest.length > 0 ? <span className="cal-rest-flag">休</span> : null}
+              {plannedWork ? <span className="cal-plan-flag">班</span> : null}
               <span className="cal-dots">
                 {colors.map((colorKey) => (
                   <i

@@ -1,7 +1,7 @@
 {
   "name": "xinshi",
   "private": true,
-  "version": "0.5.2",
+  "version": "0.5.3",
   "type": "module",
   "description": "薪时 · 面向灵活就业者的工时与薪资记录 App",
   "scripts": {
@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node scripts/functional.mjs && node scripts/functional2.mjs && node scripts/functional-v02.mjs && node scripts/functional-v03.mjs && node scripts/functional-v04.mjs && node scripts/functional-v042.mjs && node scripts/functional-v043.mjs && node scripts/functional-v044.mjs && node scripts/functional-v050.mjs && node scripts/functional-v051.mjs && node scripts/functional-v052.mjs",
-    "shots": "node scripts/shoot-v04-final.mjs && node scripts/shoot-v05-final.mjs && node scripts/shoot-v051-final.mjs && node scripts/shoot-v052-final.mjs",
+    "test:e2e": "node scripts/functional.mjs && node scripts/functional2.mjs && node scripts/functional-v02.mjs && node scripts/functional-v03.mjs && node scripts/functional-v04.mjs && node scripts/functional-v042.mjs && node scripts/functional-v043.mjs && node scripts/functional-v044.mjs && node scripts/functional-v050.mjs && node scripts/functional-v051.mjs && node scripts/functional-v052.mjs && node scripts/functional-v053.mjs",
+    "shots": "node scripts/shoot-v04-final.mjs && node scripts/shoot-v05-final.mjs && node scripts/shoot-v051-final.mjs && node scripts/shoot-v052-final.mjs && node scripts/shoot-v053-final.mjs",
     "android:sync": "pnpm build && cap sync android",
     "typecheck": "tsc --noEmit"
   },
