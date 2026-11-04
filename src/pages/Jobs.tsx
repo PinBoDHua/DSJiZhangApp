@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Briefcase, ChevronRight, Plus } from 'lucide-react';
+import { Briefcase, ChevronRight, Plus, Sparkles } from 'lucide-react';
 import { useStore } from '../store';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
@@ -11,10 +11,11 @@ import { getSettlementOverview } from '../lib/settlement';
 interface JobsProps {
   onBack: () => void;
   onAdd: () => void;
+  onTemplate: () => void;
   onEdit: (jobId: string) => void;
 }
 
-export function Jobs({ onBack, onAdd, onEdit }: JobsProps) {
+export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
   const { state } = useStore();
   const [showArchived, setShowArchived] = useState(false);
   const overview = getSettlementOverview(state);
@@ -69,6 +70,17 @@ export function Jobs({ onBack, onAdd, onEdit }: JobsProps) {
         </button>
       }
     >
+      <button type="button" className="longterm-template" onClick={onTemplate}>
+        <span className="longterm-template-icon">
+          <Sparkles size={19} />
+        </span>
+        <span className="longterm-template-copy">
+          <strong>长期工模板</strong>
+          <em>3500 元 · 月休 5 天 · 6h + 午休 2h</em>
+        </span>
+        <ChevronRight size={17} />
+      </button>
+
       {active.length > 0 ? (
         <section className="section-block">
           <div className="section-head">

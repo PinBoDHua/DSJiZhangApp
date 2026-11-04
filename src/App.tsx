@@ -21,7 +21,7 @@ import { pushNativeBack } from './lib/nativeBack';
 
 type Page =
   | { type: 'jobs' }
-  | { type: 'jobEditor'; jobId?: string }
+  | { type: 'jobEditor'; jobId?: string; template?: 'longterm' }
   | { type: 'settlementDraft'; jobId: string; periodStart: string }
   | { type: 'settlementRecord'; settlementId: string };
 
@@ -54,7 +54,7 @@ function AppContent() {
   }, [tab, state.onboardingDone]);
 
   useEffect(() => {
-    if (!page || page.type === 'jobEditor') return;
+    if (!page || page.type === 'jobEditor' || page.type === 'settlementDraft') return;
     return pushNativeBack(() => setPage(null));
   }, [page]);
 
@@ -127,6 +127,7 @@ function AppContent() {
         <Jobs
           onBack={() => setPage(null)}
           onAdd={() => setPage({ type: 'jobEditor' })}
+          onTemplate={() => setPage({ type: 'jobEditor', template: 'longterm' })}
           onEdit={(jobId) => setPage({ type: 'jobEditor', jobId })}
         />
       );
@@ -134,8 +135,9 @@ function AppContent() {
     if (page.type === 'jobEditor') {
       return (
         <JobEditor
-          key={page.jobId ?? 'new'}
+          key={page.jobId ?? page.template ?? 'new'}
           jobId={page.jobId}
+          template={page.template}
           onBack={() => setPage({ type: 'jobs' })}
         />
       );

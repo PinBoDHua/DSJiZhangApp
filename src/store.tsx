@@ -58,6 +58,7 @@ interface StoreValue {
   restoreRestDay: (restDay: RestDay) => boolean;
   addAdvance: (input: Omit<Advance, 'id' | 'createdAt'>) => Advance;
   deleteAdvance: (advanceId: string) => boolean;
+  restoreAdvance: (advance: Advance) => boolean;
   settleJob: (
     jobId: string,
     period: Period,
@@ -370,6 +371,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
+  const restoreAdvance = useCallback((advance: Advance) => {
+    const current = stateRef.current;
+    if (current.advances.some((item) => item.id === advance.id)) return true;
+    if (advance.settlementId) return false;
+    if (!current.jobs.some((job) => job.id === advance.jobId)) return false;
+    const settled = current.settlements.some(
+      (settlement) =>
+        settlement.jobId === advance.jobId &&
+        advance.date >= settlement.periodStart &&
+        advance.date <= settlement.periodEnd,
+    );
+    if (settled) return false;
+    setState((prev) => ({ ...prev, advances: [advance, ...prev.advances] }));
+    return true;
+  }, []);
+
   const settleJob = useCallback(
     (
       jobId: string,
@@ -498,6 +515,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     restoreRestDay,
     addAdvance,
     deleteAdvance,
+    restoreAdvance,
     settleJob,
     undoSettlement,
     updateProfile,

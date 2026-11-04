@@ -4,7 +4,7 @@
 
 - 包名：`com.xinshi.app`
 - 应用名：`薪时`
-- versionCode / versionName：`403` / `0.4.3`
+- versionCode / versionName：`404` / `0.4.4`
 - minSdk 22 / targetSdk 34；文件导出使用 MediaStore，建议 Android 10+（API 29+）。
 - 原生能力：
   - 状态栏深绿 + 浅色图标；
@@ -62,11 +62,11 @@ gradlew.bat assembleRelease
 # 对齐 + 签名（build-tools 版本按本机调整）
 zipalign -f 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
 apksigner sign --ks keystore/xinshi-release.jks --ks-key-alias xinshi \
-  --out ../release/xinshi-v0.4.3.apk aligned.apk
-apksigner verify ../release/xinshi-v0.4.3.apk
+  --out ../release/xinshi-v0.4.4.apk aligned.apk
+apksigner verify ../release/xinshi-v0.4.4.apk
 ```
 
-当前测试包：`release/xinshi-v0.4.3.apk`（本机签名，未提交 Git）。
+当前测试包：`release/xinshi-v0.4.4.apk`（本机签名，未提交 Git）。
 
 ## 已验证环境
 

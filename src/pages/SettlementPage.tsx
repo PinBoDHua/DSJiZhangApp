@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   CalendarDays,
   CheckCircle2,
@@ -35,6 +35,7 @@ import {
   settlementCopyText,
 } from '../lib/settlement';
 import { copyText } from '../lib/clipboard';
+import { pushNativeBack } from '../lib/nativeBack';
 
 interface DraftPageProps {
   jobId: string;
@@ -98,13 +99,33 @@ function SettleEntryRow({ entry }: { entry: Entry }) {
 }
 
 export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: DraftPageProps) {
-  const { state, settleJob, deleteAdvance, toast } = useStore();
+  const { state, settleJob, deleteAdvance, restoreAdvance, toast } = useStore();
   const [extraBonus, setExtraBonus] = useState('');
   const [extraDeduction, setExtraDeduction] = useState('');
   const [note, setNote] = useState('');
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [advanceToDelete, setAdvanceToDelete] = useState<string | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    dirtyRef.current =
+      extraBonus.trim() !== '' || extraDeduction.trim() !== '' || note.trim() !== '';
+  }, [extraBonus, extraDeduction, note]);
+
+  const requestBack = () => {
+    if (dirtyRef.current) {
+      setDiscardOpen(true);
+      return;
+    }
+    onBack();
+  };
+
+  const requestBackRef = useRef(requestBack);
+  requestBackRef.current = requestBack;
+
+  useEffect(() => pushNativeBack(() => requestBackRef.current()), []);
 
   const job = state.jobs.find((item) => item.id === jobId);
   const period = periodOf(job?.cycle ?? 'weekly', periodStart, state.settings.weekStartsOn);
@@ -178,10 +199,20 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
 
   const handleDeleteAdvance = () => {
     if (!advanceToDelete) return;
+    const deleted = state.advances.find((advance) => advance.id === advanceToDelete);
     const ok = deleteAdvance(advanceToDelete);
     setAdvanceToDelete(null);
-    if (ok) toast('借支已删除', 'info');
-    else toast('已结算的借支不能删除', 'error');
+    if (!ok || !deleted) {
+      toast('已结算的借支不能删除', 'error');
+      return;
+    }
+    toast('借支已删除', 'info', {
+      label: '撤销',
+      onClick: () => {
+        if (restoreAdvance(deleted)) toast('借支已恢复');
+        else toast('这笔借支已无法恢复，请检查周期是否已结算', 'error');
+      },
+    });
   };
 
   return (
@@ -189,7 +220,7 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
       <SubPage
         title="核对结算"
         subtitle={job.name}
-        onBack={onBack}
+        onBack={requestBack}
         footer={
           <div className="settle-footer">
             <div className="settle-footer-top">
@@ -454,6 +485,20 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           }}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={discardOpen}
+        title="放弃这次奖扣？"
+        description="额外奖金、扣款和备注还没有结算，返回后这些输入会丢失。"
+        confirmLabel="放弃"
+        danger
+        onCancel={() => setDiscardOpen(false)}
+        onConfirm={() => {
+          setDiscardOpen(false);
+          dirtyRef.current = false;
+          onBack();
+        }}
+      />
 
       <ConfirmDialog
         open={confirmOpen}

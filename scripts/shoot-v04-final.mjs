@@ -75,11 +75,19 @@ await page.waitForTimeout(300);
 await shot('14-undo-rest');
 await page.locator('.toast-action').click();
 await page.waitForTimeout(500);
+await page.getByRole('button', { name: '关闭提示' }).click().catch(() => {});
+await page.waitForTimeout(250);
 
 await page.getByRole('button', { name: '我的', exact: true }).click();
 await page.waitForTimeout(400);
 await page.locator('.settings-row').filter({ hasText: '工作管理' }).click();
 await page.waitForTimeout(400);
+await shot('16-template-card');
+await page.getByRole('button', { name: /长期工模板/ }).click();
+await page.waitForTimeout(450);
+await shot('17-template-editor');
+await page.getByRole('button', { name: '返回' }).click();
+await page.waitForTimeout(300);
 await page.locator('.job-manage-card').filter({ hasText: '老宅装修' }).click();
 await page.waitForTimeout(450);
 await shot('06-job-editor');
@@ -101,6 +109,40 @@ await page.waitForTimeout(400);
 await page.locator('.settle-card').filter({ hasText: '老宅装修' }).first().click();
 await page.waitForTimeout(500);
 await shot('07-fixed-settlement');
+
+await page.getByRole('button', { name: '补记借支' }).click();
+await page.waitForTimeout(300);
+await page.locator('.big-money-input input').fill('300');
+await page.getByRole('button', { name: '记上借支' }).click();
+await page.waitForTimeout(450);
+await page.getByRole('button', { name: '删除借支' }).last().click();
+await page.waitForTimeout(250);
+await page.locator('.dialog .btn--danger').click();
+await page.waitForTimeout(300);
+await shot('18-undo-advance');
+await page.locator('.toast-action').click();
+await page.waitForTimeout(450);
+// 恢复后再删掉，避免影响这次结算金额
+await page.getByRole('button', { name: '删除借支' }).last().click();
+await page.waitForTimeout(250);
+await page.locator('.dialog .btn--danger').click();
+await page.waitForTimeout(300);
+await page.getByRole('button', { name: '关闭提示' }).click().catch(() => {});
+const bonus = page
+  .locator('.detail-card')
+  .filter({ hasText: '额外奖扣' })
+  .locator('input')
+  .first();
+await bonus.fill('100');
+await page.waitForTimeout(250);
+await page.getByRole('button', { name: '返回' }).click();
+await page.waitForTimeout(300);
+await shot('19-draft-guard');
+await page.locator('.dialog .btn--ghost').click();
+await page.waitForTimeout(250);
+await bonus.fill('');
+await page.waitForTimeout(250);
+
 await page.locator('.settle-footer .btn--primary').click();
 await page.waitForTimeout(300);
 await page.locator('.dialog .btn--primary').click();

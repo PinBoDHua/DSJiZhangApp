@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Archive, Briefcase, Check, Coffee, RotateCcw, Trash2 } from 'lucide-react';
+import { Archive, Briefcase, Check, Coffee, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import type { Cycle, Job, JobColor, MonthlyMode, PayRule, PayType } from '../types';
 import { useStore } from '../store';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -14,37 +14,47 @@ import { pushNativeBack } from '../lib/nativeBack';
 
 interface JobEditorProps {
   jobId?: string;
+  template?: 'longterm';
   onBack: () => void;
 }
 
-export function JobEditor({ jobId, onBack }: JobEditorProps) {
+export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
   const { state, addJob, updateJob, setJobArchived, deleteJob, toast } = useStore();
   const existing = jobId ? state.jobs.find((item) => item.id === jobId) : undefined;
-  const [name, setName] = useState(existing?.name ?? '');
+  const isTemplate = template === 'longterm' && !existing;
+  const [name, setName] = useState(existing?.name ?? (isTemplate ? '长期工' : ''));
   const [employer, setEmployer] = useState(existing?.employer ?? '');
-  const [color, setColor] = useState<JobColor>(existing?.color ?? 'pine');
-  const [payType, setPayType] = useState<PayType>(existing?.rule.payType ?? 'hourly');
-  const [rate, setRate] = useState(existing ? String(existing.rule.rate) : '25');
+  const [color, setColor] = useState<JobColor>(existing?.color ?? (isTemplate ? 'clay' : 'pine'));
+  const [payType, setPayType] = useState<PayType>(
+    existing?.rule.payType ?? (isTemplate ? 'monthly' : 'hourly'),
+  );
+  const [rate, setRate] = useState(existing ? String(existing.rule.rate) : isTemplate ? '3500' : '25');
   const [unitLabel, setUnitLabel] = useState(existing?.rule.unitLabel ?? '件');
-  const [cycle, setCycle] = useState<Cycle>(existing?.cycle ?? 'weekly');
+  const [cycle, setCycle] = useState<Cycle>(
+    existing?.cycle ?? (isTemplate ? 'monthly' : 'weekly'),
+  );
   const [monthlyMode, setMonthlyMode] = useState<MonthlyMode>(
-    existing?.rule.monthlyMode ?? 'prorated',
+    existing?.rule.monthlyMode ?? (isTemplate ? 'fixed' : 'prorated'),
   );
   const [restDaysPerMonth, setRestDaysPerMonth] = useState(
     existing ? String(existing.rule.restDaysPerMonth) : '5',
   );
   const [standardHours, setStandardHours] = useState(
-    existing ? String(existing.rule.standardHours) : '8',
+    existing ? String(existing.rule.standardHours) : isTemplate ? '6' : '8',
   );
   const [expectedDays, setExpectedDays] = useState(
     existing ? String(existing.rule.expectedDays) : '22',
   );
-  const [shiftStart, setShiftStart] = useState(existing?.shift.startTime ?? '08:00');
+  const [shiftStart, setShiftStart] = useState(
+    existing?.shift.startTime ?? (isTemplate ? '09:00' : '08:00'),
+  );
   const [shiftEnd, setShiftEnd] = useState(existing?.shift.endTime ?? '17:00');
   const [shiftBreak, setShiftBreak] = useState(
-    existing ? String(existing.shift.breakMinutes) : '60',
+    existing ? String(existing.shift.breakMinutes) : isTemplate ? '120' : '60',
   );
-  const [otEnabled, setOtEnabled] = useState(existing?.rule.otEnabled ?? true);
+  const [otEnabled, setOtEnabled] = useState(
+    existing?.rule.otEnabled ?? (isTemplate ? false : true),
+  );
   const [weekdayOT, setWeekdayOT] = useState(
     existing ? String(existing.rule.weekdayOT) : '1.5',
   );
@@ -323,6 +333,13 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
           </div>
         }
       >
+        {isTemplate ? (
+          <div className="inline-notice template-notice">
+            <Sparkles size={15} />
+            已套用长期工模板：3500 / 月休 5 天 / 6h + 午休 2h，名称和金额都可以改。
+          </div>
+        ) : null}
+
         {existing?.archived ? (
           <div className="inline-notice">
             <Archive size={15} />

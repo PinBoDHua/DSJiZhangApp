@@ -3211,6 +3211,70 @@ ul {
 
 /* ---------- Jobs ---------- */
 
+.longterm-template {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 11px 12px;
+  gap: 10px;
+  border: 1px solid rgba(190, 128, 35, 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(120deg, rgba(244, 235, 213, 0.72), rgba(255, 252, 244, 0.5)),
+    var(--surface);
+  text-align: left;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.longterm-template:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.longterm-template-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.longterm-template-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.longterm-template-copy strong {
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+
+.longterm-template-copy em {
+  color: var(--muted);
+  font-size: 9.5px;
+  font-style: normal;
+}
+
+.longterm-template > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .longterm-template {
+  background:
+    linear-gradient(120deg, rgba(190, 128, 35, 0.1), rgba(255, 255, 255, 0.02)),
+    var(--surface);
+}
+
 .job-manage-list {
   display: flex;
   flex-direction: column;
