@@ -17,6 +17,7 @@ import type {
   RestDay,
   Settlement,
   Settings,
+  ToastAction,
   ToastTone,
 } from './types';
 import { nowISO } from './lib/date';
@@ -36,11 +37,12 @@ interface ToastState {
   id: number;
   message: string;
   tone: ToastTone;
+  action?: ToastAction;
 }
 
 interface StoreValue {
   state: AppState;
-  toast: (message: string, tone?: ToastTone) => void;
+  toast: (message: string, tone?: ToastTone, action?: ToastAction) => void;
   addJob: (input: NewJobInput) => Job;
   updateJob: (job: Job) => void;
   setJobArchived: (jobId: string, archived: boolean) => boolean;
@@ -50,8 +52,10 @@ interface StoreValue {
   addEntry: (input: NewEntryInput) => Entry | null;
   updateEntry: (entryId: string, patch: EntryPatch) => boolean;
   deleteEntry: (entryId: string) => boolean;
+  restoreEntry: (entry: Entry) => boolean;
   addRestDay: (input: Omit<RestDay, 'id' | 'createdAt'>) => RestDay | null;
   removeRestDay: (restDayId: string) => boolean;
+  restoreRestDay: (restDay: RestDay) => boolean;
   addAdvance: (input: Omit<Advance, 'id' | 'createdAt'>) => Advance;
   deleteAdvance: (advanceId: string) => boolean;
   settleJob: (
@@ -80,14 +84,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const storageWarned = useRef(false);
   stateRef.current = state;
 
-  const toast = useCallback((message: string, tone: ToastTone = 'success') => {
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    const id = Date.now();
-    setToastState({ id, message, tone });
-    toastTimer.current = window.setTimeout(() => {
-      setToastState((current) => (current?.id === id ? null : current));
-    }, 2800);
-  }, []);
+  const toast = useCallback(
+    (message: string, tone: ToastTone = 'success', action?: ToastAction) => {
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+      const id = Date.now();
+      setToastState({ id, message, tone, action });
+      toastTimer.current = window.setTimeout(
+        () => {
+          setToastState((current) => (current?.id === id ? null : current));
+        },
+        action ? 5200 : 2800,
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     try {
@@ -231,6 +241,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
+  const restoreEntry = useCallback((entry: Entry) => {
+    const current = stateRef.current;
+    if (current.entries.some((item) => item.id === entry.id)) return true;
+    if (entry.settlementId) return false;
+    if (!current.jobs.some((job) => job.id === entry.jobId)) return false;
+    const settled = current.settlements.some(
+      (settlement) =>
+        settlement.jobId === entry.jobId &&
+        entry.date >= settlement.periodStart &&
+        entry.date <= settlement.periodEnd,
+    );
+    if (settled) return false;
+    const otherHours = current.entries
+      .filter((item) => item.date === entry.date)
+      .reduce((sum, item) => sum + (item.hours || 0), 0);
+    if (otherHours + entry.hours > 24) return false;
+    setState((prev) => ({
+      ...prev,
+      entries: [entry, ...prev.entries],
+      restDays: prev.restDays.filter(
+        (rest) => !(rest.jobId === entry.jobId && rest.date === entry.date),
+      ),
+    }));
+    return true;
+  }, []);
+
   const addRestDay = useCallback((input: Omit<RestDay, 'id' | 'createdAt'>) => {
     const current = stateRef.current;
     const job = current.jobs.find((item) => item.id === input.jobId);
@@ -281,6 +317,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...prev,
       restDays: prev.restDays.filter((rest) => rest.id !== restDayId),
     }));
+    return true;
+  }, []);
+
+  const restoreRestDay = useCallback((restDay: RestDay) => {
+    const current = stateRef.current;
+    if (current.restDays.some((rest) => rest.id === restDay.id)) return true;
+    const job = current.jobs.find((item) => item.id === restDay.jobId);
+    if (!job) return false;
+    const settled = current.settlements.some(
+      (settlement) =>
+        settlement.jobId === restDay.jobId &&
+        restDay.date >= settlement.periodStart &&
+        restDay.date <= settlement.periodEnd,
+    );
+    if (settled) return false;
+    if (
+      current.entries.some(
+        (entry) => entry.jobId === restDay.jobId && entry.date === restDay.date,
+      )
+    ) {
+      return false;
+    }
+    if (
+      current.restDays.some(
+        (rest) => rest.jobId === restDay.jobId && rest.date === restDay.date,
+      )
+    ) {
+      return false;
+    }
+    setState((prev) => ({ ...prev, restDays: [restDay, ...prev.restDays] }));
     return true;
   }, []);
 
@@ -426,8 +492,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addEntry,
     updateEntry,
     deleteEntry,
+    restoreEntry,
     addRestDay,
     removeRestDay,
+    restoreRestDay,
     addAdvance,
     deleteAdvance,
     settleJob,

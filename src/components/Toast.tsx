@@ -1,9 +1,9 @@
 import { createPortal } from 'react-dom';
 import { CheckCircle2, CircleAlert, Info, X } from 'lucide-react';
-import type { ToastTone } from '../types';
+import type { ToastAction, ToastTone } from '../types';
 
 interface ToastProps {
-  toast: { id: number; message: string; tone: ToastTone } | null;
+  toast: { id: number; message: string; tone: ToastTone; action?: ToastAction } | null;
   onClose: () => void;
 }
 
@@ -21,6 +21,19 @@ export function Toast({ toast, onClose }: ToastProps) {
       <div className={`toast toast--${toast.tone}`} role="status" key={toast.id}>
         <Icon size={18} strokeWidth={2.2} />
         <span>{toast.message}</span>
+        {toast.action ? (
+          <button
+            type="button"
+            className="toast-action"
+            onClick={() => {
+              const action = toast.action;
+              onClose();
+              action?.onClick();
+            }}
+          >
+            {toast.action.label}
+          </button>
+        ) : null}
         <button type="button" className="toast-close" onClick={onClose} aria-label="关闭提示">
           <X size={14} />
         </button>

@@ -54,7 +54,7 @@ function AppContent() {
   }, [tab, state.onboardingDone]);
 
   useEffect(() => {
-    if (!page) return;
+    if (!page || page.type === 'jobEditor') return;
     return pushNativeBack(() => setPage(null));
   }, [page]);
 

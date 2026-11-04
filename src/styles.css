@@ -4842,6 +4842,22 @@ ul {
   color: rgba(248, 242, 230, 0.5);
 }
 
+.toast-action {
+  flex: none;
+  margin-left: 2px;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: rgba(240, 194, 126, 0.16);
+  color: #f0c27e;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  background: rgba(240, 194, 126, 0.24);
+}
+
 .toast-close:hover {
   background: rgba(255, 255, 255, 0.08);
 }
@@ -5992,6 +6008,21 @@ ul {
   .calendar-grid,
   .calendar-weekdays {
     gap: 3px;
+  }
+}
+
+@media (max-width: 340px) {
+  .records-head-actions {
+    gap: 4px;
+  }
+
+  .records-head-actions .records-view-btn,
+  .records-head-actions .records-rest-btn,
+  .records-head-actions .records-add-btn {
+    width: 34px;
+    gap: 0;
+    padding: 0;
+    font-size: 0;
   }
 }
 

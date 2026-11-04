@@ -4,6 +4,11 @@ export type Cycle = 'daily' | 'weekly' | 'monthly';
 export type WeekStart = 0 | 1;
 export type JobColor = 'pine' | 'amber' | 'clay' | 'sky' | 'plum' | 'olive';
 export type ToastTone = 'success' | 'error' | 'info';
+
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
 export type ThemeMode = 'system' | 'light' | 'dark';
 
 export interface PayRule {

@@ -17,7 +17,7 @@ interface EntryDetailProps {
 }
 
 export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
-  const { state, addEntry, deleteEntry, toast } = useStore();
+  const { state, addEntry, deleteEntry, restoreEntry, toast } = useStore();
   const [confirming, setConfirming] = useState(false);
   const entry = state.entries.find((item) => item.id === entryId);
   if (!entry) return null;
@@ -30,10 +30,17 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
   );
 
   const handleDelete = () => {
+    const deleted = entry;
     const ok = deleteEntry(entry.id);
     setConfirming(false);
     if (ok) {
-      toast('工记已删除', 'info');
+      toast('工记已删除', 'info', {
+        label: '撤销',
+        onClick: () => {
+          if (restoreEntry(deleted)) toast('工记已恢复');
+          else toast('这笔工记已无法恢复，请检查周期是否已结算', 'error');
+        },
+      });
       onClose();
     } else {
       toast('已结算的记录不能删除，请先撤销结算', 'error');
@@ -296,7 +303,7 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
       <ConfirmDialog
         open={confirming}
         title="删除这笔工记？"
-        description="删除后无法恢复，也不会计入之后的结算。"
+        description="删除后 5 秒内可撤销；已结算记录不能删除。"
         confirmLabel="删除"
         danger
         onCancel={() => setConfirming(false)}

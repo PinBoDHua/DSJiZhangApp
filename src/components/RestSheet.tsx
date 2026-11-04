@@ -21,7 +21,7 @@ export function RestSheet({
   initialDate,
   onClose,
 }: RestSheetProps) {
-  const { state, addRestDay, removeRestDay, toast } = useStore();
+  const { state, addRestDay, removeRestDay, restoreRestDay, toast } = useStore();
   const [jobId, setJobId] = useState(initialJobId ?? jobs[0]?.id ?? '');
   const [date, setDate] = useState(initialDate ?? todayISO());
   const [note, setNote] = useState('');
@@ -69,11 +69,18 @@ export function RestSheet({
 
   const remove = () => {
     if (!existing) return;
+    const deleted = existing;
     if (!removeRestDay(existing.id)) {
       toast('这天已经结算，不能取消休息', 'error');
       return;
     }
-    toast('已取消休息');
+    toast('已取消休息', 'info', {
+      label: '撤销',
+      onClick: () => {
+        if (restoreRestDay(deleted)) toast('休息已恢复');
+        else toast('无法恢复，这天的周期或工记已经变化', 'error');
+      },
+    });
     onClose();
   };
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Archive, Briefcase, Check, Coffee, RotateCcw, Trash2 } from 'lucide-react';
 import type { Cycle, Job, JobColor, MonthlyMode, PayRule, PayType } from '../types';
 import { useStore } from '../store';
@@ -10,6 +10,7 @@ import { Segmented } from '../components/Segmented';
 import { CYCLE_LABEL, JOB_COLORS, PAY_TYPE_LABEL, PAY_TYPE_UNIT, rateLabel } from '../lib/meta';
 import { toAmount, formatHours } from '../lib/money';
 import { hoursBetween } from '../lib/date';
+import { pushNativeBack } from '../lib/nativeBack';
 
 interface JobEditorProps {
   jobId?: string;
@@ -52,6 +53,85 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
   const [error, setError] = useState('');
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const dirtyRef = useRef(false);
+  const initialRef = useRef({
+    name,
+    employer,
+    color,
+    payType,
+    rate,
+    unitLabel,
+    cycle,
+    monthlyMode,
+    restDaysPerMonth,
+    standardHours,
+    expectedDays,
+    shiftStart,
+    shiftEnd,
+    shiftBreak,
+    otEnabled,
+    weekdayOT,
+    weekendOT,
+    holidayOT,
+  });
+
+  useEffect(() => {
+    const initial = initialRef.current;
+    dirtyRef.current =
+      name !== initial.name ||
+      employer !== initial.employer ||
+      color !== initial.color ||
+      payType !== initial.payType ||
+      rate !== initial.rate ||
+      unitLabel !== initial.unitLabel ||
+      cycle !== initial.cycle ||
+      monthlyMode !== initial.monthlyMode ||
+      restDaysPerMonth !== initial.restDaysPerMonth ||
+      standardHours !== initial.standardHours ||
+      expectedDays !== initial.expectedDays ||
+      shiftStart !== initial.shiftStart ||
+      shiftEnd !== initial.shiftEnd ||
+      shiftBreak !== initial.shiftBreak ||
+      otEnabled !== initial.otEnabled ||
+      weekdayOT !== initial.weekdayOT ||
+      weekendOT !== initial.weekendOT ||
+      holidayOT !== initial.holidayOT;
+  }, [
+    name,
+    employer,
+    color,
+    payType,
+    rate,
+    unitLabel,
+    cycle,
+    monthlyMode,
+    restDaysPerMonth,
+    standardHours,
+    expectedDays,
+    shiftStart,
+    shiftEnd,
+    shiftBreak,
+    otEnabled,
+    weekdayOT,
+    weekendOT,
+    holidayOT,
+  ]);
+
+  const requestBack = () => {
+    if (dirtyRef.current) {
+      setDiscardOpen(true);
+      return;
+    }
+    onBack();
+  };
+
+  const requestBackRef = useRef(requestBack);
+  requestBackRef.current = requestBack;
+
+  useEffect(() => {
+    return pushNativeBack(() => requestBackRef.current());
+  }, []);
 
   const pendingCount = state.entries.filter(
     (entry) => entry.jobId === jobId && !entry.settlementId,
@@ -171,6 +251,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
       });
       toast('工作已创建');
     }
+    dirtyRef.current = false;
     onBack();
   };
 
@@ -224,7 +305,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
       <SubPage
         title={existing ? '编辑工作' : '新建工作'}
         subtitle={existing ? existing.name : '设置好规则，之后记工自动算'}
-        onBack={onBack}
+        onBack={requestBack}
         footer={
           <div className="job-editor-footer">
             {error ? <p className="form-error">{error}</p> : null}
@@ -709,6 +790,20 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
           修改单价或规则只影响之后的新工记；已经记下的工记会保留当时的单价和倍率。
         </p>
       </SubPage>
+
+      <ConfirmDialog
+        open={discardOpen}
+        title="放弃这次修改？"
+        description="工作设置还没有保存，返回后这些修改会丢失。"
+        confirmLabel="放弃"
+        danger
+        onCancel={() => setDiscardOpen(false)}
+        onConfirm={() => {
+          setDiscardOpen(false);
+          dirtyRef.current = false;
+          onBack();
+        }}
+      />
 
       <ConfirmDialog
         open={archiveOpen}
