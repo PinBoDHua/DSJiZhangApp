@@ -197,7 +197,7 @@ export function createDemoState(): AppState {
     },
   ];
   return {
-    version: 5,
+    version: 6,
     profile: { name: '李师傅', hideAmounts: false },
     settings: {
       weekStartsOn: 1,
@@ -205,6 +205,7 @@ export function createDemoState(): AppState {
       reminder: { enabled: false, time: '21:00' },
     },
     jobs: [site, sorting, renovation, packing],
+    trashedJobs: [],
     entries,
     restDays,
     advances: [

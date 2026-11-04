@@ -57,6 +57,11 @@ export interface Job {
   createdAt: string;
 }
 
+export interface TrashedJob {
+  job: Job;
+  deletedAt: string;
+}
+
 export interface RestDay {
   id: string;
   jobId: string;
@@ -155,10 +160,11 @@ export interface WorkTimer {
 }
 
 export interface AppState {
-  version: 5;
+  version: 6;
   profile: Profile;
   settings: Settings;
   jobs: Job[];
+  trashedJobs: TrashedJob[];
   entries: Entry[];
   restDays: RestDay[];
   advances: Advance[];

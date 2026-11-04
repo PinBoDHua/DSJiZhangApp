@@ -16,6 +16,7 @@ import { Money } from '../components/Money';
 import { JobDot } from '../components/JobDot';
 import { MonthCalendar } from '../components/MonthCalendar';
 import { RestSheet } from '../components/RestSheet';
+import { RestPlanSheet } from '../components/RestPlanSheet';
 import {
   formatDateShort,
   formatMonthTitle,
@@ -51,6 +52,8 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
   const [view, setView] = useState<ViewMode>('list');
   const [selectedDate, setSelectedDate] = useState(today);
   const [restSheetOpen, setRestSheetOpen] = useState(false);
+  const [restPlanOpen, setRestPlanOpen] = useState(false);
+  const [restPlanJobId, setRestPlanJobId] = useState<string | undefined>();
   const [restDate, setRestDate] = useState(today);
   const [restJobId, setRestJobId] = useState<string | undefined>();
   const monthPeriod = useMemo(
@@ -441,7 +444,19 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
         jobs={state.jobs.filter((job) => !job.archived)}
         initialJobId={restJobId}
         initialDate={restDate}
+        onPlan={() => {
+          setRestPlanJobId(restJobId);
+          setRestSheetOpen(false);
+          setRestPlanOpen(true);
+        }}
         onClose={() => setRestSheetOpen(false)}
+      />
+
+      <RestPlanSheet
+        open={restPlanOpen}
+        jobs={state.jobs.filter((job) => !job.archived)}
+        initialJobId={restPlanJobId}
+        onClose={() => setRestPlanOpen(false)}
       />
     </div>
   );

@@ -57,7 +57,7 @@ const advance = (overrides: Partial<Advance> & Pick<Advance, 'date'>): Advance =
 });
 
 const state = (partial: Partial<AppState>): AppState => ({
-  version: 5,
+  version: 6,
   profile: { name: '测试', hideAmounts: false },
   settings: {
     weekStartsOn: 1,
@@ -65,6 +65,7 @@ const state = (partial: Partial<AppState>): AppState => ({
     reminder: { enabled: false, time: '21:00' },
   },
   jobs: [job()],
+  trashedJobs: [],
   entries: [],
   restDays: [],
   advances: [],

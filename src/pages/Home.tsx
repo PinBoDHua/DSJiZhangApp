@@ -24,6 +24,7 @@ import { TimerLive } from '../components/TimerLive';
 import { TimerSheet } from '../components/TimerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { RestSheet } from '../components/RestSheet';
+import { RestPlanSheet } from '../components/RestPlanSheet';
 import type { WorkTimer } from '../types';
 import type { TimerTimes } from '../lib/timer';
 import { buildTimerTimes } from '../lib/timer';
@@ -67,6 +68,8 @@ export function Home({
   const [timerSheetOpen, setTimerSheetOpen] = useState(false);
   const [cancelTimerOpen, setCancelTimerOpen] = useState(false);
   const [restSheetOpen, setRestSheetOpen] = useState(false);
+  const [restPlanOpen, setRestPlanOpen] = useState(false);
+  const [restPlanJobId, setRestPlanJobId] = useState<string | undefined>();
   const today = todayISO();
   const month = periodOf('monthly', today, state.settings.weekStartsOn);
   const monthEntries = state.entries.filter((entry) => periodContains(month, entry.date));
@@ -552,7 +555,19 @@ export function Home({
         jobs={activeJobs}
         initialJobId={restJobId}
         initialDate={today}
+        onPlan={() => {
+          setRestPlanJobId(restJobId);
+          setRestSheetOpen(false);
+          setRestPlanOpen(true);
+        }}
         onClose={() => setRestSheetOpen(false)}
+      />
+
+      <RestPlanSheet
+        open={restPlanOpen}
+        jobs={activeJobs}
+        initialJobId={restPlanJobId}
+        onClose={() => setRestPlanOpen(false)}
       />
 
       <ConfirmDialog

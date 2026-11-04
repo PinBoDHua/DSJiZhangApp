@@ -47,6 +47,8 @@ interface StoreValue {
   updateJob: (job: Job) => void;
   setJobArchived: (jobId: string, archived: boolean) => boolean;
   deleteJob: (jobId: string) => boolean;
+  restoreJob: (jobId: string) => boolean;
+  purgeJob: (jobId: string) => boolean;
   startTimer: (jobId: string) => boolean;
   clearTimer: () => void;
   addEntry: (input: NewEntryInput) => Entry | null;
@@ -167,10 +169,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       current.advances.some((advance) => advance.jobId === jobId) ||
       current.settlements.some((settlement) => settlement.jobId === jobId);
     if (used) return false;
+    const job = current.jobs.find((item) => item.id === jobId);
+    if (!job) return false;
     setState((prev) => ({
       ...prev,
-      jobs: prev.jobs.filter((job) => job.id !== jobId),
+      jobs: prev.jobs.filter((item) => item.id !== jobId),
+      trashedJobs: [
+        { job, deletedAt: nowISO() },
+        ...prev.trashedJobs.filter((item) => item.job.id !== jobId),
+      ],
       restDays: prev.restDays.filter((rest) => rest.jobId !== jobId),
+    }));
+    return true;
+  }, []);
+
+  const restoreJob = useCallback((jobId: string) => {
+    const current = stateRef.current;
+    const trashed = current.trashedJobs.find((item) => item.job.id === jobId);
+    if (!trashed) return false;
+    if (current.jobs.some((job) => job.id === jobId)) {
+      setState((prev) => ({
+        ...prev,
+        trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== jobId),
+      }));
+      return true;
+    }
+    setState((prev) => ({
+      ...prev,
+      jobs: [...prev.jobs, trashed.job],
+      trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== jobId),
+    }));
+    return true;
+  }, []);
+
+  const purgeJob = useCallback((jobId: string) => {
+    const current = stateRef.current;
+    if (!current.trashedJobs.some((item) => item.job.id === jobId)) return false;
+    setState((prev) => ({
+      ...prev,
+      trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== jobId),
     }));
     return true;
   }, []);
@@ -555,6 +592,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     updateJob,
     setJobArchived,
     deleteJob,
+    restoreJob,
+    purgeJob,
     startTimer,
     clearTimer,
     addEntry,

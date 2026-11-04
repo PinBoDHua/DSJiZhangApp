@@ -11,7 +11,7 @@ describe('加密备份', () => {
     expect(text).not.toContain('加密用户');
     const restored = await decryptBackup(text, 'correct horse 123');
     expect(restored.profile.name).toBe('加密用户');
-    expect(restored.version).toBe(5);
+    expect(restored.version).toBe(6);
   });
 
   it('密码错误时拒绝解密', async () => {

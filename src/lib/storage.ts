@@ -11,20 +11,21 @@ import type {
   RestDay,
   Settlement,
   ThemeMode,
+  TrashedJob,
   WorkTimer,
 } from '../types';
 import { JOB_COLORS } from './meta';
 import { nowISO } from './date';
 
-export const STORAGE_KEY = 'xinshi.state.v5';
-export const LEGACY_STORAGE_KEYS = ['xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
+export const STORAGE_KEY = 'xinshi.state.v6';
+export const LEGACY_STORAGE_KEYS = ['xinshi.state.v5', 'xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
 export const THEME_KEY = 'xinshi.theme';
 export const EXPORT_APP = 'xinshi';
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export function createEmptyState(name = ''): AppState {
   return {
-    version: 5,
+    version: 6,
     profile: { name, hideAmounts: false },
     settings: {
       weekStartsOn: 1,
@@ -32,6 +33,7 @@ export function createEmptyState(name = ''): AppState {
       reminder: { enabled: false, time: '21:00' },
     },
     jobs: [],
+    trashedJobs: [],
     entries: [],
     restDays: [],
     advances: [],
@@ -249,6 +251,14 @@ function normalizeJob(value: unknown): Job {
   };
 }
 
+function normalizeTrashedJob(value: unknown, now: string): TrashedJob {
+  const raw = requireObject(value, '回收站工作');
+  return {
+    job: normalizeJob(raw.job),
+    deletedAt: asString(raw.deletedAt, now),
+  };
+}
+
 function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): Entry {
   const raw = requireObject(value, '工记数据');
   const id = asString(raw.id);
@@ -380,7 +390,7 @@ export function validateImport(text: string): AppState {
   if (wrapper && 'app' in wrapper && wrapper.app !== EXPORT_APP) {
     throw new Error('这不是薪时的备份文件');
   }
-  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 5) {
+  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 6) {
     throw new Error('备份来自更新版本的薪时，请升级后再导入');
   }
   const raw = wrapper && isRecord(wrapper.data) ? wrapper.data : parsed;
@@ -398,6 +408,15 @@ export function validateImport(text: string): AppState {
   const jobs = jobsRaw.map(normalizeJob);
   const jobMap = new Map(jobs.map((job) => [job.id, job]));
   if (jobMap.size !== jobs.length) throw new Error('工作数据存在重复 ID');
+
+  const trashedIds = new Set<string>();
+  const trashedJobs: TrashedJob[] = [];
+  for (const item of Array.isArray(raw.trashedJobs) ? raw.trashedJobs : []) {
+    const trashed = normalizeTrashedJob(item, now);
+    if (jobMap.has(trashed.job.id) || trashedIds.has(trashed.job.id)) continue;
+    trashedIds.add(trashed.job.id);
+    trashedJobs.push(trashed);
+  }
 
   const entries = entriesRaw.map((item) => normalizeEntry(item, jobMap, now));
   const restDaysRaw = raw.restDays;
@@ -425,13 +444,14 @@ export function validateImport(text: string): AppState {
   const activeTimer = normalizeTimer(raw.activeTimer, jobMap);
 
   return {
-    version: 5,
+    version: 6,
     profile: {
       name: asString(profileRaw.name),
       hideAmounts: asBoolean(profileRaw.hideAmounts),
     },
     settings: { weekStartsOn, theme, reminder },
     jobs,
+    trashedJobs,
     entries,
     restDays,
     advances,

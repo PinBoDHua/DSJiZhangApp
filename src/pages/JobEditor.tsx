@@ -19,7 +19,7 @@ interface JobEditorProps {
 }
 
 export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
-  const { state, addJob, updateJob, setJobArchived, deleteJob, toast } = useStore();
+  const { state, addJob, updateJob, setJobArchived, deleteJob, restoreJob, toast } = useStore();
   const existing = jobId ? state.jobs.find((item) => item.id === jobId) : undefined;
   const isTemplate = template === 'longterm' && !existing;
   const [name, setName] = useState(existing?.name ?? (isTemplate ? '长期工' : ''));
@@ -309,10 +309,17 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
 
   const handleDelete = () => {
     if (!existing) return;
+    const deleted = existing;
     const ok = deleteJob(existing.id);
     setDeleteOpen(false);
     if (ok) {
-      toast('工作已删除', 'info');
+      toast('工作已移入回收站', 'info', {
+        label: '撤销',
+        onClick: () => {
+          if (restoreJob(deleted.id)) toast('工作已恢复');
+          else toast('恢复失败，请稍后再试', 'error');
+        },
+      });
       onBack();
     } else {
       toast('这份工作已经有记录，只能归档', 'error');
@@ -929,7 +936,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       <ConfirmDialog
         open={deleteOpen}
         title="彻底删除这份工作？"
-        description="删除后无法恢复。只有没有任何工记、借支和结算的工作才能删除。"
+        description="删除后先进入回收站，可在工作管理里恢复；只有没有任何工记、借支和结算的工作才能删除。"
         confirmLabel="删除"
         danger
         onCancel={() => setDeleteOpen(false)}

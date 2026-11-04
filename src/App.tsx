@@ -18,6 +18,7 @@ import { useTheme } from './hooks/useTheme';
 import { useReminder } from './hooks/useReminder';
 import { todayISO } from './lib/date';
 import { pushNativeBack } from './lib/nativeBack';
+import { schedulePaydayNotifications } from './lib/paydayNotifications';
 
 type Page =
   | { type: 'jobs' }
@@ -48,6 +49,10 @@ function AppContent() {
   useTheme(state.settings.theme);
   const todayEntryCount = state.entries.filter((entry) => entry.date === todayISO()).length;
   useReminder(state.settings.reminder, todayEntryCount);
+
+  useEffect(() => {
+    void schedulePaydayNotifications(state.jobs);
+  }, [state.jobs]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });

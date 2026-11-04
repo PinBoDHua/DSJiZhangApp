@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Briefcase, ChevronRight, Plus, Sparkles } from 'lucide-react';
+import { Briefcase, ChevronRight, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
 import { Money } from '../components/Money';
 import { SubPage } from '../components/SubPage';
+import { TrashSheet } from '../components/TrashSheet';
 import { CYCLE_LABEL, jobColor, rateLabel } from '../lib/meta';
 import { getSettlementOverview } from '../lib/settlement';
 
@@ -18,6 +19,7 @@ interface JobsProps {
 export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
   const { state } = useStore();
   const [showArchived, setShowArchived] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const overview = getSettlementOverview(state);
   const pendingByJob = new Map(overview.jobs.map((item) => [item.job.id, item.outstanding]));
   const active = state.jobs.filter((job) => !job.archived);
@@ -59,6 +61,7 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
   };
 
   return (
+    <>
     <SubPage
       title="工作管理"
       subtitle="每份工作单独算账"
@@ -123,6 +126,20 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
       <p className="jobs-footnote">
         修改单价只影响之后的新工记；历史记录会保留当时的单价和规则。
       </p>
+      {state.trashedJobs.length > 0 ? (
+        <button
+          type="button"
+          className="trash-entry"
+          onClick={() => setTrashOpen(true)}
+        >
+          <Trash2 size={16} />
+          回收站
+          <span>{state.trashedJobs.length}</span>
+          <ChevronRight size={15} />
+        </button>
+      ) : null}
     </SubPage>
+    <TrashSheet open={trashOpen} onClose={() => setTrashOpen(false)} />
+    </>
   );
 }

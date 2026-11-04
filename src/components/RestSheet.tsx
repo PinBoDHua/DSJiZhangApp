@@ -11,6 +11,7 @@ interface RestSheetProps {
   jobs: Job[];
   initialJobId?: string;
   initialDate?: string;
+  onPlan?: () => void;
   onClose: () => void;
 }
 
@@ -19,6 +20,7 @@ export function RestSheet({
   jobs,
   initialJobId,
   initialDate,
+  onPlan,
   onClose,
 }: RestSheetProps) {
   const { state, addRestDay, removeRestDay, restoreRestDay, toast } = useStore();
@@ -186,6 +188,13 @@ export function RestSheet({
             </label>
           </>
         )}
+
+        {onPlan ? (
+          <button type="button" className="text-link plan-link" onClick={onPlan}>
+            <CalendarDays size={14} />
+            批量排休 / 提前安排休息日
+          </button>
+        ) : null}
       </div>
 
       <div className="sheet-footer">
