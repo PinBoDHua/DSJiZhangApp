@@ -23,6 +23,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
   const [color, setColor] = useState<JobColor>(existing?.color ?? 'pine');
   const [payType, setPayType] = useState<PayType>(existing?.rule.payType ?? 'hourly');
   const [rate, setRate] = useState(existing ? String(existing.rule.rate) : '25');
+  const [unitLabel, setUnitLabel] = useState(existing?.rule.unitLabel ?? '件');
   const [cycle, setCycle] = useState<Cycle>(existing?.cycle ?? 'weekly');
   const [standardHours, setStandardHours] = useState(
     existing ? String(existing.rule.standardHours) : '8',
@@ -43,6 +44,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
   const pendingCount = state.entries.filter(
     (entry) => entry.jobId === jobId && !entry.settlementId,
   ).length;
+  const isPiece = payType === 'piece';
   const timerActive = Boolean(existing && state.activeTimer?.jobId === existing.id);
   const canDelete =
     Boolean(existing) &&
@@ -82,10 +84,15 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
       return;
     }
     const parsedExpected = Math.max(1, Math.round(toAmount(expectedDays, 22)));
+    const parsedUnit = (unitLabel.trim() || '件').slice(0, 8);
+    if (isPiece && !parsedUnit) {
+      setError('请填写计件单位，比如 件 / 米 / 平方');
+      return;
+    }
     const weekday = toAmount(weekdayOT, 1.5);
     const weekend = toAmount(weekendOT, 2);
     const holiday = toAmount(holidayOT, 3);
-    if (otEnabled && (weekday < 1 || weekend < 1 || holiday < 1)) {
+    if (!isPiece && otEnabled && (weekday < 1 || weekend < 1 || holiday < 1)) {
       setError('加班倍率不能小于 1');
       return;
     }
@@ -94,7 +101,8 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
       rate: parsedRate,
       standardHours: parsedStandard,
       expectedDays: parsedExpected,
-      otEnabled,
+      unitLabel: parsedUnit,
+      otEnabled: isPiece ? false : otEnabled,
       weekdayOT: weekday,
       weekendOT: weekend,
       holidayOT: holiday,
@@ -183,7 +191,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
               <div>
                 <span>保存后</span>
                 <strong>
-                  {rateLabel(payType, toAmount(rate))} · {CYCLE_LABEL[cycle]}
+                  {rateLabel(payType, toAmount(rate), unitLabel)} · {CYCLE_LABEL[cycle]}
                 </strong>
               </div>
               <button type="button" className="btn btn--primary" onClick={save}>
@@ -206,8 +214,13 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
             <strong>{name.trim() || '新工作'}</strong>
             <p>
               {PAY_TYPE_LABEL[payType]} {toAmount(rate) > 0 ? `¥${toAmount(rate)}` : '—'} /{' '}
-              {PAY_TYPE_UNIT[payType]} · {CYCLE_LABEL[cycle]} ·{' '}
-              {otEnabled ? `加班 ${toAmount(weekdayOT, 1.5)}× 起` : '不含加班费'}
+              {payType === 'piece' ? unitLabel.trim() || '件' : PAY_TYPE_UNIT[payType]} ·{' '}
+              {CYCLE_LABEL[cycle]} ·{' '}
+              {isPiece
+                ? '按数量计'
+                : otEnabled
+                  ? `加班 ${toAmount(weekdayOT, 1.5)}× 起`
+                  : '不含加班费'}
             </p>
           </div>
         </section>
@@ -268,7 +281,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
               <Segmented
                 value={payType}
                 onChange={changePayType}
-                options={(['hourly', 'daily', 'monthly'] as PayType[]).map((value) => ({
+                options={(['hourly', 'daily', 'monthly', 'piece'] as PayType[]).map((value) => ({
                   value,
                   label: PAY_TYPE_LABEL[value],
                 }))}
@@ -291,9 +304,27 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
                   inputMode="decimal"
                   placeholder="0"
                 />
-                <span className="money-input-suffix">/ {PAY_TYPE_UNIT[payType]}</span>
+                <span className="money-input-suffix">
+                  / {isPiece ? unitLabel.trim() || '件' : PAY_TYPE_UNIT[payType]}
+                </span>
               </div>
             </label>
+            {isPiece ? (
+              <label className="field">
+                <span className="field-label">计件单位</span>
+                <input
+                  className="text-input"
+                  value={unitLabel}
+                  onChange={(event) => {
+                    setUnitLabel(event.target.value);
+                    if (error) setError('');
+                  }}
+                  placeholder="件 / 米 / 平方"
+                  maxLength={8}
+                />
+                <p className="field-hint">记数量时显示的单位，历史记录会保留当时的单位。</p>
+              </label>
+            ) : null}
             <div className="field">
               <span className="field-label">结算周期</span>
               <Segmented
@@ -308,125 +339,135 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
                 <p className="field-hint">工资按这个周期汇总，可以逐期结算。</p>
               )}
             </div>
-            <label className="field">
-              <span className="field-label">标准工时 / 天</span>
-              <div className="inline-number">
-                <input
-                  type="number"
-                  min={1}
-                  max={16}
-                  step={0.5}
-                  value={standardHours}
-                  onChange={(event) => setStandardHours(event.target.value)}
-                  inputMode="decimal"
-                />
-                <span>小时</span>
-              </div>
-              <p className="field-hint">
-                {payType === 'hourly'
-                  ? '超过这个时长会自动计为加班。'
-                  : '用来折算加班时薪。'}
-              </p>
-            </label>
-            {payType === 'monthly' ? (
-              <label className="field">
-                <span className="field-label">月计薪天数</span>
-                <div className="inline-number">
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    step={1}
-                    value={expectedDays}
-                    onChange={(event) => setExpectedDays(event.target.value)}
-                    inputMode="numeric"
-                  />
-                  <span>天</span>
-                </div>
-                <p className="field-hint">月薪按这个天数折算日薪，默认 22 天。</p>
-              </label>
+            {!isPiece ? (
+              <>
+                <label className="field">
+                  <span className="field-label">标准工时 / 天</span>
+                  <div className="inline-number">
+                    <input
+                      type="number"
+                      min={1}
+                      max={16}
+                      step={0.5}
+                      value={standardHours}
+                      onChange={(event) => setStandardHours(event.target.value)}
+                      inputMode="decimal"
+                    />
+                    <span>小时</span>
+                  </div>
+                  <p className="field-hint">
+                    {payType === 'hourly'
+                      ? '超过这个时长会自动计为加班。'
+                      : '用来折算加班时薪。'}
+                  </p>
+                </label>
+                {payType === 'monthly' ? (
+                  <label className="field">
+                    <span className="field-label">月计薪天数</span>
+                    <div className="inline-number">
+                      <input
+                        type="number"
+                        min={1}
+                        max={31}
+                        step={1}
+                        value={expectedDays}
+                        onChange={(event) => setExpectedDays(event.target.value)}
+                        inputMode="numeric"
+                      />
+                      <span>天</span>
+                    </div>
+                    <p className="field-hint">月薪按这个天数折算日薪，默认 22 天。</p>
+                  </label>
+                ) : null}
+              </>
             ) : null}
           </div>
         </section>
 
-        <section className="editor-section">
-          <h2>加班费</h2>
-          <div className="editor-card">
-            <button
-              type="button"
-              className={`switch-row ${otEnabled ? 'is-on' : ''}`}
-              role="switch"
-              aria-checked={otEnabled}
-              onClick={() => setOtEnabled((value) => !value)}
-            >
-              <span>
-                计算加班费
-                <em>超出标准工时或周末 / 节假日上工时</em>
-              </span>
-              <span className="switch-track">
-                <i />
-              </span>
-            </button>
-            {otEnabled ? (
-              <>
-                <div className="ot-rates">
-                  <label>
-                    <span>平日</span>
-                    <div className="rate-input">
-                      <input
-                        type="number"
-                        min={1}
-                        max={5}
-                        step={0.1}
-                        value={weekdayOT}
-                        onChange={(event) => setWeekdayOT(event.target.value)}
-                        inputMode="decimal"
-                      />
-                      <em>×</em>
-                    </div>
-                  </label>
-                  <label>
-                    <span>周末</span>
-                    <div className="rate-input">
-                      <input
-                        type="number"
-                        min={1}
-                        max={5}
-                        step={0.1}
-                        value={weekendOT}
-                        onChange={(event) => setWeekendOT(event.target.value)}
-                        inputMode="decimal"
-                      />
-                      <em>×</em>
-                    </div>
-                  </label>
-                  <label>
-                    <span>节假日</span>
-                    <div className="rate-input">
-                      <input
-                        type="number"
-                        min={1}
-                        max={5}
-                        step={0.1}
-                        value={holidayOT}
-                        onChange={(event) => setHolidayOT(event.target.value)}
-                        inputMode="decimal"
-                      />
-                      <em>×</em>
-                    </div>
-                  </label>
-                </div>
-                <p className="field-hint">
-                  {payType === 'hourly'
-                    ? '时薪超过标准工时的部分自动计加班；周末自动按倍率。'
-                    : '加班时长在记工时可填，周末自动按倍率。'}
-                </p>
-              </>
-            ) : (
-              <p className="field-hint">关闭后所有工时按基础单价计算，不再产生加班费。</p>
-            )}
-          </div>
-        </section>
+        {!isPiece ? (
+          <section className="editor-section">
+            <h2>加班费</h2>
+            <div className="editor-card">
+              <button
+                type="button"
+                className={`switch-row ${otEnabled ? 'is-on' : ''}`}
+                role="switch"
+                aria-checked={otEnabled}
+                onClick={() => setOtEnabled((value) => !value)}
+              >
+                <span>
+                  计算加班费
+                  <em>超出标准工时或周末 / 节假日上工时</em>
+                </span>
+                <span className="switch-track">
+                  <i />
+                </span>
+              </button>
+              {otEnabled ? (
+                <>
+                  <div className="ot-rates">
+                    <label>
+                      <span>平日</span>
+                      <div className="rate-input">
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          step={0.1}
+                          value={weekdayOT}
+                          onChange={(event) => setWeekdayOT(event.target.value)}
+                          inputMode="decimal"
+                        />
+                        <em>×</em>
+                      </div>
+                    </label>
+                    <label>
+                      <span>周末</span>
+                      <div className="rate-input">
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          step={0.1}
+                          value={weekendOT}
+                          onChange={(event) => setWeekendOT(event.target.value)}
+                          inputMode="decimal"
+                        />
+                        <em>×</em>
+                      </div>
+                    </label>
+                    <label>
+                      <span>节假日</span>
+                      <div className="rate-input">
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          step={0.1}
+                          value={holidayOT}
+                          onChange={(event) => setHolidayOT(event.target.value)}
+                          inputMode="decimal"
+                        />
+                        <em>×</em>
+                      </div>
+                    </label>
+                  </div>
+                  <p className="field-hint">
+                    {payType === 'hourly'
+                      ? '时薪超过标准工时的部分自动计加班；周末自动按倍率。'
+                      : '加班时长在记工时可填，周末自动按倍率。'}
+                  </p>
+                </>
+              ) : (
+                <p className="field-hint">关闭后所有工时按基础单价计算，不再产生加班费。</p>
+              )}
+            </div>
+          </section>
+        ) : (
+          <p className="inline-hint">
+            计件工资按「数量 × 单价」计算，不参与加班费；工时仅用于统计。
+          </p>
+        )}
 
         {existing ? (
           <section className="editor-section">

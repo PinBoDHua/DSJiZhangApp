@@ -29,7 +29,8 @@ export function TimerSheet({ open, jobs, onClose, onStart }: TimerSheetProps) {
               <span className="timer-job-copy">
                 <strong>{job.name}</strong>
                 <em>
-                  {rateLabel(job.rule.payType, job.rule.rate)} · {cycleLabel(job.cycle)}
+                  {rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)} ·{' '}
+                  {cycleLabel(job.cycle)}
                 </em>
               </span>
               <span className="timer-job-play">

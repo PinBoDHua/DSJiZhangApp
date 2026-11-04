@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Download,
   Info,
+  LockKeyhole,
   Pencil,
   ShieldCheck,
   Trash2,
@@ -32,6 +33,11 @@ import {
   downloadText,
   validateImport,
 } from '../lib/storage';
+import { decryptBackup, encryptBackup, isEncryptedBackup } from '../lib/backup';
+import {
+  getLastBackupAt,
+  markBackedUp,
+} from '../lib/backupStatus';
 
 interface ProfileProps {
   onOpenJobs: () => void;
@@ -45,6 +51,16 @@ export function Profile({ onOpenJobs }: ProfileProps) {
   const [clearOpen, setClearOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
   const [permission, setPermission] = useState(() => notificationPermission());
+  const [backupAt, setBackupAt] = useState(() => getLastBackupAt());
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportPassword, setExportPassword] = useState('');
+  const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [encryptedImportText, setEncryptedImportText] = useState<string | null>(null);
+  const [importPassword, setImportPassword] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const totals = sumEntriesCapped(state.entries);
@@ -64,13 +80,48 @@ export function Profile({ onOpenJobs }: ProfileProps) {
 
   const handleExport = () => {
     downloadText(`薪时备份-${todayISO()}.json`, buildExportPayload(state));
+    markBackedUp();
+    setBackupAt(getLastBackupAt());
     toast('备份已导出，请保存好文件');
+  };
+
+  const exportEncrypted = async () => {
+    if (exportPassword.length < 6) {
+      setExportError('密码至少 6 位');
+      return;
+    }
+    if (exportPassword !== exportPasswordConfirm) {
+      setExportError('两次输入的密码不一致');
+      return;
+    }
+    setExportBusy(true);
+    setExportError('');
+    try {
+      const text = await encryptBackup(state, exportPassword);
+      downloadText(`薪时加密备份-${todayISO()}.json`, text);
+      markBackedUp();
+      setBackupAt(getLastBackupAt());
+      setExportOpen(false);
+      setExportPassword('');
+      setExportPasswordConfirm('');
+      toast('加密备份已导出，请记住密码');
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : '加密导出失败');
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
     try {
       const text = await file.text();
+      if (isEncryptedBackup(text)) {
+        setEncryptedImportText(text);
+        setImportPassword('');
+        setImportError('');
+        return;
+      }
       const imported = validateImport(text);
       setPendingImport(imported);
     } catch (error) {
@@ -78,6 +129,21 @@ export function Profile({ onOpenJobs }: ProfileProps) {
       toast(message, 'error');
     } finally {
       if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const decryptAndStage = async () => {
+    if (!encryptedImportText) return;
+    setImportBusy(true);
+    setImportError('');
+    try {
+      const imported = await decryptBackup(encryptedImportText, importPassword);
+      setEncryptedImportText(null);
+      setPendingImport(imported);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : '解密失败');
+    } finally {
+      setImportBusy(false);
     }
   };
 
@@ -370,7 +436,22 @@ export function Profile({ onOpenJobs }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>导出备份</strong>
-              <em>JSON 文件，换手机或清缓存前先存一份</em>
+              <em>普通 JSON 文件，方便随时恢复</em>
+            </span>
+            <ChevronRight size={16} className="settings-chevron" />
+          </button>
+          <button type="button" className="settings-row" onClick={() => {
+            setExportError('');
+            setExportPassword('');
+            setExportPasswordConfirm('');
+            setExportOpen(true);
+          }}>
+            <span className="settings-icon">
+              <LockKeyhole size={18} />
+            </span>
+            <span className="settings-body">
+              <strong>导出加密备份</strong>
+              <em>设置密码，文件内容全程加密</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -380,7 +461,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>导入备份</strong>
-              <em>从薪时导出的 JSON 文件恢复</em>
+              <em>支持普通或加密 JSON 文件</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -401,6 +482,15 @@ export function Profile({ onOpenJobs }: ProfileProps) {
         </div>
         <p className="settings-note">
           <ShieldCheck size={14} />
+          <span>
+            {backupAt
+              ? `上次备份：${new Date(backupAt).toLocaleDateString('zh-CN')}`
+              : '还没有导出过备份'}
+            {state.entries.length > 0 && !backupAt ? '，建议现在就存一份' : ''}
+          </span>
+        </p>
+        <p className="settings-note">
+          <ShieldCheck size={14} />
           数据只保存在这台设备的浏览器里，不上传服务器。
         </p>
       </section>
@@ -414,7 +504,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>关于薪时</strong>
-              <em>v0.2.0 · 每一小时，都算数</em>
+              <em>v0.3.0 · 每一小时，都算数</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -422,7 +512,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
       </section>
 
       <p className="profile-footer">
-        薪时 XINSHI · v0.2.0
+        薪时 XINSHI · v0.3.0
         <br />
         个人记工工具，计算结果仅供参考
       </p>
@@ -468,18 +558,18 @@ export function Profile({ onOpenJobs }: ProfileProps) {
               <h3>薪时 XINSHI</h3>
               <p>每一小时，都算数。</p>
             </div>
-            <span className="about-version">v0.2.0</span>
+            <span className="about-version">v0.3.0</span>
           </div>
           <p className="about-copy">
             给小时工、日结工、周结工和月结工用的个人记工工具。记工时、算工钱、等发薪，
             一本清楚的账。
           </p>
           <ul className="about-list">
-            <li>时薪 / 日薪 / 月薪，三种算法</li>
+            <li>时薪 / 日薪 / 月薪 / 计件，四种算法</li>
             <li>日结 / 周结 / 月结，逐期结算留底</li>
             <li>上工计时、日历视图、每日提醒</li>
-            <li>工资条图片、深色模式、离线使用</li>
-            <li>不登录、不联网也能记，数据只存本机</li>
+            <li>工资条图片 / PDF、深色模式、离线使用</li>
+            <li>AES-GCM 加密备份，数据只存本机</li>
           </ul>
           <div className="about-disclaimer">
             <strong>说明</strong>
@@ -493,6 +583,120 @@ export function Profile({ onOpenJobs }: ProfileProps) {
         <div className="sheet-footer">
           <button type="button" className="btn btn--primary btn--block" onClick={() => setAboutOpen(false)}>
             知道了
+          </button>
+        </div>
+      </Sheet>
+
+      <Sheet
+        open={exportOpen}
+        title="设置备份密码"
+        subtitle="密码不会保存，忘记后无法恢复文件"
+        onClose={() => {
+          setExportOpen(false);
+          setExportError('');
+        }}
+      >
+        <div className="sheet-body">
+          <label className="field">
+            <span className="field-label">备份密码</span>
+            <input
+              className="text-input"
+              type="password"
+              value={exportPassword}
+              onChange={(event) => {
+                setExportPassword(event.target.value);
+                if (exportError) setExportError('');
+              }}
+              placeholder="至少 6 位，建议用一句话"
+              autoComplete="new-password"
+              autoFocus
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">再输一次</span>
+            <input
+              className="text-input"
+              type="password"
+              value={exportPasswordConfirm}
+              onChange={(event) => {
+                setExportPasswordConfirm(event.target.value);
+                if (exportError) setExportError('');
+              }}
+              placeholder="确认密码"
+              autoComplete="new-password"
+            />
+          </label>
+          {exportError ? <p className="form-error">{exportError}</p> : null}
+          <p className="inline-hint">
+            <ShieldCheck size={14} />
+            文件使用 AES-GCM 加密，只有密码能打开。密码不会上传，也没有找回入口。
+          </p>
+        </div>
+        <div className="sheet-footer">
+          <button
+            type="button"
+            className="btn btn--soft"
+            onClick={() => setExportOpen(false)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={exportEncrypted}
+            disabled={exportBusy}
+          >
+            {exportBusy ? '加密中…' : '导出加密备份'}
+          </button>
+        </div>
+      </Sheet>
+
+      <Sheet
+        open={Boolean(encryptedImportText)}
+        title="输入备份密码"
+        subtitle="解密成功后再确认是否覆盖当前数据"
+        onClose={() => {
+          setEncryptedImportText(null);
+          setImportError('');
+        }}
+      >
+        <div className="sheet-body">
+          <label className="field">
+            <span className="field-label">备份密码</span>
+            <input
+              className="text-input"
+              type="password"
+              value={importPassword}
+              onChange={(event) => {
+                setImportPassword(event.target.value);
+                if (importError) setImportError('');
+              }}
+              placeholder="导出时设置的密码"
+              autoComplete="current-password"
+              autoFocus
+            />
+          </label>
+          {importError ? <p className="form-error">{importError}</p> : null}
+          <p className="inline-hint">
+            <LockKeyhole size={14} />
+            密码错误或文件被改动过，都无法解密。
+          </p>
+        </div>
+        <div className="sheet-footer">
+          <button
+            type="button"
+            className="btn btn--soft"
+            onClick={() => setEncryptedImportText(null)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={decryptAndStage}
+            disabled={!importPassword || importBusy}
+          >
+            {importBusy ? '解密中…' : '解密并导入'}
           </button>
         </div>
       </Sheet>

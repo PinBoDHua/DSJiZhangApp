@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { Download, Image as ImageIcon, Share2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Download, FileText, Image as ImageIcon, Share2 } from 'lucide-react';
 import type { Settlement } from '../types';
-import { createPayslipBlob, payslipFileName } from '../lib/payslip';
+import { createPayslipBlob, downloadPayslipPdf, payslipFileName } from '../lib/payslip';
 import { formatMoney } from '../lib/money';
 import { useStore } from '../store';
 import { Sheet } from './Sheet';
@@ -19,6 +19,8 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [shareable, setShareable] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const blobRef = useRef<Blob | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +31,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
+        blobRef.current = blob;
         setUrl(objectUrl);
         const nextFile = new File([blob], payslipFileName(settlement), { type: 'image/png' });
         setFile(nextFile);
@@ -76,6 +79,19 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     }
   };
 
+  const savePdf = async () => {
+    if (!blobRef.current) return;
+    setPdfBusy(true);
+    try {
+      await downloadPayslipPdf(blobRef.current, settlement);
+      toast('PDF 已保存');
+    } catch {
+      toast('PDF 生成失败，请稍后再试', 'error');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <Sheet open title="工资条图片" subtitle="发给老板对账，或留作记录" onClose={onClose}>
       <div className="sheet-body payslip-body">
@@ -108,6 +124,15 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
             分享
           </button>
         ) : null}
+        <button
+          type="button"
+          className="btn btn--soft"
+          onClick={savePdf}
+          disabled={loading || !url || pdfBusy}
+        >
+          <FileText size={16} />
+          {pdfBusy ? '生成中' : 'PDF'}
+        </button>
         <button type="button" className="btn btn--primary" onClick={save} disabled={!url}>
           <Download size={16} />
           保存图片

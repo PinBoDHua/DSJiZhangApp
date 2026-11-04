@@ -14,15 +14,15 @@ import type {
 import { JOB_COLORS } from './meta';
 import { nowISO } from './date';
 
-export const STORAGE_KEY = 'xinshi.state.v2';
-export const LEGACY_STORAGE_KEY = 'xinshi.state.v1';
+export const STORAGE_KEY = 'xinshi.state.v3';
+export const LEGACY_STORAGE_KEYS = ['xinshi.state.v2', 'xinshi.state.v1'];
 export const THEME_KEY = 'xinshi.theme';
 export const EXPORT_APP = 'xinshi';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export function createEmptyState(name = ''): AppState {
   return {
-    version: 2,
+    version: 3,
     profile: { name, hideAmounts: false },
     settings: {
       weekStartsOn: 1,
@@ -40,7 +40,7 @@ export function createEmptyState(name = ''): AppState {
 }
 
 export function loadState(): AppState | null {
-  const keys = [STORAGE_KEY, LEGACY_STORAGE_KEY];
+  const keys = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
   for (const key of keys) {
     try {
       const raw = localStorage.getItem(key);
@@ -48,7 +48,7 @@ export function loadState(): AppState | null {
       const state = validateImport(raw);
       try {
         saveState(state);
-        if (key === LEGACY_STORAGE_KEY) localStorage.removeItem(LEGACY_STORAGE_KEY);
+        if (LEGACY_STORAGE_KEYS.includes(key)) localStorage.removeItem(key);
       } catch (error) {
         console.warn('迁移本地数据失败，但已加载', error);
       }
@@ -67,8 +67,9 @@ export function saveState(state: AppState): void {
 
 export function clearStoredState(): void {
   localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
   localStorage.removeItem(THEME_KEY);
+  localStorage.removeItem('xinshi.lastBackup');
 }
 
 export function buildExportPayload(state: AppState): string {
@@ -134,7 +135,7 @@ function requireObject(value: unknown, label: string): Raw {
   return value;
 }
 
-const PAY_TYPES: PayType[] = ['hourly', 'daily', 'monthly'];
+const PAY_TYPES: PayType[] = ['hourly', 'daily', 'monthly', 'piece'];
 const CYCLES: Cycle[] = ['daily', 'weekly', 'monthly'];
 const COLORS: JobColor[] = JOB_COLORS.map((color) => color.key);
 const THEMES: ThemeMode[] = ['system', 'light', 'dark'];
@@ -153,7 +154,7 @@ function normalizeTimer(value: unknown, jobs: Map<string, Job>): WorkTimer | nul
   const jobId = asString(value.jobId);
   const startedAt = asString(value.startedAt);
   const job = jobs.get(jobId);
-  if (!job || job.archived) return null;
+  if (!job || job.archived || job.rule.payType === 'piece') return null;
   if (!startedAt || !Number.isFinite(Date.parse(startedAt))) return null;
   return { jobId, startedAt };
 }
@@ -166,6 +167,8 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
   const rate = Math.max(0, asNumber(raw.rate, base?.rate ?? 0));
   const standardHours = Math.max(0.5, asNumber(raw.standardHours, base?.standardHours ?? 8));
   const expectedDays = Math.max(1, asNumber(raw.expectedDays, base?.expectedDays ?? 22));
+  const unitLabelRaw = asString(raw.unitLabel, base?.unitLabel ?? '件').trim();
+  const unitLabel = (unitLabelRaw || '件').slice(0, 8);
   const weekdayOT = Math.max(1, asNumber(raw.weekdayOT, base?.weekdayOT ?? 1.5));
   const weekendOT = Math.max(1, asNumber(raw.weekendOT, base?.weekendOT ?? 2));
   const holidayOT = Math.max(1, asNumber(raw.holidayOT, base?.holidayOT ?? 3));
@@ -174,6 +177,7 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
     rate,
     standardHours,
     expectedDays,
+    unitLabel,
     otEnabled: asBoolean(raw.otEnabled, base?.otEnabled ?? false),
     weekdayOT,
     weekendOT,
@@ -215,6 +219,7 @@ function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): En
     endTime: asString(raw.endTime) || undefined,
     breakMinutes: Math.max(0, asNumber(raw.breakMinutes)),
     hours: Math.max(0, asNumber(raw.hours)),
+    quantity: Math.max(0, asNumber(raw.quantity)),
     otHours: Math.max(0, asNumber(raw.otHours)),
     bonus: Math.max(0, asNumber(raw.bonus)),
     deduction: Math.max(0, asNumber(raw.deduction)),
@@ -258,6 +263,9 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
     cycle: pick(raw.cycle, CYCLES, job.cycle),
     periodStart: asDate(raw.periodStart),
     periodEnd: asDate(raw.periodEnd),
+    payType: raw.payType ? pick(raw.payType, PAY_TYPES, job.rule.payType) : undefined,
+    quantity: raw.quantity === undefined ? undefined : Math.max(0, asNumber(raw.quantity)),
+    unitLabel: raw.unitLabel ? asString(raw.unitLabel) : undefined,
     base: asNumber(raw.base),
     otPay: asNumber(raw.otPay),
     bonus: asNumber(raw.bonus),
@@ -287,7 +295,7 @@ export function validateImport(text: string): AppState {
   if (wrapper && 'app' in wrapper && wrapper.app !== EXPORT_APP) {
     throw new Error('这不是薪时的备份文件');
   }
-  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 2) {
+  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 3) {
     throw new Error('备份来自更新版本的薪时，请升级后再导入');
   }
   const raw = wrapper && isRecord(wrapper.data) ? wrapper.data : parsed;
@@ -322,7 +330,7 @@ export function validateImport(text: string): AppState {
   const activeTimer = normalizeTimer(raw.activeTimer, jobMap);
 
   return {
-    version: 2,
+    version: 3,
     profile: {
       name: asString(profileRaw.name),
       hideAmounts: asBoolean(profileRaw.hideAmounts),

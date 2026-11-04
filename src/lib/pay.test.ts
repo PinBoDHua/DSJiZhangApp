@@ -8,6 +8,7 @@ import { formatMoney, round2 } from './money';
 const rule = (overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): PayRule => ({
   standardHours: 8,
   expectedDays: 22,
+  unitLabel: '件',
   otEnabled: true,
   weekdayOT: 1.5,
   weekendOT: 2,
@@ -31,6 +32,7 @@ const entry = (overrides: Partial<Entry> & Pick<Entry, 'date'>): Entry => ({
   jobId: 'job-1',
   breakMinutes: 0,
   hours: 8,
+  quantity: 0,
   otHours: 0,
   bonus: 0,
   deduction: 0,
@@ -50,7 +52,7 @@ const advance = (overrides: Partial<Advance> & Pick<Advance, 'date'>): Advance =
 });
 
 const state = (partial: Partial<AppState>): AppState => ({
-  version: 2,
+  version: 3,
   profile: { name: '测试', hideAmounts: false },
   settings: {
     weekStartsOn: 1,
@@ -200,6 +202,60 @@ describe('月薪计算', () => {
     const totals = sumEntriesCapped(entries);
     expect(totals.base).toBe(7500);
     expect(totals.capAdjustment).toBeGreaterThan(0);
+  });
+});
+
+describe('计件工资', () => {
+  it('按数量 × 单价计算，不计加班', () => {
+    const pieceRule = rule({ payType: 'piece', rate: 1.2, unitLabel: '件' });
+    const pay = payForEntry(
+      entry({
+        date: '2026-11-04',
+        hours: 6,
+        quantity: 120,
+        otHours: 3,
+        bonus: 10,
+        deduction: 4,
+        rule: pieceRule,
+      }),
+    );
+    expect(pay.base).toBe(144);
+    expect(pay.otPay).toBe(0);
+    expect(pay.otHours).toBe(0);
+    expect(pay.total).toBe(150);
+  });
+
+  it('支持米 / 平方等小数数量', () => {
+    const pay = payForEntry(
+      entry({
+        date: '2026-11-04',
+        hours: 0,
+        quantity: 12.5,
+        rule: rule({ payType: 'piece', rate: 4, unitLabel: '米' }),
+      }),
+    );
+    expect(pay.base).toBe(50);
+  });
+
+  it('结算快照记录计件类型、数量和单位', () => {
+    const pieceJob = job({
+      cycle: 'weekly',
+      rule: rule({ payType: 'piece', rate: 2, unitLabel: '件' }),
+    });
+    const draft = buildSettlementDraft(
+      pieceJob,
+      [
+        entry({ date: '2026-11-03', hours: 4, quantity: 100, rule: pieceJob.rule }),
+        entry({ date: '2026-11-04', hours: 3, quantity: 50, rule: pieceJob.rule }),
+      ],
+      [],
+      periodOf('weekly', '2026-11-04', 1),
+    );
+    expect(draft.base).toBe(300);
+    expect(draft.quantity).toBe(150);
+    expect(draft.unitLabel).toBe('件');
+    expect(draft.payType).toBe('piece');
+    expect(draft.days).toBe(2);
   });
 });
 

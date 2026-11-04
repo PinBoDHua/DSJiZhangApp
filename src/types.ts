@@ -1,4 +1,4 @@
-export type PayType = 'hourly' | 'daily' | 'monthly';
+export type PayType = 'hourly' | 'daily' | 'monthly' | 'piece';
 export type Cycle = 'daily' | 'weekly' | 'monthly';
 export type WeekStart = 0 | 1;
 export type JobColor = 'pine' | 'amber' | 'clay' | 'sky' | 'plum' | 'olive';
@@ -7,11 +7,13 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 
 export interface PayRule {
   payType: PayType;
-  /** 时薪 / 日薪 / 月薪 */
+  /** 时薪 / 日薪 / 月薪 / 每件单价 */
   rate: number;
   standardHours: number;
   /** 月计薪天数，仅月薪使用 */
   expectedDays: number;
+  /** 计件单位，例如 件 / 米 / 平方 */
+  unitLabel: string;
   otEnabled: boolean;
   weekdayOT: number;
   weekendOT: number;
@@ -38,6 +40,8 @@ export interface Entry {
   endTime?: string;
   breakMinutes: number;
   hours: number;
+  /** 计件数量，仅计件工资使用 */
+  quantity: number;
   otHours: number;
   bonus: number;
   deduction: number;
@@ -67,6 +71,9 @@ export interface Settlement {
   cycle: Cycle;
   periodStart: string;
   periodEnd: string;
+  payType?: PayType;
+  quantity?: number;
+  unitLabel?: string;
   base: number;
   otPay: number;
   bonus: number;
@@ -105,7 +112,7 @@ export interface WorkTimer {
 }
 
 export interface AppState {
-  version: 2;
+  version: 3;
   profile: Profile;
   settings: Settings;
   jobs: Job[];
@@ -152,6 +159,9 @@ export interface SettlementDraft {
   jobId: string;
   jobName: string;
   cycle: Cycle;
+  payType: PayType;
+  quantity: number;
+  unitLabel: string;
   period: Period;
   entries: Entry[];
   advances: Advance[];

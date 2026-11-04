@@ -214,7 +214,10 @@ export async function createPayslipBlob(
   dashedLine(ctx, 104, 604, 976);
 
   const rows: Array<{ label: string; value: number; negative?: boolean }> = [
-    { label: '基础工资', value: settlement.base },
+    {
+      label: settlement.payType === 'piece' ? '计件工资' : '基础工资',
+      value: settlement.base,
+    },
     { label: '加班工资', value: settlement.otPay },
     { label: '奖金补贴', value: settlement.bonus + settlement.extraBonus },
     { label: '扣款', value: settlement.deduction + settlement.extraDeduction, negative: true },
@@ -250,11 +253,21 @@ export async function createPayslipBlob(
   roundRect(ctx, 104, statsY, 872, 122, 24);
   ctx.fillStyle = '#F3F6EF';
   ctx.fill();
-  const stats = [
-    { label: '出勤', value: `${settlement.days} 天` },
-    { label: '工时', value: `${settlement.hours} 小时` },
-    { label: '加班', value: `${settlement.otHours} 小时` },
-  ];
+  const stats =
+    settlement.payType === 'piece'
+      ? [
+          {
+            label: '数量',
+            value: `${settlement.quantity ?? 0} ${settlement.unitLabel || '件'}`,
+          },
+          { label: '工时', value: `${settlement.hours} 小时` },
+          { label: '出勤', value: `${settlement.days} 天` },
+        ]
+      : [
+          { label: '出勤', value: `${settlement.days} 天` },
+          { label: '工时', value: `${settlement.hours} 小时` },
+          { label: '加班', value: `${settlement.otHours} 小时` },
+        ];
   stats.forEach((item, index) => {
     const cx = 104 + 872 * ((index + 0.5) / 3);
     ctx.textAlign = 'center';
@@ -317,4 +330,30 @@ export async function createPayslipBlob(
 export function payslipFileName(settlement: Settlement): string {
   const safeJob = settlement.jobName.replace(/[\\/:*?"<>|]/g, '').slice(0, 16);
   return `薪时工资条-${safeJob}-${settlement.periodEnd}.png`;
+}
+
+export function payslipPdfFileName(settlement: Settlement): string {
+  return payslipFileName(settlement).replace(/\.png$/, '.pdf');
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** 把工资条 PNG 放进一张 1080×1440 的 PDF，方便打印 / 归档。 */
+export async function downloadPayslipPdf(blob: Blob, settlement: Settlement): Promise<void> {
+  const [{ jsPDF }, dataUrl] = await Promise.all([import('jspdf'), blobToDataUrl(blob)]);
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'px',
+    format: [1080, 1440],
+    compress: true,
+  });
+  pdf.addImage(dataUrl, 'PNG', 0, 0, 1080, 1440, undefined, 'FAST');
+  pdf.save(payslipPdfFileName(settlement));
 }

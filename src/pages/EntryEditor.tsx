@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   Banknote,
   Briefcase,
@@ -64,6 +64,8 @@ export function EntryEditor({
       : lastUsedJobId && selectableJobs.some((job) => job.id === lastUsedJobId)
         ? lastUsedJobId
         : selectableJobs[0]?.id ?? '');
+  const preferredJob = state.jobs.find((job) => job.id === preferredJobId);
+  const initialPayType = existing?.rule.payType ?? preferredJob?.rule.payType ?? 'hourly';
 
   const [jobId, setJobId] = useState(preferredJobId);
   const [date, setDate] = useState(existing?.date ?? initialTimes?.date ?? todayISO());
@@ -82,8 +84,11 @@ export function EntryEditor({
       ? String(existing.hours)
       : initialTimerHours !== null
         ? String(initialTimerHours)
-        : '8',
+        : initialPayType === 'piece'
+          ? '0'
+          : '8',
   );
+  const [quantity, setQuantity] = useState(existing ? String(existing.quantity) : '');
   const [otHoursInput, setOtHoursInput] = useState(
     existing && existing.rule.payType !== 'hourly' ? String(existing.otHours) : '0',
   );
@@ -95,6 +100,23 @@ export function EntryEditor({
     Boolean(existing && (existing.bonus > 0 || existing.deduction > 0 || existing.note)),
   );
   const [error, setError] = useState('');
+  const jobPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const picker = jobPickerRef.current;
+      const active = picker?.querySelector<HTMLElement>('.job-choice.is-active');
+      if (!picker || !active) return;
+      const pickerRect = picker.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      if (activeRect.right > pickerRect.right - 2) {
+        picker.scrollLeft = picker.scrollWidth;
+      } else if (activeRect.left < pickerRect.left) {
+        picker.scrollLeft = 0;
+      }
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [jobId]);
 
   const selectedJob: Job | undefined = selectableJobs.find((job) => job.id === jobId);
   const rule: PayRule | undefined =
@@ -102,11 +124,13 @@ export function EntryEditor({
   const payType = rule?.payType ?? 'hourly';
   const isHourly = payType === 'hourly';
   const isMonthly = payType === 'monthly';
-  const isFixedDay = !isHourly;
+  const isPiece = payType === 'piece';
+  const isFixedDay = !isHourly && !isPiece;
 
   const workedHours = hoursBetween(startTime, endTime, 0);
   const netHours = hoursBetween(startTime, endTime, breakMinutes);
   const manualHoursValue = Math.max(0, toAmount(manualHours));
+  const quantityValue = Math.max(0, toAmount(quantity));
   const hours = isHourly
     ? timeMode === 'range'
       ? netHours
@@ -117,8 +141,12 @@ export function EntryEditor({
   const enteredOt =
     isFixedDay && rule?.otEnabled ? Math.max(0, toAmount(otHoursInput)) : 0;
   const effectiveOt = isHourly ? autoOt : enteredOt;
-  const multiplier = rule?.otEnabled ? otMultiplierFor(date, holiday, rule) : 1;
-  const overtimeEnabled = Boolean(rule?.otEnabled);
+  const multiplier = isPiece
+    ? 1
+    : rule?.otEnabled
+      ? otMultiplierFor(date, holiday, rule)
+      : 1;
+  const overtimeEnabled = Boolean(rule?.otEnabled && !isPiece);
 
   const previewEntry: Entry | null = rule
     ? {
@@ -129,6 +157,7 @@ export function EntryEditor({
         endTime: isHourly && timeMode === 'range' ? endTime : existing?.endTime,
         breakMinutes: isHourly && timeMode === 'range' ? breakMinutes : 0,
         hours,
+        quantity: isPiece ? quantityValue : 0,
         otHours: effectiveOt,
         bonus: Math.max(0, toAmount(bonus)),
         deduction: Math.max(0, toAmount(deduction)),
@@ -159,6 +188,10 @@ export function EntryEditor({
   const chooseJob = (job: Job) => {
     setJobId(job.id);
     setError('');
+    if (!existing) {
+      if (job.rule.payType === 'piece' && manualHours === '8') setManualHours('0');
+      if (job.rule.payType !== 'piece' && manualHours === '0') setManualHours('8');
+    }
   };
 
   const switchTimeMode = (next: TimeMode) => {
@@ -208,6 +241,14 @@ export function EntryEditor({
       showError('工时超过 24 小时，确认一下');
       return;
     }
+    if (isPiece && !(quantityValue > 0)) {
+      showError('计件数量需要大于 0');
+      return;
+    }
+    if (isPiece && quantityValue > 1_000_000) {
+      showError('计件数量看起来不太对，确认一下');
+      return;
+    }
     if (enteredOt > 24) {
       showError('加班时长超过 24 小时，确认一下');
       return;
@@ -217,6 +258,7 @@ export function EntryEditor({
       jobId: selectedJob.id,
       date,
       hours: round2(hours),
+      quantity: isPiece ? round2(quantityValue) : 0,
       otHours: round2(effectiveOt),
       bonus: round2(Math.max(0, toAmount(bonus))),
       deduction: round2(Math.max(0, toAmount(deduction))),
@@ -226,21 +268,27 @@ export function EntryEditor({
       breakMinutes:
         isHourly && timeMode === 'range'
           ? Math.max(0, Math.round(breakMinutes))
-          : existing && existing.jobId === selectedJob.id
-            ? existing.breakMinutes
-            : 0,
+          : isPiece
+            ? 0
+            : existing && existing.jobId === selectedJob.id
+              ? existing.breakMinutes
+              : 0,
       startTime:
         isHourly && timeMode === 'range'
           ? startTime
-          : existing && existing.jobId === selectedJob.id
-            ? existing.startTime
-            : undefined,
+          : isPiece
+            ? undefined
+            : existing && existing.jobId === selectedJob.id
+              ? existing.startTime
+              : undefined,
       endTime:
         isHourly && timeMode === 'range'
           ? endTime
-          : existing && existing.jobId === selectedJob.id
-            ? existing.endTime
-            : undefined,
+          : isPiece
+            ? undefined
+            : existing && existing.jobId === selectedJob.id
+              ? existing.endTime
+              : undefined,
     };
 
     if (existing) {
@@ -330,7 +378,7 @@ export function EntryEditor({
                 管理
               </button>
             </div>
-            <div className="job-picker">
+            <div className="job-picker" ref={jobPickerRef}>
               {selectableJobs.map((job) => (
                 <button
                   type="button"
@@ -481,6 +529,58 @@ export function EntryEditor({
                 </div>
               )}
             </>
+          ) : isPiece ? (
+            <>
+              <div className="piece-card">
+                <div className="piece-card-head">
+                  <span>计件数量</span>
+                  <em>
+                    {rule?.unitLabel || '件'} · 单价 <Money value={rule?.rate ?? 0} />
+                  </em>
+                </div>
+                <div className="piece-number">
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={quantity}
+                    onChange={(event) => {
+                      setQuantity(event.target.value);
+                      if (error) setError('');
+                    }}
+                    inputMode="decimal"
+                    placeholder="0"
+                    aria-label="计件数量"
+                  />
+                  <span>{rule?.unitLabel || '件'}</span>
+                </div>
+                <p className="field-hint">
+                  数量 × 单价，自动算本笔计件工资
+                  {previewPay && previewPay.base > 0 ? (
+                    <>
+                      {' '}
+                      · <Money value={previewPay.base} />
+                    </>
+                  ) : null}
+                </p>
+              </div>
+              <label className="field">
+                <span className="field-label">工时（选填）</span>
+                <div className="inline-number">
+                  <input
+                    type="number"
+                    min={0}
+                    max={24}
+                    step={0.5}
+                    value={manualHours}
+                    onChange={(event) => setManualHours(event.target.value)}
+                    inputMode="decimal"
+                  />
+                  <span>小时</span>
+                </div>
+                <p className="field-hint">只影响统计，不参与计件工资计算。</p>
+              </label>
+            </>
           ) : (
             <>
               <div className="attendance-card">
@@ -587,6 +687,11 @@ export function EntryEditor({
                     : `平日加班按 ${rule.weekdayOT}× 计算`}
               </p>
             </div>
+          ) : isPiece ? (
+            <p className="inline-hint">
+              <Banknote size={14} />
+              计件工资按数量 × 单价计算，工时只用于统计。
+            </p>
           ) : (
             <p className="inline-hint">
               <Clock3 size={14} />
@@ -662,7 +767,7 @@ export function EntryEditor({
           {error ? <p className="form-error">{error}</p> : null}
           <div className="entry-footer-main">
             <div className="entry-preview">
-              <span>{isMonthly ? '本笔折算' : '本笔预计'}</span>
+              <span>{isPiece ? '本笔计件' : isMonthly ? '本笔折算' : '本笔预计'}</span>
               <Money value={previewPay?.total ?? 0} className="entry-preview-money" />
               <p>
                 {previewPay && previewPay.otHours > 0 ? (
@@ -670,11 +775,13 @@ export function EntryEditor({
                     含加班 {formatHours(previewPay.otHours)}h ·{' '}
                   </>
                 ) : null}
-                {isMonthly
-                  ? '整月结算时封顶'
-                  : existing && existing.jobId === jobId
-                    ? '按记录时的单价'
-                    : '按当前单价计算'}
+                {isPiece
+                  ? `${formatHours(quantityValue)} ${rule?.unitLabel || '件'} × 单价`
+                  : isMonthly
+                    ? '整月结算时封顶'
+                    : existing && existing.jobId === jobId
+                      ? '按记录时的单价'
+                      : '按当前单价计算'}
               </p>
             </div>
             <button

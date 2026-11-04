@@ -183,11 +183,20 @@ export function buildSettlementDraft(
   const safeBonus = round2(Math.max(0, extraBonus));
   const safeDeduction = round2(Math.max(0, extraDeduction));
   const net = round2(totals.total + safeBonus - safeDeduction - advanceTotal);
+  const latestEntry = jobEntries[jobEntries.length - 1];
+  const payType = latestEntry?.rule.payType ?? job.rule.payType;
+  const unitLabel = latestEntry?.rule.unitLabel ?? job.rule.unitLabel ?? '件';
+  const quantity = round2(
+    jobEntries.reduce((sum, entry) => sum + (entry.quantity || 0), 0),
+  );
 
   return {
     jobId: job.id,
     jobName: job.name,
     cycle: job.cycle,
+    payType,
+    quantity,
+    unitLabel,
     period,
     entries: jobEntries,
     advances: includedAdvances,
@@ -289,6 +298,9 @@ export function makeSettlement(
     cycle: draft.cycle,
     periodStart: draft.period.start,
     periodEnd: draft.period.end,
+    payType: draft.payType,
+    quantity: draft.quantity,
+    unitLabel: draft.unitLabel,
     base: draft.base,
     otPay: draft.otPay,
     bonus: draft.bonus,

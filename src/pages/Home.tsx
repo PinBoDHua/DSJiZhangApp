@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  ShieldAlert,
   Sun,
 } from 'lucide-react';
 import { useStore } from '../store';
@@ -37,6 +38,7 @@ import {
 import { formatHours } from '../lib/money';
 import { cycleLabel, jobColor, rateLabel } from '../lib/meta';
 import { computeOutstanding, dailySeries, getSettlementOverview, sumEntries, sumEntriesCapped } from '../lib/settlement';
+import { backupDueText, backupIsDue } from '../lib/backupStatus';
 
 interface HomeProps {
   onAddEntry: (jobId?: string) => void;
@@ -67,9 +69,11 @@ export function Home({
   const outstanding = computeOutstanding(state);
   const overview = getSettlementOverview(state);
   const activeJobs = state.jobs.filter((job) => !job.archived);
+  const timerJobs = activeJobs.filter((job) => job.rule.payType !== 'piece');
   const todayEntries = state.entries
     .filter((entry) => entry.date === today)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const backupDue = backupIsDue(state);
   const todayTotals = sumEntries(todayEntries);
   const recent = [...state.entries]
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
@@ -108,8 +112,12 @@ export function Home({
 
   const handleTimerStart = () => {
     if (activeTimer) return;
-    if (activeJobs.length === 1) {
-      beginTimer(activeJobs[0].id);
+    if (timerJobs.length === 0) {
+      toast('计件工作不需要计时，直接记数量就好', 'info');
+      return;
+    }
+    if (timerJobs.length === 1) {
+      beginTimer(timerJobs[0].id);
       return;
     }
     setTimerSheetOpen(true);
@@ -156,6 +164,19 @@ export function Home({
           {greeting()}，{name}
         </h1>
       </div>
+
+      {backupDue ? (
+        <button type="button" className="backup-nudge" onClick={onOpenProfile}>
+          <span className="backup-nudge-icon">
+            <ShieldAlert size={17} />
+          </span>
+          <span className="backup-nudge-copy">
+            <strong>该给账本留个底了</strong>
+            <em>{backupDueText(state)}，换手机或清缓存会丢账。</em>
+          </span>
+          <ChevronRight size={16} />
+        </button>
+      ) : null}
 
       <section className="hero-card" aria-label="本月收入概览">
         <div className="hero-deco hero-deco--one" aria-hidden="true" />
@@ -249,7 +270,7 @@ export function Home({
             </p>
           </div>
           <div className="today-actions">
-            {activeJobs.length > 0 ? (
+            {timerJobs.length > 0 ? (
               <button
                 type="button"
                 className="today-timer-btn"
@@ -325,7 +346,8 @@ export function Home({
                     <span>{job.name}</span>
                   </div>
                   <p className="job-card-rate">
-                    {rateLabel(job.rule.payType, job.rule.rate)} · {cycleLabel(job.cycle)}
+                    {rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)} ·{' '}
+                    {cycleLabel(job.cycle)}
                   </p>
                   {pending && pending.outstanding !== 0 ? (
                     <div className="job-card-pending">
@@ -409,7 +431,7 @@ export function Home({
 
       <TimerSheet
         open={timerSheetOpen}
-        jobs={activeJobs}
+        jobs={timerJobs}
         onClose={() => setTimerSheetOpen(false)}
         onStart={beginTimer}
       />

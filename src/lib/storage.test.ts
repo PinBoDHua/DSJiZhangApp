@@ -7,6 +7,7 @@ const rule = {
   rate: 25,
   standardHours: 8,
   expectedDays: 22,
+  unitLabel: '件',
   otEnabled: true,
   weekdayOT: 1.5,
   weekendOT: 2,
@@ -36,11 +37,11 @@ const v1State = {
 };
 
 describe('存储升级', () => {
-  it('导入 v0.1 备份时补齐 v0.2 默认值', () => {
+  it('导入 v0.1 备份时补齐 v0.2 / v0.3 默认值', () => {
     const imported = validateImport(
       JSON.stringify({ app: 'xinshi', version: 1, data: v1State }),
     );
-    expect(imported.version).toBe(2);
+    expect(imported.version).toBe(3);
     expect(imported.settings.theme).toBe('system');
     expect(imported.settings.reminder).toEqual({ enabled: false, time: '21:00' });
     expect(imported.activeTimer).toBeNull();
@@ -59,10 +60,37 @@ describe('存储升级', () => {
       activeTimer: { jobId: 'job-1', startedAt: '2026-11-04T00:00:00.000Z' },
     };
     const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 2, data: v2 }));
+    expect(imported.version).toBe(3);
     expect(imported.settings.theme).toBe('dark');
     expect(imported.settings.weekStartsOn).toBe(0);
     expect(imported.settings.reminder).toEqual({ enabled: true, time: '08:15' });
     expect(imported.activeTimer?.jobId).toBe('job-1');
+  });
+
+  it('旧工记补齐 quantity / unitLabel 默认值', () => {
+    const legacyEntry = {
+      id: 'entry-1',
+      jobId: 'job-1',
+      date: '2026-11-04',
+      breakMinutes: 0,
+      hours: 8,
+      otHours: 0,
+      bonus: 0,
+      deduction: 0,
+      holiday: false,
+      rule: { ...rule, unitLabel: undefined },
+      createdAt: '2026-11-04T12:00:00.000Z',
+      updatedAt: '2026-11-04T12:00:00.000Z',
+    };
+    const v2 = {
+      ...v1State,
+      version: 2,
+      settings: { weekStartsOn: 1, theme: 'system', reminder: { enabled: false, time: '21:00' } },
+      entries: [legacyEntry],
+    };
+    const imported = validateImport(JSON.stringify(v2));
+    expect(imported.entries[0].quantity).toBe(0);
+    expect(imported.entries[0].rule.unitLabel).toBe('件');
   });
 
   it('计时器引用已删除或已归档的工作时丢弃', () => {
@@ -76,7 +104,7 @@ describe('存储升级', () => {
     expect(imported.activeTimer).toBeNull();
   });
 
-  it('导出的备份使用 v2 并携带当前状态', () => {
+  it('导出的备份使用 v3 并携带当前状态', () => {
     const state: AppState = {
       ...createEmptyState('导出测试'),
       jobs: [job],
@@ -84,15 +112,15 @@ describe('存储升级', () => {
     };
     const payload = JSON.parse(buildExportPayload(state));
     expect(payload.app).toBe('xinshi');
-    expect(payload.version).toBe(2);
-    expect(payload.data.version).toBe(2);
+    expect(payload.version).toBe(3);
+    expect(payload.data.version).toBe(3);
     expect(payload.data.jobs[0].name).toBe('旧账本工作');
   });
 
   it('拒绝未来版本与坏 JSON', () => {
     expect(() => validateImport('{')).toThrow('文件不是有效的 JSON');
     expect(() =>
-      validateImport(JSON.stringify({ app: 'xinshi', version: 3, data: v1State })),
+      validateImport(JSON.stringify({ app: 'xinshi', version: 4, data: v1State })),
     ).toThrow('更新版本');
   });
 });

@@ -7,6 +7,11 @@ import { JobDot } from './JobDot';
 import { Money } from './Money';
 
 export function entryMeta(entry: Entry): string {
+  if (entry.rule.payType === 'piece') {
+    return `${formatHours(entry.quantity)} ${entry.rule.unitLabel || '件'}${
+      entry.hours > 0 ? ` · ${formatHours(entry.hours)}h` : ''
+    }`;
+  }
   if (entry.startTime && entry.endTime) {
     const overnight = entry.endTime < entry.startTime;
     return `${formatTimeRange(entry.startTime, entry.endTime)}${overnight ? ' 次日' : ''} · ${formatHours(entry.hours)}h`;
@@ -53,6 +58,7 @@ export function EntryRow({ entry, job, onClick, showDate = false }: EntryRowProp
       <span className="entry-row-amount">
         <Money value={pay.total} />
         {entry.rule.payType === 'monthly' ? <small>月薪折算</small> : null}
+        {entry.rule.payType === 'piece' ? <small>计件</small> : null}
         {settled ? <small className="settled-label">已结算</small> : null}
       </span>
     </button>

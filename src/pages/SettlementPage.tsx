@@ -69,6 +69,7 @@ function AmountRow({
 
 function SettleEntryRow({ entry }: { entry: Entry }) {
   const pay = payForEntry(entry);
+  const isPiece = entry.rule.payType === 'piece';
   return (
     <div className="settle-entry-row">
       <span className="settle-entry-date">
@@ -76,14 +77,21 @@ function SettleEntryRow({ entry }: { entry: Entry }) {
         <em>{weekdayCN(entry.date)}</em>
       </span>
       <span className="settle-entry-meta">
-        {formatHours(entry.hours)}h
+        {isPiece
+          ? `${formatHours(entry.quantity)} ${entry.rule.unitLabel || '件'}${
+              entry.hours > 0 ? ` · ${formatHours(entry.hours)}h` : ''
+            }`
+          : `${formatHours(entry.hours)}h`}
         {pay.otHours > 0 ? ` · 加班 ${formatHours(pay.otHours)}h` : ''}
-        {entry.endTime && entry.startTime && entry.endTime < entry.startTime ? ' · 次日' : ''}
+        {!isPiece && entry.endTime && entry.startTime && entry.endTime < entry.startTime
+          ? ' · 次日'
+          : ''}
         {entry.note ? ` · ${entry.note}` : ''}
       </span>
       <span className="settle-entry-amount">
         <Money value={pay.total} />
         {entry.rule.payType === 'monthly' ? <small>折算</small> : null}
+        {isPiece ? <small>计件</small> : null}
       </span>
     </div>
   );
@@ -216,18 +224,39 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           <span className="slip-label">应发净额</span>
           <Money value={draft.net} className="slip-amount" />
           <div className="slip-stats">
-            <div>
-              <span>出勤</span>
-              <strong>{draft.days} 天</strong>
-            </div>
-            <div>
-              <span>工时</span>
-              <strong>{formatHours(draft.hours)}h</strong>
-            </div>
-            <div>
-              <span>加班</span>
-              <strong>{formatHours(draft.otHours)}h</strong>
-            </div>
+            {draft.payType === 'piece' ? (
+              <>
+                <div>
+                  <span>数量</span>
+                  <strong>
+                    {formatHours(draft.quantity)} {draft.unitLabel}
+                  </strong>
+                </div>
+                <div>
+                  <span>工时</span>
+                  <strong>{formatHours(draft.hours)}h</strong>
+                </div>
+                <div>
+                  <span>出勤</span>
+                  <strong>{draft.days} 天</strong>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <span>出勤</span>
+                  <strong>{draft.days} 天</strong>
+                </div>
+                <div>
+                  <span>工时</span>
+                  <strong>{formatHours(draft.hours)}h</strong>
+                </div>
+                <div>
+                  <span>加班</span>
+                  <strong>{formatHours(draft.otHours)}h</strong>
+                </div>
+              </>
+            )}
           </div>
         </section>
 
@@ -238,13 +267,15 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           </div>
           <div className="amount-list">
             <AmountRow
-              label="基础工资"
+              label={draft.payType === 'piece' ? '计件工资' : '基础工资'}
               note={
-                job.rule.payType === 'monthly'
-                  ? `${job.rule.expectedDays} 天折算`
-                  : job.rule.payType === 'daily'
-                    ? `${draft.days} 天出勤`
-                    : '正常工时'
+                draft.payType === 'piece'
+                  ? `${formatHours(draft.quantity)} ${draft.unitLabel} × 单价`
+                  : job.rule.payType === 'monthly'
+                    ? `${job.rule.expectedDays} 天折算`
+                    : job.rule.payType === 'daily'
+                      ? `${draft.days} 天出勤`
+                      : '正常工时'
               }
               amount={draft.base}
             />
@@ -288,6 +319,9 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           )}
           {job.rule.payType === 'monthly' && draft.entries.length > 0 ? (
             <p className="calc-note">月薪明细为单日折算，结算已按整月封顶。</p>
+          ) : null}
+          {draft.payType === 'piece' && draft.entries.length > 0 ? (
+            <p className="calc-note">计件明细按每条记录的数量 × 当时单价累计。</p>
           ) : null}
         </section>
 
@@ -530,18 +564,39 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
             结算于 {formatDateTime(settlement.createdAt)}
           </div>
           <div className="slip-stats">
-            <div>
-              <span>出勤</span>
-              <strong>{settlement.days} 天</strong>
-            </div>
-            <div>
-              <span>工时</span>
-              <strong>{formatHours(settlement.hours)}h</strong>
-            </div>
-            <div>
-              <span>加班</span>
-              <strong>{formatHours(settlement.otHours)}h</strong>
-            </div>
+            {settlement.payType === 'piece' ? (
+              <>
+                <div>
+                  <span>数量</span>
+                  <strong>
+                    {formatHours(settlement.quantity ?? 0)} {settlement.unitLabel || '件'}
+                  </strong>
+                </div>
+                <div>
+                  <span>工时</span>
+                  <strong>{formatHours(settlement.hours)}h</strong>
+                </div>
+                <div>
+                  <span>出勤</span>
+                  <strong>{settlement.days} 天</strong>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <span>出勤</span>
+                  <strong>{settlement.days} 天</strong>
+                </div>
+                <div>
+                  <span>工时</span>
+                  <strong>{formatHours(settlement.hours)}h</strong>
+                </div>
+                <div>
+                  <span>加班</span>
+                  <strong>{formatHours(settlement.otHours)}h</strong>
+                </div>
+              </>
+            )}
           </div>
         </section>
 
@@ -551,7 +606,10 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
             <span>{CYCLE_LABEL[settlement.cycle]}已结</span>
           </div>
           <div className="amount-list">
-            <AmountRow label="基础工资" amount={settlement.base} />
+            <AmountRow
+              label={settlement.payType === 'piece' ? '计件工资' : '基础工资'}
+              amount={settlement.base}
+            />
             {settlement.otPay > 0 ? <AmountRow label="加班工资" amount={settlement.otPay} /> : null}
             {settlement.bonus > 0 ? <AmountRow label="工记奖金" amount={settlement.bonus} /> : null}
             {settlement.extraBonus > 0 ? (

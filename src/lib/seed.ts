@@ -7,6 +7,7 @@ function rule(overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): 
   return {
     standardHours: 8,
     expectedDays: 22,
+    unitLabel: '件',
     otEnabled: true,
     weekdayOT: 1.5,
     weekendOT: 2,
@@ -21,6 +22,7 @@ interface EntryOptions {
   start: string;
   end: string;
   breakMinutes: number;
+  quantity?: number;
   otHours?: number;
   bonus?: number;
   deduction?: number;
@@ -43,6 +45,7 @@ function makeEntry(options: EntryOptions): Entry {
     endTime: end,
     breakMinutes,
     hours,
+    quantity: options.quantity ?? 0,
     otHours,
     bonus: options.bonus ?? 0,
     deduction: options.deduction ?? 0,
@@ -87,6 +90,22 @@ export function createDemoState(): AppState {
     color: 'clay',
     rule: renovationRule,
     cycle: 'monthly',
+    archived: false,
+    createdAt,
+  };
+  const pieceRule = rule({
+    payType: 'piece',
+    rate: 1.2,
+    unitLabel: '件',
+    otEnabled: false,
+  });
+  const packing: Job = {
+    id: createId('job'),
+    name: '礼盒包装',
+    employer: '城西电商仓',
+    color: 'olive',
+    rule: pieceRule,
+    cycle: 'weekly',
     archived: false,
     createdAt,
   };
@@ -199,18 +218,36 @@ export function createDemoState(): AppState {
       breakMinutes: 60,
       otHours: 0.5,
     }),
+    makeEntry({
+      job: packing,
+      offset: 0,
+      start: '14:00',
+      end: '18:00',
+      breakMinutes: 0,
+      quantity: 150,
+      note: '节日礼盒',
+    }),
+    makeEntry({
+      job: packing,
+      offset: 2,
+      start: '13:30',
+      end: '18:30',
+      breakMinutes: 0,
+      quantity: 200,
+      note: '节日礼盒',
+    }),
   ];
 
   const advanceDate = addDays(todayISO(), -2);
   return {
-    version: 2,
+    version: 3,
     profile: { name: '李师傅', hideAmounts: false },
     settings: {
       weekStartsOn: 1,
       theme: 'system',
       reminder: { enabled: false, time: '21:00' },
     },
-    jobs: [site, sorting, renovation],
+    jobs: [site, sorting, renovation, packing],
     entries,
     advances: [
       {

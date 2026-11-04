@@ -13,13 +13,14 @@ export function otHourlyRate(rule: PayRule): number {
   const standard = rule.standardHours > 0 ? rule.standardHours : 8;
   if (rule.payType === 'hourly') return rule.rate;
   if (rule.payType === 'daily') return rule.rate / standard;
+  if (rule.payType === 'piece') return 0;
   const expectedDays = rule.expectedDays > 0 ? rule.expectedDays : 22;
   return rule.rate / expectedDays / standard;
 }
 
 /** 时薪模式下，超出标准工时的部分自动计为加班 */
 export function autoOtHours(hours: number, rule: PayRule): number {
-  if (!rule.otEnabled) return 0;
+  if (!rule.otEnabled || rule.payType === 'piece') return 0;
   const standard = rule.standardHours > 0 ? rule.standardHours : 8;
   return round2(Math.max(0, hours - standard));
 }
@@ -30,10 +31,12 @@ export function payForEntry(entry: Entry): EntryPay {
   const standard = rule.standardHours > 0 ? rule.standardHours : 8;
   const expectedDays = rule.expectedDays > 0 ? rule.expectedDays : 22;
   const hours = Math.max(0, entry.hours || 0);
+  const quantity = Math.max(0, entry.quantity || 0);
   const bonus = round2(Math.max(0, entry.bonus || 0));
   const deduction = round2(Math.max(0, entry.deduction || 0));
+  const isPiece = rule.payType === 'piece';
 
-  let otHours = rule.otEnabled ? Math.max(0, entry.otHours || 0) : 0;
+  let otHours = rule.otEnabled && !isPiece ? Math.max(0, entry.otHours || 0) : 0;
   if (rule.payType === 'hourly') {
     otHours = clamp(otHours, 0, hours);
   }
@@ -44,11 +47,17 @@ export function payForEntry(entry: Entry): EntryPay {
     base = Math.max(0, hours - otHours) * rate;
   } else if (rule.payType === 'daily') {
     base = rate;
-  } else {
+  } else if (rule.payType === 'monthly') {
     base = rate / expectedDays;
+  } else {
+    base = quantity * rate;
   }
 
-  const multiplier = rule.otEnabled ? otMultiplierFor(entry.date, entry.holiday, rule) : 1;
+  const multiplier = isPiece
+    ? 1
+    : rule.otEnabled
+      ? otMultiplierFor(entry.date, entry.holiday, rule)
+      : 1;
   const otRate = otHourlyRate(rule);
   const otPay = otHours > 0 ? otHours * otRate * multiplier : 0;
 
@@ -67,5 +76,6 @@ export function payForEntry(entry: Entry): EntryPay {
 export function payTypeName(rule: PayRule): string {
   if (rule.payType === 'hourly') return '时薪';
   if (rule.payType === 'daily') return '日薪';
-  return '月薪';
+  if (rule.payType === 'monthly') return '月薪';
+  return '计件';
 }

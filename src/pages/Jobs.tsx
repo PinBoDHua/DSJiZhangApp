@@ -38,7 +38,8 @@ export function Jobs({ onBack, onAdd, onEdit }: JobsProps) {
           </span>
           {job.employer ? <span className="job-manage-employer">{job.employer}</span> : null}
           <span className="job-manage-meta">
-            {rateLabel(job.rule.payType, job.rule.rate)} · {CYCLE_LABEL[job.cycle]} ·{' '}
+            {rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)} ·{' '}
+            {CYCLE_LABEL[job.cycle]} ·{' '}
             {job.rule.otEnabled ? `加班 ${job.rule.weekdayOT}× 起` : '不含加班费'}
           </span>
         </span>

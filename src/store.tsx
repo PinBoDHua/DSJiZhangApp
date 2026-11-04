@@ -150,7 +150,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const current = stateRef.current;
     if (current.activeTimer) return false;
     const job = current.jobs.find((item) => item.id === jobId);
-    if (!job || job.archived) return false;
+    if (!job || job.archived || job.rule.payType === 'piece') return false;
     setState((prev) => ({
       ...prev,
       activeTimer: { jobId, startedAt: nowISO() },

@@ -3,14 +3,15 @@ import { ArrowRight, Sparkles } from 'lucide-react';
 import { Logo, Wordmark } from '../components/Logo';
 import { Segmented } from '../components/Segmented';
 import { useStore } from '../store';
-import type { Cycle, PayType } from '../types';
+import type { Cycle, JobColor, PayType } from '../types';
 import { toAmount } from '../lib/money';
 import { PAY_TYPE_LABEL, PAY_TYPE_UNIT } from '../lib/meta';
 
-const COLORS: Record<PayType, 'pine' | 'amber' | 'clay'> = {
+const COLORS: Record<PayType, JobColor> = {
   hourly: 'pine',
   daily: 'amber',
   monthly: 'clay',
+  piece: 'olive',
 };
 
 export function Onboarding() {
@@ -19,6 +20,7 @@ export function Onboarding() {
   const [jobName, setJobName] = useState('');
   const [payType, setPayType] = useState<PayType>('hourly');
   const [rate, setRate] = useState('25');
+  const [unitLabel, setUnitLabel] = useState('件');
   const [cycle, setCycle] = useState<Cycle>('weekly');
   const [error, setError] = useState('');
 
@@ -45,7 +47,8 @@ export function Onboarding() {
         rate: parsedRate,
         standardHours: 8,
         expectedDays: 22,
-        otEnabled: true,
+        unitLabel: unitLabel.trim() || '件',
+        otEnabled: payType !== 'piece',
         weekdayOT: 1.5,
         weekendOT: 2,
         holidayOT: 3,
@@ -63,7 +66,7 @@ export function Onboarding() {
             <Logo size={34} light />
             <Wordmark light />
           </div>
-          <span className="onboarding-badge">v0.2 · MVP</span>
+          <span className="onboarding-badge">v0.3 · MVP</span>
         </div>
         <div className="onboarding-copy">
           <p className="onboarding-eyebrow">工时 · 薪资 · 结算</p>
@@ -80,6 +83,7 @@ export function Onboarding() {
             <span>日结</span>
             <span>周结</span>
             <span>月结</span>
+            <span>计件</span>
           </div>
         </div>
       </div>
@@ -127,7 +131,7 @@ export function Onboarding() {
                 setPayType(value);
                 if (value === 'monthly') setCycle('monthly');
               }}
-              options={(['hourly', 'daily', 'monthly'] as PayType[]).map((value) => ({
+              options={(['hourly', 'daily', 'monthly', 'piece'] as PayType[]).map((value) => ({
                 value,
                 label: PAY_TYPE_LABEL[value],
               }))}
@@ -151,9 +155,25 @@ export function Onboarding() {
                 step="0.01"
                 placeholder="0"
               />
-              <span className="money-input-suffix">/ {PAY_TYPE_UNIT[payType]}</span>
+              <span className="money-input-suffix">
+                / {payType === 'piece' ? unitLabel.trim() || '件' : PAY_TYPE_UNIT[payType]}
+              </span>
             </div>
           </label>
+
+          {payType === 'piece' ? (
+            <label className="field">
+              <span className="field-label">计件单位</span>
+              <input
+                className="text-input"
+                value={unitLabel}
+                onChange={(event) => setUnitLabel(event.target.value)}
+                placeholder="件 / 米 / 平方"
+                maxLength={8}
+              />
+              <p className="field-hint">数量按这个单位记，之后也可以修改。</p>
+            </label>
+          ) : null}
 
           <div className="field">
             <span className="field-label">什么时候结</span>

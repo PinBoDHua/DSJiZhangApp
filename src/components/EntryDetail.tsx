@@ -41,6 +41,14 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
   };
 
   const formula = () => {
+    if (entry.rule.payType === 'piece') {
+      return (
+        <>
+          {formatHours(entry.quantity)} {entry.rule.unitLabel || '件'} ×{' '}
+          <Money value={entry.rule.rate} />
+        </>
+      );
+    }
     if (entry.rule.payType === 'hourly') {
       return (
         <>
@@ -91,7 +99,14 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
                 <span>{formatTimeRange(entry.startTime, entry.endTime)}</span>
               ) : null}
               {overnight ? <span>跨天</span> : null}
-              <span>{formatHours(entry.hours)} 小时</span>
+              {entry.rule.payType === 'piece' ? (
+                <span className="is-piece">
+                  {formatHours(entry.quantity)} {entry.rule.unitLabel || '件'}
+                </span>
+              ) : null}
+              {entry.hours > 0 ? (
+                <span>{formatHours(entry.hours)} 小时</span>
+              ) : null}
               {pay.otHours > 0 ? <span className="is-ot">加班 {formatHours(pay.otHours)}h</span> : null}
               {entry.holiday ? <span className="is-holiday">法定节假日</span> : null}
             </div>
@@ -102,7 +117,11 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
             <div className="calc-card">
               <div className="calc-row">
                 <span>
-                  {entry.rule.payType === 'monthly' ? '月薪折算' : '基础工资'}
+                  {entry.rule.payType === 'monthly'
+                    ? '月薪折算'
+                    : entry.rule.payType === 'piece'
+                      ? '计件工资'
+                      : '基础工资'}
                 </span>
                 <em>{formula()}</em>
                 <strong>
@@ -141,7 +160,13 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
               ) : null}
               <div className="calc-row calc-row--total">
                 <span>合计</span>
-                <em>{entry.rule.payType === 'monthly' ? '月薪于结算时封顶' : '本笔预计'}</em>
+                <em>
+                  {entry.rule.payType === 'monthly'
+                    ? '月薪于结算时封顶'
+                    : entry.rule.payType === 'piece'
+                      ? '数量 × 单价'
+                      : '本笔预计'}
+                </em>
                 <strong>
                   <Money value={pay.total} />
                 </strong>
@@ -163,13 +188,21 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
                 <span>单价</span>
                 <b>
                   <Money value={entry.rule.rate} /> /{' '}
-                  {entry.rule.payType === 'hourly' ? '时' : entry.rule.payType === 'daily' ? '天' : '月'}
+                  {entry.rule.payType === 'piece'
+                    ? entry.rule.unitLabel || '件'
+                    : entry.rule.payType === 'hourly'
+                      ? '时'
+                      : entry.rule.payType === 'daily'
+                        ? '天'
+                        : '月'}
                 </b>
               </div>
-              <div>
-                <span>标准工时</span>
-                <b>{entry.rule.standardHours} 小时 / 天</b>
-              </div>
+              {entry.rule.payType !== 'piece' ? (
+                <div>
+                  <span>标准工时</span>
+                  <b>{entry.rule.standardHours} 小时 / 天</b>
+                </div>
+              ) : null}
               {entry.breakMinutes > 0 ? (
                 <div>
                   <span>休息</span>

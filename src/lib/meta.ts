@@ -4,18 +4,21 @@ export const PAY_TYPE_LABEL: Record<PayType, string> = {
   hourly: '时薪',
   daily: '日薪',
   monthly: '月薪',
+  piece: '计件',
 };
 
 export const PAY_TYPE_UNIT: Record<PayType, string> = {
   hourly: '小时',
   daily: '天',
   monthly: '月',
+  piece: '件',
 };
 
 export const PAY_TYPE_RATE_LABEL: Record<PayType, string> = {
   hourly: '时薪',
   daily: '日薪',
   monthly: '月薪',
+  piece: '计件单价',
 };
 
 export const CYCLE_LABEL: Record<Cycle, string> = {
@@ -51,9 +54,15 @@ export function jobColor(color: JobColor): JobColorMeta {
   return JOB_COLORS.find((item) => item.key === color) ?? JOB_COLORS[0];
 }
 
-export function rateLabel(payType: PayType, rate: number): string {
+export function rateLabel(payType: PayType, rate: number, unitLabel = '件'): string {
   const value = Number.isInteger(rate) ? rate.toString() : rate.toFixed(2).replace(/\.?0+$/, '');
-  return `¥${value}/${PAY_TYPE_UNIT[payType] === '小时' ? '时' : PAY_TYPE_UNIT[payType]}`;
+  const unit =
+    payType === 'piece'
+      ? unitLabel.trim() || '件'
+      : PAY_TYPE_UNIT[payType] === '小时'
+        ? '时'
+        : PAY_TYPE_UNIT[payType];
+  return `¥${value}/${unit}`;
 }
 
 export function cycleLabel(cycle: Cycle): string {

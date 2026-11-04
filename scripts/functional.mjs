@@ -144,7 +144,7 @@ await step('导出备份', async () => {
   await download.saveAs(backupPath);
   const payload = JSON.parse(await readFile(backupPath, 'utf8'));
   assert.equal(payload.app, 'xinshi');
-  assert.equal(payload.version, 2);
+  assert.equal(payload.version, 3);
   assert.ok(payload.data.entries.length >= 1);
   assert.ok(payload.data.settlements.length >= 1);
 });
