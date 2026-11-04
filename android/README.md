@@ -5,7 +5,7 @@
 - 包名：`com.xinshi.app`
 - 应用名：`薪时`
 - versionCode / versionName：`300` / `0.3.0`
-- minSdk 22 / targetSdk 34
+- minSdk 22 / targetSdk 34；文件导出使用 MediaStore，建议 Android 10+（API 29+）。
 - 原生能力：
   - 状态栏深绿 + 浅色图标；
   - Android 12 启动屏纸色背景 + 品牌图标；

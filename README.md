@@ -114,7 +114,7 @@ pnpm android:sync  # 构建 Web + 同步到 Android 工程
 ![Android 首页](shots/apk/02-home.png)
 
 - 测试包：`release/xinshi-v0.3.0.apk`（本机签名，未提交 Git）。
-- 包名：`com.xinshi.app`；版本：`0.3.0`；Android 5.0+。
+- 包名：`com.xinshi.app`；版本：`0.3.0`；安装支持 Android 5.0+，文件导出建议 Android 10+。
 - 导出备份 / PDF / 工资条图片会写入公共目录 **Download/Xinshi/**，不依赖分享面板。
 - 返回键优先关闭弹层 / 子页面；首页再按收起到后台。
 - 已在雷电模拟器 LDPlayer 14（Android 14 / x86_64）验证启动、示例数据、计件、加密备份保存/导入、PDF/PNG 保存和返回键。
