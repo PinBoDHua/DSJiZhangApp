@@ -523,7 +523,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>关于薪时</strong>
-              <em>v0.5.4 · 每一小时，都算数</em>
+              <em>v0.5.5 · 每一小时，都算数</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -531,7 +531,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
       </section>
 
       <p className="profile-footer">
-        薪时 XINSHI · v0.5.4
+        薪时 XINSHI · v0.5.5
         <br />
         个人记工工具，计算结果仅供参考
       </p>
@@ -577,7 +577,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
               <h3>薪时 XINSHI</h3>
               <p>每一小时，都算数。</p>
             </div>
-            <span className="about-version">v0.5.4</span>
+            <span className="about-version">v0.5.5</span>
           </div>
           <p className="about-copy">
             给小时工、日结工、周结工和月结工用的个人记工工具。记工时、算工钱、等发薪，

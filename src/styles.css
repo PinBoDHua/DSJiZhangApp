@@ -1351,6 +1351,23 @@ button.switch {
   line-height: 1.5;
 }
 
+.plan-week-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.plan-week-foot .plan-week-hint {
+  flex: 1;
+}
+
+.plan-week-batch {
+  flex: none;
+  padding-bottom: 1px;
+  font-size: 8.5px;
+}
+
 .plan-week-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -4685,6 +4702,119 @@ html[data-theme="dark"] .longterm-template {
   color: var(--muted);
   font-style: normal;
   text-align: right;
+}
+
+.batch-plan-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 12px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+}
+
+.batch-plan-summary div {
+  color: var(--primary);
+}
+
+.batch-plan-summary strong {
+  font-family: var(--font-num);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.batch-plan-summary span {
+  font-size: 10px;
+}
+
+.batch-plan-summary p {
+  color: var(--ink-soft);
+  font-size: 9.5px;
+}
+
+.batch-plan-list {
+  display: flex;
+  max-height: 46vh;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+}
+
+.batch-plan-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.batch-plan-row.is-checked {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.batch-plan-row input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.batch-plan-check {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: #f8f2e5;
+}
+
+.batch-plan-row.is-checked .batch-plan-check {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.batch-plan-date {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.batch-plan-date em {
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.batch-plan-row > strong {
+  color: var(--muted);
+  font-family: var(--font-num);
+  font-size: 11px;
+}
+
+.batch-plan-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
 }
 
 .plan-weekdays,

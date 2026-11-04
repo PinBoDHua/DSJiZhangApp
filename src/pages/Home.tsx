@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import {
   ArrowUpRight,
   BellRing,
@@ -25,6 +25,7 @@ import { TimerSheet } from '../components/TimerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { RestSheet } from '../components/RestSheet';
 import { RestPlanSheet } from '../components/RestPlanSheet';
+import { BatchPlanSheet } from '../components/BatchPlanSheet';
 import type { WorkTimer } from '../types';
 import type { TimerTimes } from '../lib/timer';
 import { buildTimerTimes } from '../lib/timer';
@@ -45,6 +46,17 @@ import { computeOutstanding, dailySeries, getSettlementOverview, sumEntries, sum
 import { backupDueText, backupIsDue } from '../lib/backupStatus';
 import { daysUntilPayday } from '../lib/payment';
 import { planStatusForJob, shortWeekday, formatWorkWeekdays } from '../lib/plan';
+import { makePlannedEntry } from '../lib/planEntries';
+
+const PLAN_JOB_KEY = 'xinshi.planJobId';
+
+function readPlanJobId(): string | undefined {
+  try {
+    return localStorage.getItem(PLAN_JOB_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 interface HomeProps {
   onAddEntry: (jobId?: string) => void;
@@ -67,13 +79,14 @@ export function Home({
   onOpenProfile,
   onFinishTimer,
 }: HomeProps) {
-  const { state, updateProfile, startTimer, clearTimer, toast } = useStore();
+  const { state, updateProfile, startTimer, clearTimer, toast, addEntry } = useStore();
   const [timerSheetOpen, setTimerSheetOpen] = useState(false);
   const [cancelTimerOpen, setCancelTimerOpen] = useState(false);
   const [restSheetOpen, setRestSheetOpen] = useState(false);
   const [restPlanOpen, setRestPlanOpen] = useState(false);
   const [restPlanJobId, setRestPlanJobId] = useState<string | undefined>();
-  const [planJobId, setPlanJobId] = useState<string | undefined>();
+  const [batchPlanOpen, setBatchPlanOpen] = useState(false);
+  const [planJobId, setPlanJobId] = useState<string | undefined>(readPlanJobId);
   const today = todayISO();
   const month = periodOf('monthly', today, state.settings.weekStartsOn);
   const monthEntries = state.entries.filter((entry) => periodContains(month, entry.date));
@@ -149,6 +162,43 @@ export function Home({
   const todayPlan = planJob
     ? planStatusForJob(planJob, today, state.entries, state.restDays)
     : 'none';
+
+  useEffect(() => {
+    if (!planJob) return;
+    try {
+      localStorage.setItem(PLAN_JOB_KEY, planJob.id);
+    } catch {
+      // 本地偏好存不下不影响排班展示。
+    }
+  }, [planJob?.id]);
+
+  const generatePlanEntries = (dates: string[]) => {
+    if (!planJob) return;
+    let added = 0;
+    let skipped = 0;
+    for (const date of dates) {
+      const input = makePlannedEntry(planJob, date);
+      if (!input) {
+        skipped += 1;
+        continue;
+      }
+      const dayHours = state.entries
+        .filter((entry) => entry.date === date)
+        .reduce((sum, entry) => sum + entry.hours, 0);
+      if (dayHours + input.hours > 24) {
+        skipped += 1;
+        continue;
+      }
+      if (addEntry(input)) added += 1;
+      else skipped += 1;
+    }
+    setBatchPlanOpen(false);
+    if (added > 0) {
+      toast(`已补记 ${added} 天${skipped > 0 ? `，跳过 ${skipped} 天` : ''}`);
+    } else {
+      toast('没有可补记的日期，可能已经记过或周期已结算', 'error');
+    }
+  };
   const todayTotals = sumEntries(todayEntries);
   const todayHasFixedMonthly = todayEntries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
@@ -500,9 +550,20 @@ export function Home({
               );
             })}
           </div>
-          <p className="plan-week-hint">
-            点「上班」日可直接补记，打开的是预填工记，仍然需要确认保存。
-          </p>
+          <div className="plan-week-foot">
+            <p className="plan-week-hint">
+              点「上班」日可直接补记，打开的是预填工记，仍然需要确认保存。
+            </p>
+            {planJob.rule.payType !== 'piece' ? (
+              <button
+                type="button"
+                className="text-link plan-week-batch"
+                onClick={() => setBatchPlanOpen(true)}
+              >
+                批量补记
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
@@ -671,6 +732,16 @@ export function Home({
         jobs={activeJobs}
         initialJobId={restPlanJobId}
         onClose={() => setRestPlanOpen(false)}
+      />
+
+      <BatchPlanSheet
+        open={batchPlanOpen}
+        job={planJob}
+        entries={state.entries}
+        restDays={state.restDays}
+        settlements={state.settlements}
+        onClose={() => setBatchPlanOpen(false)}
+        onGenerate={generatePlanEntries}
       />
 
       <ConfirmDialog
