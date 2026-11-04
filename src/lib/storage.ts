@@ -16,16 +16,17 @@ import type {
 } from '../types';
 import { JOB_COLORS } from './meta';
 import { nowISO } from './date';
+import { purgeExpiredTrash } from './trash';
 
-export const STORAGE_KEY = 'xinshi.state.v6';
-export const LEGACY_STORAGE_KEYS = ['xinshi.state.v5', 'xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
+export const STORAGE_KEY = 'xinshi.state.v7';
+export const LEGACY_STORAGE_KEYS = ['xinshi.state.v6', 'xinshi.state.v5', 'xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
 export const THEME_KEY = 'xinshi.theme';
 export const EXPORT_APP = 'xinshi';
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export function createEmptyState(name = ''): AppState {
   return {
-    version: 6,
+    version: 7,
     profile: { name, hideAmounts: false },
     settings: {
       weekStartsOn: 1,
@@ -234,6 +235,15 @@ function normalizeJob(value: unknown): Job {
   const name = asString(raw.name).trim();
   if (!id) throw new Error('工作数据缺少 ID');
   if (!name) throw new Error('存在没有名称的工作');
+  const weekdays = Array.isArray(raw.workWeekdays)
+    ? Array.from(
+        new Set(
+          raw.workWeekdays
+            .map((item) => Math.round(asNumber(item, -1)))
+            .filter((item) => item >= 0 && item <= 6),
+        ),
+      ).sort((a, b) => a - b)
+    : [];
   return {
     id,
     name,
@@ -243,6 +253,7 @@ function normalizeJob(value: unknown): Job {
     shift: normalizeShift(raw.shift),
     cycle: pick(raw.cycle, CYCLES, 'weekly'),
     archived: asBoolean(raw.archived),
+    workWeekdays: weekdays.length > 0 && weekdays.length < 7 ? weekdays : undefined,
     payday:
       raw.payday === undefined
         ? undefined
@@ -390,7 +401,7 @@ export function validateImport(text: string): AppState {
   if (wrapper && 'app' in wrapper && wrapper.app !== EXPORT_APP) {
     throw new Error('这不是薪时的备份文件');
   }
-  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 6) {
+  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 7) {
     throw new Error('备份来自更新版本的薪时，请升级后再导入');
   }
   const raw = wrapper && isRecord(wrapper.data) ? wrapper.data : parsed;
@@ -417,6 +428,7 @@ export function validateImport(text: string): AppState {
     trashedIds.add(trashed.job.id);
     trashedJobs.push(trashed);
   }
+  const activeTrash = purgeExpiredTrash(trashedJobs);
 
   const entries = entriesRaw.map((item) => normalizeEntry(item, jobMap, now));
   const restDaysRaw = raw.restDays;
@@ -444,14 +456,14 @@ export function validateImport(text: string): AppState {
   const activeTimer = normalizeTimer(raw.activeTimer, jobMap);
 
   return {
-    version: 6,
+    version: 7,
     profile: {
       name: asString(profileRaw.name),
       hideAmounts: asBoolean(profileRaw.hideAmounts),
     },
     settings: { weekStartsOn, theme, reminder },
     jobs,
-    trashedJobs,
+    trashedJobs: activeTrash,
     entries,
     restDays,
     advances,

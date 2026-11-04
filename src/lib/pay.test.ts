@@ -57,7 +57,7 @@ const advance = (overrides: Partial<Advance> & Pick<Advance, 'date'>): Advance =
 });
 
 const state = (partial: Partial<AppState>): AppState => ({
-  version: 6,
+  version: 7,
   profile: { name: '测试', hideAmounts: false },
   settings: {
     weekStartsOn: 1,

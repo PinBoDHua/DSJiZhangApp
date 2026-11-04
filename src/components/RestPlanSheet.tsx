@@ -74,9 +74,27 @@ export function RestPlanSheet({
       rest.jobId === jobId && rest.date >= period.start && rest.date <= period.end,
   ).length;
   const quota = job?.rule.restDaysPerMonth ?? 0;
+  const template = job?.workWeekdays;
+  const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六'];
+  const days = eachDay(period.start, period.end);
 
   const canPick = (date: string) =>
     date >= today && !existingRest.has(date) && !entryDates.has(date) && !settledDates.has(date);
+
+  const conflictCount = days.filter(
+    (date) => date >= today && (entryDates.has(date) || settledDates.has(date)),
+  ).length;
+  const overQuota = quota > 0 && existingCount + selected.size > quota;
+
+  const applyTemplate = () => {
+    if (!template || template.length === 0) return;
+    const next = new Set(selected);
+    for (const date of days) {
+      const weekday = new Date(`${date}T00:00:00`).getDay();
+      if (!template.includes(weekday) && canPick(date)) next.add(date);
+    }
+    setSelected(next);
+  };
 
   const toggle = (date: string) => {
     if (!canPick(date)) return;
@@ -88,7 +106,6 @@ export function RestPlanSheet({
     });
   };
 
-  const days = eachDay(period.start, period.end);
   const offset = weekdayOffset(period.start, state.settings.weekStartsOn);
   const weekdays =
     state.settings.weekStartsOn === 1 ? WEEKDAYS_MONDAY : WEEKDAYS_SUNDAY;
@@ -101,7 +118,13 @@ export function RestPlanSheet({
       if (addRestDay({ jobId: job.id, date, note: '排休计划' })) added += 1;
       else failed += 1;
     }
-    if (added > 0) toast(`已排 ${added} 天休息`);
+    if (added > 0) {
+      toast(
+        overQuota
+          ? `已排 ${added} 天休息，超过本月额度 ${quota} 天`
+          : `已排 ${added} 天休息`,
+      );
+    }
     if (failed > 0) toast(`${failed} 天没有排上，可能已有工记或周期已结算`, 'error');
     onClose();
   };
@@ -154,6 +177,17 @@ export function RestPlanSheet({
           </button>
         </div>
 
+        {template && template.length > 0 && template.length < 7 ? (
+          <div className="plan-template-row">
+            <span>
+              固定上班：{template.map((day) => `周${weekdayLabels[day]}`).join('、')}
+            </span>
+            <button type="button" className="text-link" onClick={applyTemplate}>
+              按周排班选休息日
+            </button>
+          </div>
+        ) : null}
+
         <div className="plan-weekdays">
           {weekdays.map((day) => (
             <span key={day}>{day}</span>
@@ -200,6 +234,16 @@ export function RestPlanSheet({
           </span>
           <span>已选 {selected.size} 天</span>
         </div>
+        {conflictCount > 0 || overQuota ? (
+          <div className="plan-warning">
+            {conflictCount > 0
+              ? `本月有 ${conflictCount} 天已有工记或已结算，不能排休，已自动跳过。`
+              : ''}
+            {overQuota
+              ? `已休 + 已选超过额度 ${quota} 天；仍可保存，是否扣款由超休规则决定。`
+              : ''}
+          </div>
+        ) : null}
         <p className="field-hint">
           只能选今天及以后、没有工记且未结算的日期；保存后会按「排休计划」写入休息记录。
         </p>

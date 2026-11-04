@@ -52,6 +52,8 @@ export interface Job {
   shift: ShiftTemplate;
   cycle: Cycle;
   archived: boolean;
+  /** 固定上班日（0=周日 … 6=周六）；为空表示不固定 */
+  workWeekdays?: number[];
   /** 每月发薪日 1–31，仅做提醒 */
   payday?: number;
   createdAt: string;
@@ -160,7 +162,7 @@ export interface WorkTimer {
 }
 
 export interface AppState {
-  version: 6;
+  version: 7;
   profile: Profile;
   settings: Settings;
   jobs: Job[];

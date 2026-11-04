@@ -197,7 +197,7 @@ export function createDemoState(): AppState {
     },
   ];
   return {
-    version: 6,
+    version: 7,
     profile: { name: '李师傅', hideAmounts: false },
     settings: {
       weekStartsOn: 1,

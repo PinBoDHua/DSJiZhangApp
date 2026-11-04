@@ -46,6 +46,9 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     existing?.rule.overRestDailyRate ? String(existing.rule.overRestDailyRate) : '',
   );
   const [payday, setPayday] = useState(existing?.payday ? String(existing.payday) : '');
+  const [workWeekdays, setWorkWeekdays] = useState<Set<number>>(
+    new Set(existing?.workWeekdays ?? (isTemplate ? [1, 2, 3, 4, 5, 6] : [])),
+  );
   const [standardHours, setStandardHours] = useState(
     existing ? String(existing.rule.standardHours) : isTemplate ? '6' : '8',
   );
@@ -85,6 +88,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     overRestDeduct,
     overRestDailyRate,
     payday,
+    workWeekdays: [...workWeekdays].sort((a, b) => a - b).join(','),
     standardHours,
     expectedDays,
     shiftStart,
@@ -111,6 +115,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       overRestDeduct !== initial.overRestDeduct ||
       overRestDailyRate !== initial.overRestDailyRate ||
       payday !== initial.payday ||
+      [...workWeekdays].sort((a, b) => a - b).join(',') !== initial.workWeekdays ||
       standardHours !== initial.standardHours ||
       expectedDays !== initial.expectedDays ||
       shiftStart !== initial.shiftStart ||
@@ -133,6 +138,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     overRestDeduct,
     overRestDailyRate,
     payday,
+    workWeekdays,
     standardHours,
     expectedDays,
     shiftStart,
@@ -260,6 +266,10 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       normalizedCycle === 'monthly' && payday.trim() !== ''
         ? Math.max(1, Math.min(31, Math.round(toAmount(payday))))
         : undefined;
+    const normalizedWorkWeekdays =
+      workWeekdays.size > 0 && workWeekdays.size < 7
+        ? [...workWeekdays].sort((a, b) => a - b)
+        : undefined;
     setError('');
     if (existing) {
       const next: Job = {
@@ -271,6 +281,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
         shift,
         cycle: normalizedCycle,
         payday: parsedPayday,
+        workWeekdays: normalizedWorkWeekdays,
       };
       updateJob(next);
       toast('工作设置已保存');
@@ -283,6 +294,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
         shift,
         cycle: normalizedCycle,
         payday: parsedPayday,
+        workWeekdays: normalizedWorkWeekdays,
       });
       toast('工作已创建');
     }
@@ -525,6 +537,66 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
             <p className="field-hint">
               当前在岗 {formatHours(Math.max(0, shiftHours))} 小时；新建工记时自动带入，仍可单次修改。
             </p>
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <h2>固定周排班</h2>
+          <div className="editor-card">
+            <div className="field">
+              <span className="field-label">固定上班日（选填）</span>
+              <div className="weekday-picker">
+                {[
+                  [1, '一'],
+                  [2, '二'],
+                  [3, '三'],
+                  [4, '四'],
+                  [5, '五'],
+                  [6, '六'],
+                  [0, '日'],
+                ].map(([value, label]) => {
+                  const day = Number(value);
+                  const active = workWeekdays.has(day);
+                  return (
+                    <button
+                      type="button"
+                      key={day}
+                      className={`weekday-chip ${active ? 'is-active' : ''}`}
+                      aria-pressed={active}
+                      onClick={() =>
+                        setWorkWeekdays((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(day)) next.delete(day);
+                          else next.add(day);
+                          return next;
+                        })
+                      }
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="shift-presets weekday-presets">
+                <button
+                  type="button"
+                  className="filter-chip"
+                  onClick={() => setWorkWeekdays(new Set([1, 2, 3, 4, 5, 6]))}
+                >
+                  周一至周六
+                </button>
+                <button
+                  type="button"
+                  className="filter-chip"
+                  onClick={() => setWorkWeekdays(new Set())}
+                >
+                  不固定
+                </button>
+              </div>
+              <p className="field-hint">
+                只用于批量排休：排休计划可以按这个模板自动选中休息日，不会自动记工。
+              </p>
+            </div>
           </div>
         </section>
 

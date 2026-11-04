@@ -3,6 +3,7 @@ import { RotateCcw, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
 import { formatDateShort } from '../lib/date';
 import { jobColor } from '../lib/meta';
+import { TRASH_RETENTION_DAYS, trashRemainingDays } from '../lib/trash';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EmptyState } from './EmptyState';
 import { Sheet } from './Sheet';
@@ -50,7 +51,8 @@ export function TrashSheet({ open, onClose }: TrashSheetProps) {
                     <strong>{item.job.name}</strong>
                     <em>
                       {item.job.employer ? `${item.job.employer} · ` : ''}
-                      删除于 {formatDateShort(item.deletedAt.slice(0, 10))}
+                      删除于 {formatDateShort(item.deletedAt.slice(0, 10))} · 还剩{' '}
+                      {trashRemainingDays(item.deletedAt)} 天
                     </em>
                   </span>
                   <button
@@ -84,6 +86,7 @@ export function TrashSheet({ open, onClose }: TrashSheetProps) {
           )}
           <p className="calc-note">
             有工记、借支或结算记录的工作不能删除，只能归档；归档可在工作管理里恢复。
+            回收站里的工作超过 {TRASH_RETENTION_DAYS} 天会自动清理。
           </p>
         </div>
       </Sheet>
