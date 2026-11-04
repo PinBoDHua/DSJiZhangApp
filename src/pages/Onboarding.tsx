@@ -71,7 +71,7 @@ export function Onboarding() {
             <Logo size={34} light />
             <Wordmark light />
           </div>
-          <span className="onboarding-badge">v0.5.3 · MVP</span>
+          <span className="onboarding-badge">v0.5.4 · MVP</span>
         </div>
         <div className="onboarding-copy">
           <p className="onboarding-eyebrow">工时 · 薪资 · 结算</p>

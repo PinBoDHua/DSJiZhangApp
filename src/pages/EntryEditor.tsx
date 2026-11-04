@@ -33,6 +33,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 interface EntryEditorProps {
   entryId?: string;
   initialJobId?: string;
+  initialDate?: string;
   initialTimes?: TimerTimes;
   onClose: () => void;
   onManageJobs: () => void;
@@ -43,6 +44,7 @@ type TimeMode = 'range' | 'manual';
 export function EntryEditor({
   entryId,
   initialJobId,
+  initialDate,
   initialTimes,
   onClose,
   onManageJobs,
@@ -77,7 +79,9 @@ export function EntryEditor({
       : 8;
 
   const [jobId, setJobId] = useState(preferredJobId);
-  const [date, setDate] = useState(existing?.date ?? initialTimes?.date ?? todayISO());
+  const [date, setDate] = useState(
+    existing?.date ?? initialTimes?.date ?? initialDate ?? todayISO(),
+  );
   const [timeMode, setTimeMode] = useState<TimeMode>(
     existing ? (existing.startTime && existing.endTime ? 'range' : 'manual') : 'range',
   );

@@ -30,6 +30,7 @@ interface EditorState {
   entryId?: string;
   jobId?: string;
   initialTimes?: TimerTimes;
+  date?: string;
 }
 
 export default function App() {
@@ -67,8 +68,8 @@ function AppContent() {
     return <Onboarding />;
   }
 
-  const openEntryEditor = (jobId?: string) => {
-    setEditor({ jobId });
+  const openEntryEditor = (jobId?: string, date?: string) => {
+    setEditor({ jobId, date });
   };
 
   const openEntryDetail = (entryId: string) => {
@@ -87,6 +88,7 @@ function AppContent() {
       return (
         <Home
           onAddEntry={openEntryEditor}
+          onAddEntryAt={(jobId, date) => openEntryEditor(jobId, date)}
           onOpenEntry={openEntryDetail}
           onOpenJobs={openJobs}
           onGoRecords={() => setTab('records')}
@@ -100,6 +102,7 @@ function AppContent() {
       return (
         <Records
           onAddEntry={() => openEntryEditor()}
+          onAddEntryAt={(jobId, date) => openEntryEditor(jobId, date)}
           onOpenEntry={openEntryDetail}
           onOpenJobs={openJobs}
         />
@@ -190,6 +193,7 @@ function AppContent() {
         <EntryEditor
           entryId={editor.entryId}
           initialJobId={editor.jobId}
+          initialDate={editor.date}
           initialTimes={editor.initialTimes}
           onClose={() => setEditor(null)}
           onManageJobs={onManageJobsFromEditor}

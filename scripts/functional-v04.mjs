@@ -48,7 +48,6 @@ await step('固定月薪岗位显示班次与月休设置', async () => {
   await page.getByRole('button', { name: '记一笔工' }).click();
   await page.waitForTimeout(300);
   await page.locator('.entry-sheet .job-choice').filter({ hasText: '城南工地' }).click();
-  await page.getByLabel('选择日期', { exact: true }).fill('2026-10-31');
   await page.waitForTimeout(200);
   const siteHours = page
     .locator('.entry-sheet .field')

@@ -54,11 +54,16 @@ await step('删除工记后可以从 Toast 撤销', async () => {
 });
 
 await step('取消休息后可以从 Toast 撤销', async () => {
+  const restDate = await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 2);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
   await page.getByRole('button', { name: '首页', exact: true }).click();
   await page.waitForTimeout(300);
   await page.getByRole('button', { name: '记休息' }).click();
   await page.waitForTimeout(300);
-  await page.getByLabel('休息日期', { exact: true }).fill('2026-11-01');
+  await page.getByLabel('休息日期', { exact: true }).fill(restDate);
   await page.waitForTimeout(250);
   await page.getByRole('button', { name: '取消休息' }).click();
   await page.waitForTimeout(300);
@@ -66,7 +71,7 @@ await step('取消休息后可以从 Toast 撤销', async () => {
   await page.waitForTimeout(500);
   await page.getByRole('button', { name: '记休息' }).click();
   await page.waitForTimeout(300);
-  await page.getByLabel('休息日期', { exact: true }).fill('2026-11-01');
+  await page.getByLabel('休息日期', { exact: true }).fill(restDate);
   await page.waitForTimeout(250);
   assert.equal(await page.getByRole('button', { name: '取消休息' }).count(), 1);
   await page.getByRole('button', { name: '关闭', exact: true }).click();

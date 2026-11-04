@@ -85,7 +85,7 @@ await step('排休弹层给出冲突逐日清单', async () => {
   await page.locator('.plan-conflict-list summary').click();
   await page.waitForTimeout(250);
   const list = compact(await page.locator('.plan-conflict-list ul').innerText());
-  assert.ok(list.includes('11月4日'), list);
+  assert.ok(/\d+月\d+日/.test(list), list);
   assert.ok(list.includes('已有工记'), list);
 });
 

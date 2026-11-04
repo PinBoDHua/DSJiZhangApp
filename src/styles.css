@@ -1315,6 +1315,42 @@ button.switch {
   text-align: right;
 }
 
+.plan-week-tabs {
+  display: flex;
+  gap: 5px;
+  margin: -3px 0 9px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.plan-week-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.plan-week-tabs button {
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.plan-week-tabs button.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.plan-week-hint {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 8.5px;
+  line-height: 1.5;
+}
+
 .plan-week-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1332,6 +1368,16 @@ button.switch {
   border-radius: 10px;
   background: var(--surface-2);
   color: var(--muted);
+  font: inherit;
+  cursor: default;
+}
+
+.plan-week-day.is-work {
+  cursor: pointer;
+}
+
+.plan-week-day.is-work:hover {
+  border-color: var(--primary);
 }
 
 .plan-week-day > span {

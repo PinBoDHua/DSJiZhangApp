@@ -129,7 +129,7 @@ export function createDemoState(): AppState {
   const entries: Entry[] = [
     makeEntry({
       job: site,
-      offset: 5,
+      offset: 35,
       start: '08:00',
       end: '17:00',
       breakMinutes: 60,
@@ -137,7 +137,7 @@ export function createDemoState(): AppState {
     }),
     makeEntry({
       job: site,
-      offset: 4,
+      offset: 34,
       start: '08:00',
       end: '16:00',
       breakMinutes: 60,
@@ -146,7 +146,7 @@ export function createDemoState(): AppState {
     }),
     makeEntry({
       job: sorting,
-      offset: 6,
+      offset: 36,
       start: '19:30',
       end: '04:30',
       breakMinutes: 30,
@@ -154,7 +154,7 @@ export function createDemoState(): AppState {
     }),
     makeEntry({
       job: packing,
-      offset: 7,
+      offset: 37,
       start: '14:00',
       end: '18:00',
       breakMinutes: 0,

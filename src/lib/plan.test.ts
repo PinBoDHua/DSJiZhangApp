@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Entry, Job, RestDay } from '../types';
-import { plannedWorkDates, planStatusForJob, shortWeekday, weekdayOf } from './plan';
+import { plannedWorkDates, planStatusForJob, shortWeekday, weekdayOf, formatWorkWeekdays } from './plan';
 
 const rule = {
   payType: 'monthly' as const,
@@ -80,5 +80,12 @@ describe('固定周排班', () => {
   it('不固定上班日的工作不产生计划', () => {
     const flexible = { ...job, workWeekdays: undefined };
     expect(plannedWorkDates([flexible], [], [], '2026-11-01', '2026-11-30')).toEqual([]);
+  });
+
+  it('把固定上班日排成易读文案', () => {
+    expect(formatWorkWeekdays([1, 2, 3, 4, 5, 6])).toBe('周一至周六');
+    expect(formatWorkWeekdays([0, 1, 2, 3, 4, 5])).toBe('周日至周五');
+    expect(formatWorkWeekdays([1, 3, 5])).toBe('周一、周三、周五');
+    expect(formatWorkWeekdays([])).toBe('不固定');
   });
 });

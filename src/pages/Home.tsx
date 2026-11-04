@@ -48,6 +48,7 @@ import { planStatusForJob, shortWeekday, formatWorkWeekdays } from '../lib/plan'
 
 interface HomeProps {
   onAddEntry: (jobId?: string) => void;
+  onAddEntryAt: (jobId: string | undefined, date: string) => void;
   onOpenEntry: (entryId: string) => void;
   onOpenJobs: () => void;
   onGoRecords: () => void;
@@ -58,6 +59,7 @@ interface HomeProps {
 
 export function Home({
   onAddEntry,
+  onAddEntryAt,
   onOpenEntry,
   onOpenJobs,
   onGoRecords,
@@ -71,6 +73,7 @@ export function Home({
   const [restSheetOpen, setRestSheetOpen] = useState(false);
   const [restPlanOpen, setRestPlanOpen] = useState(false);
   const [restPlanJobId, setRestPlanJobId] = useState<string | undefined>();
+  const [planJobId, setPlanJobId] = useState<string | undefined>();
   const today = todayISO();
   const month = periodOf('monthly', today, state.settings.weekStartsOn);
   const monthEntries = state.entries.filter((entry) => periodContains(month, entry.date));
@@ -116,9 +119,10 @@ export function Home({
     .map((job) => ({ job, days: daysUntilPayday(job.payday as number, today) }))
     .filter((item) => item.days <= 3)
     .sort((a, b) => a.days - b.days)[0];
-  const planJob = activeJobs.find(
+  const planJobs = activeJobs.filter(
     (job) => job.workWeekdays && job.workWeekdays.length > 0,
   );
+  const planJob = planJobs.find((job) => job.id === planJobId) ?? planJobs[0];
   const nextPlanDays = planJob
     ? Array.from({ length: 7 }, (_, index) => {
         const date = addDays(today, index);
@@ -452,24 +456,53 @@ export function Home({
               {planJob.workWeekdays ? formatWorkWeekdays(planJob.workWeekdays) : ''}
             </span>
           </div>
+          {planJobs.length > 1 ? (
+            <div className="plan-week-tabs">
+              {planJobs.map((job) => (
+                <button
+                  type="button"
+                  key={job.id}
+                  className={job.id === planJob.id ? 'is-active' : ''}
+                  onClick={() => setPlanJobId(job.id)}
+                >
+                  {job.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="plan-week-grid">
-            {nextPlanDays.map((day) => (
-              <div
-                key={day.date}
-                className={[
-                  'plan-week-day',
-                  `is-${day.status}`,
-                  day.date === today ? 'is-today' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                <span>{shortWeekday(day.date)}</span>
-                <strong>{Number(day.date.slice(8))}</strong>
-                <em>{day.label}</em>
-              </div>
-            ))}
+            {nextPlanDays.map((day) => {
+              const canAdd = day.status === 'work';
+              return (
+                <button
+                  type="button"
+                  key={day.date}
+                  className={[
+                    'plan-week-day',
+                    `is-${day.status}`,
+                    day.date === today ? 'is-today' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  disabled={!canAdd}
+                  onClick={() => {
+                    if (canAdd) onAddEntryAt(planJob.id, day.date);
+                  }}
+                  title={canAdd ? '补记这天工记' : undefined}
+                  aria-label={`${day.date} ${day.label}${
+                    canAdd ? '，点击补记工记' : ''
+                  }`}
+                >
+                  <span>{shortWeekday(day.date)}</span>
+                  <strong>{Number(day.date.slice(8))}</strong>
+                  <em>{day.label}</em>
+                </button>
+              );
+            })}
           </div>
+          <p className="plan-week-hint">
+            点「上班」日可直接补记，打开的是预填工记，仍然需要确认保存。
+          </p>
         </section>
       ) : null}
 

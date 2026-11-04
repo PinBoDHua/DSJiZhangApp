@@ -4,7 +4,7 @@
 
 - 包名：`com.xinshi.app`
 - 应用名：`薪时`
-- versionCode / versionName：`503` / `0.5.3`
+- versionCode / versionName：`504` / `0.5.4`
 - minSdk 22 / targetSdk 34；文件导出使用 MediaStore，建议 Android 10+（API 29+）。
 - 原生能力：
   - 状态栏深绿 + 浅色图标；
@@ -62,16 +62,16 @@ gradlew.bat assembleRelease
 # 对齐 + 签名（build-tools 版本按本机调整）
 zipalign -f 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
 apksigner sign --ks keystore/xinshi-release.jks --ks-key-alias xinshi \
-  --out ../release/xinshi-v0.5.3.apk aligned.apk
-apksigner verify ../release/xinshi-v0.5.3.apk
+  --out ../release/xinshi-v0.5.4.apk aligned.apk
+apksigner verify ../release/xinshi-v0.5.4.apk
 ```
 
-当前测试包：`release/xinshi-v0.5.3.apk`（本机签名，未提交 Git）。
+当前测试包：`release/xinshi-v0.5.4.apk`（本机签名，未提交 Git）。
 
 ## 已验证环境
 
 - 雷电模拟器 LDPlayer 14，Android 14，x86_64，720×1280。
-- 启动、引导、示例数据、固定月薪、随机休息、超休扣款、收款状态、CSV 导出、工作回收站、批量排休、固定周排班、未来计划、发薪通知调度、计件、PDF/PNG/加密备份保存、加密导入、返回键均通过。
+- 启动、引导、示例数据、固定月薪、随机休息、超休扣款、收款状态、CSV 导出、工作回收站、批量排休、固定周排班、未来计划、多岗位切换、计划日补记、发薪通知调度、计件、PDF/PNG/加密备份保存、加密导入、返回键均通过。
 - 导出文件实际路径：`/sdcard/Download/Xinshi/`。
 
 ## 注意

@@ -32,6 +32,7 @@ import { sumEntries, sumEntriesCapped } from '../lib/settlement';
 
 interface RecordsProps {
   onAddEntry: () => void;
+  onAddEntryAt: (jobId: string | undefined, date: string) => void;
   onOpenEntry: (entryId: string) => void;
   onOpenJobs: () => void;
 }
@@ -44,7 +45,12 @@ function sortEntries(entries: Entry[]): Entry[] {
     .sort((a, b) => (b.startTime ?? '').localeCompare(a.startTime ?? ''));
 }
 
-export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
+export function Records({
+  onAddEntry,
+  onAddEntryAt,
+  onOpenEntry,
+  onOpenJobs,
+}: RecordsProps) {
   const { state } = useStore();
   const today = todayISO();
   const currentMonthStart = `${today.slice(0, 7)}-01`;
@@ -376,7 +382,11 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
                 <button
                   type="button"
                   className="btn btn--soft btn--sm"
-                  onClick={state.jobs.length === 0 ? onOpenJobs : onAddEntry}
+                  onClick={
+                    state.jobs.length === 0
+                      ? onOpenJobs
+                      : () => onAddEntryAt(selectedPlanJob?.id, selectedDate)
+                  }
                 >
                   {state.jobs.length === 0 ? '新建工作' : '补记一笔'}
                 </button>
