@@ -8,7 +8,7 @@
 >
 > **v0.2 升级已完成**：打卡计时、日历、提醒、工资条图片、深色模式，见 [PLAN-v0.2](PLAN-v0.2.md)。
 >
-> **v0.3 本地增强已完成**：计件工资、PDF 对账单、加密备份、备份提醒，见 [PLAN-v0.3](PLAN-v0.3.md)。账号与云同步需要后端，设计见 [CLOUD-SYNC](CLOUD-SYNC.md)，列入 v0.4。
+> **v0.3 本地增强已完成**：计件工资、PDF 对账单、加密备份、备份提醒，见 [PLAN-v0.3](PLAN-v0.3.md)；并提供 Capacitor Android APK。账号与云同步需要后端，设计见 [CLOUD-SYNC](CLOUD-SYNC.md)，列入 v0.4。
 
 ---
 

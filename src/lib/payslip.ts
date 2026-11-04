@@ -1,6 +1,7 @@
 import type { Settlement } from '../types';
 import { formatDateTime } from './date';
 import { formatMoney, splitMoney } from './money';
+import { saveBlobFile } from './native';
 
 const FONT = '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
 const W = 1080;
@@ -346,7 +347,10 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /** 把工资条 PNG 放进一张 1080×1440 的 PDF，方便打印 / 归档。 */
-export async function downloadPayslipPdf(blob: Blob, settlement: Settlement): Promise<void> {
+export async function downloadPayslipPdf(
+  blob: Blob,
+  settlement: Settlement,
+): Promise<'web' | 'native'> {
   const [{ jsPDF }, dataUrl] = await Promise.all([import('jspdf'), blobToDataUrl(blob)]);
   const pdf = new jsPDF({
     orientation: 'portrait',
@@ -355,5 +359,5 @@ export async function downloadPayslipPdf(blob: Blob, settlement: Settlement): Pr
     compress: true,
   });
   pdf.addImage(dataUrl, 'PNG', 0, 0, 1080, 1440, undefined, 'FAST');
-  pdf.save(payslipPdfFileName(settlement));
+  return saveBlobFile(pdf.output('blob'), payslipPdfFileName(settlement));
 }

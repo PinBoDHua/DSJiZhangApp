@@ -30,7 +30,6 @@ import {
 } from '../lib/reminder';
 import {
   buildExportPayload,
-  downloadText,
   validateImport,
 } from '../lib/storage';
 import { decryptBackup, encryptBackup, isEncryptedBackup } from '../lib/backup';
@@ -38,6 +37,7 @@ import {
   getLastBackupAt,
   markBackedUp,
 } from '../lib/backupStatus';
+import { isNativeApp, saveTextFile } from '../lib/native';
 
 interface ProfileProps {
   onOpenJobs: () => void;
@@ -78,11 +78,22 @@ export function Profile({ onOpenJobs }: ProfileProps) {
     toast('称呼已更新');
   };
 
-  const handleExport = () => {
-    downloadText(`薪时备份-${todayISO()}.json`, buildExportPayload(state));
-    markBackedUp();
-    setBackupAt(getLastBackupAt());
-    toast('备份已导出，请保存好文件');
+  const handleExport = async () => {
+    try {
+      const result = await saveTextFile(
+        `薪时备份-${todayISO()}.json`,
+        buildExportPayload(state),
+      );
+      markBackedUp();
+      setBackupAt(getLastBackupAt());
+      toast(
+        result === 'native'
+          ? '备份已保存到「下载/Xinshi」'
+          : '备份已导出，请保存好文件',
+      );
+    } catch {
+      toast('导出失败，请稍后再试', 'error');
+    }
   };
 
   const exportEncrypted = async () => {
@@ -98,13 +109,17 @@ export function Profile({ onOpenJobs }: ProfileProps) {
     setExportError('');
     try {
       const text = await encryptBackup(state, exportPassword);
-      downloadText(`薪时加密备份-${todayISO()}.json`, text);
+      const result = await saveTextFile(`薪时加密备份-${todayISO()}.json`, text);
       markBackedUp();
       setBackupAt(getLastBackupAt());
       setExportOpen(false);
       setExportPassword('');
       setExportPasswordConfirm('');
-      toast('加密备份已导出，请记住密码');
+      toast(
+        result === 'native'
+          ? '加密备份已保存到「下载/Xinshi」'
+          : '加密备份已导出，请记住密码',
+      );
     } catch (error) {
       setExportError(error instanceof Error ? error.message : '加密导出失败');
     } finally {
@@ -451,7 +466,11 @@ export function Profile({ onOpenJobs }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>导出加密备份</strong>
-              <em>设置密码，文件内容全程加密</em>
+              <em>
+                {isNativeApp()
+                  ? '设置密码，生成后保存到系统下载目录'
+                  : '设置密码，文件内容全程加密'}
+              </em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>

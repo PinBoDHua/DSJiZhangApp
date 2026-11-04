@@ -17,6 +17,7 @@ import type { TimerTimes } from './lib/timer';
 import { useTheme } from './hooks/useTheme';
 import { useReminder } from './hooks/useReminder';
 import { todayISO } from './lib/date';
+import { pushNativeBack } from './lib/nativeBack';
 
 type Page =
   | { type: 'jobs' }
@@ -51,6 +52,11 @@ function AppContent() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [tab, state.onboardingDone]);
+
+  useEffect(() => {
+    if (!page) return;
+    return pushNativeBack(() => setPage(null));
+  }, [page]);
 
   if (!state.onboardingDone) {
     return <Onboarding />;

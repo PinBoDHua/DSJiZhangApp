@@ -1,6 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TriangleAlert } from 'lucide-react';
+import { pushNativeBack } from '../lib/nativeBack';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -23,6 +24,14 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
+
+  useEffect(() => {
+    if (!open) return;
+    return pushNativeBack(() => cancelRef.current());
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const previous = document.body.style.overflow;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { pushNativeBack } from '../lib/nativeBack';
 
 interface SheetProps {
   open: boolean;
@@ -14,6 +15,11 @@ interface SheetProps {
 export function Sheet({ open, title, subtitle, onClose, children, className = '' }: SheetProps) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    return pushNativeBack(() => closeRef.current());
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

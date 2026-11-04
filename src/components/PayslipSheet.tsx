@@ -3,6 +3,7 @@ import { Download, FileText, Image as ImageIcon, Share2 } from 'lucide-react';
 import type { Settlement } from '../types';
 import { createPayslipBlob, downloadPayslipPdf, payslipFileName } from '../lib/payslip';
 import { formatMoney } from '../lib/money';
+import { isNativeApp, saveBlobFile } from '../lib/native';
 import { useStore } from '../store';
 import { Sheet } from './Sheet';
 
@@ -36,7 +37,8 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
         const nextFile = new File([blob], payslipFileName(settlement), { type: 'image/png' });
         setFile(nextFile);
         setShareable(
-          typeof navigator.canShare === 'function' &&
+          !isNativeApp() &&
+            typeof navigator.canShare === 'function' &&
             navigator.canShare({ files: [nextFile] }),
         );
         setLoading(false);
@@ -52,15 +54,18 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     };
   }, [settlement, accent]);
 
-  const save = () => {
-    if (!url) return;
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = payslipFileName(settlement);
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    toast('工资条已保存');
+  const save = async () => {
+    if (!blobRef.current) return;
+    try {
+      const result = await saveBlobFile(blobRef.current, payslipFileName(settlement));
+      toast(
+        result === 'native'
+          ? '图片已保存到「下载/Xinshi」'
+          : '工资条已保存',
+      );
+    } catch {
+      toast('保存失败，请稍后再试', 'error');
+    }
   };
 
   const share = async () => {
@@ -83,8 +88,8 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     if (!blobRef.current) return;
     setPdfBusy(true);
     try {
-      await downloadPayslipPdf(blobRef.current, settlement);
-      toast('PDF 已保存');
+      const result = await downloadPayslipPdf(blobRef.current, settlement);
+      toast(result === 'native' ? 'PDF 已保存到「下载/Xinshi」' : 'PDF 已保存');
     } catch {
       toast('PDF 生成失败，请稍后再试', 'error');
     } finally {
@@ -135,7 +140,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
         </button>
         <button type="button" className="btn btn--primary" onClick={save} disabled={!url}>
           <Download size={16} />
-          保存图片
+          {isNativeApp() ? '保存文件' : '保存图片'}
         </button>
       </div>
     </Sheet>

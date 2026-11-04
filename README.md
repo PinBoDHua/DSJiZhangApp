@@ -9,6 +9,8 @@
 
 v0.2 把「记」变快；**v0.3 把账算得更全、存得更稳**：计件工资、PDF 对账单、AES-GCM 加密备份、备份到期提醒。
 
+> 已封装 Android APK（Capacitor 原生壳），见 [Android APK](#android-apk)。
+
 ## v0.3 新增
 
 | 能力 | 说明 |
@@ -74,6 +76,7 @@ v0.2 把「记」变快；**v0.3 把账算得更全、存得更稳**：计件工
 - `localStorage` 整包状态，v1 / v2 → v3 自动迁移
 - Vitest 覆盖计薪、周期、结算、迁移、计时、提醒、加密
 - 手写 Service Worker + PWA Manifest
+- Capacitor 6 Android 壳（资源打进 APK，原生保存插件）
 - 深色主题通过 CSS tokens + `data-theme` + 预置脚本实现
 
 ```
@@ -98,9 +101,26 @@ pnpm preview   # 预览：http://127.0.0.1:4173
 pnpm test      # 41 个单元测试
 pnpm test:e2e  # 需先 pnpm preview，使用本机 Edge
 pnpm shots     # 重新生成 v0.3 截图（需 preview）
+pnpm android:sync  # 构建 Web + 同步到 Android 工程
 ```
 
-> 离线能力只在生产构建 + preview / 静态部署下注册 Service Worker；开发模式不注册，避免干扰 HMR。
+> 离线能力只在生产构建 + preview / 静态部署下注册 Service Worker；开发模式不注册，避免干扰 HMR。原生 APK 内不注册 Service Worker。<br>
+> Android 构建、签名与测试说明见 [android/README.md](android/README.md)。
+
+## Android APK
+
+已用 Capacitor 封装成原生 Android 壳，Web 资源内嵌，**不依赖电脑上的预览服务**。
+
+![Android 首页](shots/apk/02-home.png)
+
+- 测试包：`release/xinshi-v0.3.0.apk`（本机签名，未提交 Git）。
+- 包名：`com.xinshi.app`；版本：`0.3.0`；Android 5.0+。
+- 导出备份 / PDF / 工资条图片会写入公共目录 **Download/Xinshi/**，不依赖分享面板。
+- 返回键优先关闭弹层 / 子页面；首页再按收起到后台。
+- 已在雷电模拟器 LDPlayer 14（Android 14 / x86_64）验证启动、示例数据、计件、加密备份保存/导入、PDF/PNG 保存和返回键。
+- 构建：`pnpm build && pnpm exec cap sync android`，再用 Android Studio 或 Gradle 打开 `android/`。详见 [android/README.md](android/README.md)。
+
+更多实机截图：[原生导出](shots/apk/04-export.png)、[启动图标](shots/apk/03-launcher.png)。
 
 ## 数据版本
 
@@ -125,6 +145,7 @@ pnpm shots     # 重新生成 v0.3 截图（需 preview）
   - v0.3 新增 6：计件引导、计件记工、计件结算 + PDF、加密导出、错密码拒绝 / 正确恢复、备份到期提醒
 - PDF 文件头 `%PDF-`，约 180 KB，可正常下载。
 - 加密备份不含工作名 / 称呼明文；错密码与篡改均拒绝。
+- Android 测试包在雷电 LDPlayer 14（Android 14 / x86_64）通过：启动、示例数据、计件、加密备份保存 / 导入、PDF / PNG 保存到 `Download/Xinshi`、返回键关闭弹层。
 - 320 / 360 / 390 / 430 / 768 / 1280px 均无横向溢出。
 - 控制台错误 0；生产构建通过，产物含 Manifest、图标与 Service Worker。
 
@@ -137,13 +158,14 @@ pnpm shots     # 重新生成 v0.3 截图（需 preview）
 - **提醒**：PWA 无法可靠后台定时通知；浏览器通知需 App 打开，系统日历 `.ics` 是替代方案。
 - **计时**：同一时间只能一个，不支持暂停；超过 24 小时需人工核对。
 - **本地优先**：无账号与云同步，换设备需导出 / 导入；清浏览器数据会丢账本。
+- **Android**：测试包为本机签名，未上架应用商店；debug / release 签名不同，切换安装需先卸载。APK 内导出直接写 `Download/Xinshi`，不使用系统分享面板；导入仍走系统文件选择器。
 - **云同步未实现**：需要可托管的账号后端；方案见 [CLOUD-SYNC](docs/CLOUD-SYNC.md)，列入 v0.4。
 - **计薪结果仅供参考**，不构成劳动、税务或法律意见。
 
 ## 下一步
 
 - v0.4：可选账号与端到端加密云同步（自托管 / 托管）、可靠后台提醒。
-- 之后：PDF 文字版 / 自定义抬头、阶梯计件、微信小程序 / 原生壳、拍照水印考勤、工头多人记工。
+- 之后：PDF 文字版 / 自定义抬头、阶梯计件、微信小程序、拍照水印考勤、工头多人记工、应用商店上架。
 
 ## 说明
 
