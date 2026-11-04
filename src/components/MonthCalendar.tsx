@@ -1,0 +1,101 @@
+import type { Entry, Job, WeekStart } from '../types';
+import {
+  addDays,
+  daysInMonth,
+  parseISODate,
+  startOfWeek,
+  todayISO,
+  weekdayCN,
+} from '../lib/date';
+import { formatCompactMoney } from '../lib/money';
+import { sumEntries } from '../lib/settlement';
+import { jobColor } from '../lib/meta';
+
+interface MonthCalendarProps {
+  monthStart: string;
+  entries: Entry[];
+  jobs: Job[];
+  weekStartsOn: WeekStart;
+  selectedDate: string;
+  onSelect: (date: string) => void;
+}
+
+export function MonthCalendar({
+  monthStart,
+  entries,
+  jobs,
+  weekStartsOn,
+  selectedDate,
+  onSelect,
+}: MonthCalendarProps) {
+  const gridStart = startOfWeek(monthStart, weekStartsOn);
+  const totalDays = daysInMonth(monthStart);
+  const offset = (parseISODate(monthStart).getDay() - weekStartsOn + 7) % 7;
+  const cellsNeeded = Math.ceil((offset + totalDays) / 7) * 7;
+  const today = todayISO();
+  const byDate = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    const list = byDate.get(entry.date);
+    if (list) list.push(entry);
+    else byDate.set(entry.date, [entry]);
+  }
+  const jobMap = new Map(jobs.map((job) => [job.id, job]));
+
+  return (
+    <div className="calendar">
+      <div className="calendar-weekdays" aria-hidden="true">
+        {Array.from({ length: 7 }, (_, index) => (
+          <span key={index}>{weekdayCN(addDays(gridStart, index)).replace('周', '')}</span>
+        ))}
+      </div>
+      <div className="calendar-grid" role="group" aria-label="工记日历">
+        {Array.from({ length: cellsNeeded }, (_, index) => {
+          const date = addDays(gridStart, index);
+          const day = Number(date.slice(8));
+          const inMonth = date.slice(0, 7) === monthStart.slice(0, 7);
+          if (!inMonth) {
+            return <span className="cal-day is-out" key={date} aria-hidden="true" />;
+          }
+          const dayEntries = byDate.get(date) ?? [];
+          const totals = dayEntries.length > 0 ? sumEntries(dayEntries) : null;
+          const colors = Array.from(
+            new Set(
+              dayEntries.map((entry) => jobMap.get(entry.jobId)?.color ?? 'pine'),
+            ),
+          ).slice(0, 3);
+          const selected = date === selectedDate;
+          return (
+            <button
+              type="button"
+              key={date}
+              className={[
+                'cal-day',
+                dayEntries.length > 0 ? 'has-entry' : '',
+                date === today ? 'is-today' : '',
+                selected ? 'is-selected' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => onSelect(date)}
+              aria-pressed={selected}
+              aria-label={`${date}，${dayEntries.length} 笔工记${
+                totals ? `，${formatCompactMoney(totals.total)} 元` : ''
+              }`}
+            >
+              <span className="cal-day-num">{day}</span>
+              <span className="cal-dots">
+                {colors.map((colorKey) => (
+                  <i
+                    key={colorKey}
+                    className="cal-dot"
+                    style={{ background: jobColor(colorKey).main }}
+                  />
+                ))}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,60 @@
+import { LockKeyhole } from 'lucide-react';
+import type { Entry, Job } from '../types';
+import { formatDateShort, formatTimeRange, weekdayShort } from '../lib/date';
+import { formatHours } from '../lib/money';
+import { payForEntry } from '../lib/pay';
+import { JobDot } from './JobDot';
+import { Money } from './Money';
+
+export function entryMeta(entry: Entry): string {
+  if (entry.startTime && entry.endTime) {
+    const overnight = entry.endTime < entry.startTime;
+    return `${formatTimeRange(entry.startTime, entry.endTime)}${overnight ? ' 次日' : ''} · ${formatHours(entry.hours)}h`;
+  }
+  if (entry.rule.payType === 'hourly') return `${formatHours(entry.hours)}h`;
+  return `出勤 1 天${entry.hours > 0 ? ` · ${formatHours(entry.hours)}h` : ''}`;
+}
+
+interface EntryRowProps {
+  entry: Entry;
+  job?: Job;
+  onClick: () => void;
+  showDate?: boolean;
+}
+
+export function EntryRow({ entry, job, onClick, showDate = false }: EntryRowProps) {
+  const pay = payForEntry(entry);
+  const settled = Boolean(entry.settlementId);
+  const date = formatDateShort(entry.date);
+
+  return (
+    <button type="button" className="entry-row" onClick={onClick}>
+      {showDate ? (
+        <span className="entry-date-chip">
+          <em>{date}</em>
+          <strong>{weekdayShort(entry.date)}</strong>
+        </span>
+      ) : null}
+      <span className="entry-row-main">
+        <span className="entry-row-title">
+          <JobDot color={job?.color ?? 'pine'} size={8} />
+          <span>{job?.name ?? '未知工作'}</span>
+          {settled ? <LockKeyhole size={12} className="entry-lock" aria-label="已结算" /> : null}
+        </span>
+        <span className="entry-row-meta">
+          {entryMeta(entry)}
+          {entry.otHours > 0 ? (
+            <em className="entry-ot">
+              加班 {formatHours(pay.otHours)}h
+            </em>
+          ) : null}
+        </span>
+      </span>
+      <span className="entry-row-amount">
+        <Money value={pay.total} />
+        {entry.rule.payType === 'monthly' ? <small>月薪折算</small> : null}
+        {settled ? <small className="settled-label">已结算</small> : null}
+      </span>
+    </button>
+  );
+}
