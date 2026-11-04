@@ -57,7 +57,9 @@ export function EntryRow({ entry, job, onClick, showDate = false }: EntryRowProp
       </span>
       <span className="entry-row-amount">
         <Money value={pay.total} />
-        {entry.rule.payType === 'monthly' ? <small>月薪折算</small> : null}
+        {entry.rule.payType === 'monthly' ? (
+          <small>{entry.rule.monthlyMode === 'fixed' ? '固定月薪' : '月薪折算'}</small>
+        ) : null}
         {entry.rule.payType === 'piece' ? <small>计件</small> : null}
         {settled ? <small className="settled-label">已结算</small> : null}
       </span>

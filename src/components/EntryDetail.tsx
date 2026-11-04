@@ -118,7 +118,9 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
               <div className="calc-row">
                 <span>
                   {entry.rule.payType === 'monthly'
-                    ? '月薪折算'
+                    ? entry.rule.monthlyMode === 'fixed'
+                      ? '固定月薪 · 日折算参考'
+                      : '月薪折算'
                     : entry.rule.payType === 'piece'
                       ? '计件工资'
                       : '基础工资'}
@@ -162,7 +164,9 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
                 <span>合计</span>
                 <em>
                   {entry.rule.payType === 'monthly'
-                    ? '月薪于结算时封顶'
+                    ? entry.rule.monthlyMode === 'fixed'
+                      ? '整月固定发放'
+                      : '月薪于结算时封顶'
                     : entry.rule.payType === 'piece'
                       ? '数量 × 单价'
                       : '本笔预计'}
@@ -172,6 +176,11 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
                 </strong>
               </div>
             </div>
+            {entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed' ? (
+              <p className="calc-note">
+                固定月薪整月发放，这里只是单日折算参考；随机休息不会按天扣减。
+              </p>
+            ) : null}
           </section>
 
           {entry.note ? (

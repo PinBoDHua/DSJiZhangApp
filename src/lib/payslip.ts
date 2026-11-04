@@ -216,7 +216,12 @@ export async function createPayslipBlob(
 
   const rows: Array<{ label: string; value: number; negative?: boolean }> = [
     {
-      label: settlement.payType === 'piece' ? '计件工资' : '基础工资',
+      label:
+        settlement.payType === 'piece'
+          ? '计件工资'
+          : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
+            ? '固定月薪'
+            : '基础工资',
       value: settlement.base,
     },
     { label: '加班工资', value: settlement.otPay },
@@ -264,11 +269,17 @@ export async function createPayslipBlob(
           { label: '工时', value: `${settlement.hours} 小时` },
           { label: '出勤', value: `${settlement.days} 天` },
         ]
-      : [
-          { label: '出勤', value: `${settlement.days} 天` },
-          { label: '工时', value: `${settlement.hours} 小时` },
-          { label: '加班', value: `${settlement.otHours} 小时` },
-        ];
+      : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
+        ? [
+            { label: '出勤', value: `${settlement.days} 天` },
+            { label: '休息', value: `${settlement.restDays ?? 0} 天` },
+            { label: '工时', value: `${settlement.hours} 小时` },
+          ]
+        : [
+            { label: '出勤', value: `${settlement.days} 天` },
+            { label: '工时', value: `${settlement.hours} 小时` },
+            { label: '加班', value: `${settlement.otHours} 小时` },
+          ];
   stats.forEach((item, index) => {
     const cx = 104 + 872 * ((index + 0.5) / 3);
     ctx.textAlign = 'center';

@@ -1,4 +1,4 @@
-import type { Entry, Job, WeekStart } from '../types';
+import type { Entry, Job, RestDay, WeekStart } from '../types';
 import {
   addDays,
   daysInMonth,
@@ -14,6 +14,7 @@ import { jobColor } from '../lib/meta';
 interface MonthCalendarProps {
   monthStart: string;
   entries: Entry[];
+  restDays?: RestDay[];
   jobs: Job[];
   weekStartsOn: WeekStart;
   selectedDate: string;
@@ -23,6 +24,7 @@ interface MonthCalendarProps {
 export function MonthCalendar({
   monthStart,
   entries,
+  restDays = [],
   jobs,
   weekStartsOn,
   selectedDate,
@@ -38,6 +40,12 @@ export function MonthCalendar({
     const list = byDate.get(entry.date);
     if (list) list.push(entry);
     else byDate.set(entry.date, [entry]);
+  }
+  const restByDate = new Map<string, RestDay[]>();
+  for (const rest of restDays) {
+    const list = restByDate.get(rest.date);
+    if (list) list.push(rest);
+    else restByDate.set(rest.date, [rest]);
   }
   const jobMap = new Map(jobs.map((job) => [job.id, job]));
 
@@ -57,6 +65,7 @@ export function MonthCalendar({
             return <span className="cal-day is-out" key={date} aria-hidden="true" />;
           }
           const dayEntries = byDate.get(date) ?? [];
+          const dayRest = restByDate.get(date) ?? [];
           const totals = dayEntries.length > 0 ? sumEntries(dayEntries) : null;
           const colors = Array.from(
             new Set(
@@ -71,6 +80,7 @@ export function MonthCalendar({
               className={[
                 'cal-day',
                 dayEntries.length > 0 ? 'has-entry' : '',
+                dayRest.length > 0 ? 'has-rest' : '',
                 date === today ? 'is-today' : '',
                 selected ? 'is-selected' : '',
               ]
@@ -79,10 +89,11 @@ export function MonthCalendar({
               onClick={() => onSelect(date)}
               aria-pressed={selected}
               aria-label={`${date}，${dayEntries.length} 笔工记${
-                totals ? `，${formatCompactMoney(totals.total)} 元` : ''
-              }`}
+                dayRest.length > 0 ? `，休息 ${dayRest.length} 个岗位` : ''
+              }${totals ? `，${formatCompactMoney(totals.total)} 元` : ''}`}
             >
               <span className="cal-day-num">{day}</span>
+              {dayRest.length > 0 ? <span className="cal-rest-flag">休</span> : null}
               <span className="cal-dots">
                 {colors.map((colorKey) => (
                   <i

@@ -523,7 +523,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>关于薪时</strong>
-              <em>v0.3.0 · 每一小时，都算数</em>
+              <em>v0.4.0 · 每一小时，都算数</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -531,7 +531,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
       </section>
 
       <p className="profile-footer">
-        薪时 XINSHI · v0.3.0
+        薪时 XINSHI · v0.4.0
         <br />
         个人记工工具，计算结果仅供参考
       </p>
@@ -577,7 +577,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
               <h3>薪时 XINSHI</h3>
               <p>每一小时，都算数。</p>
             </div>
-            <span className="about-version">v0.3.0</span>
+            <span className="about-version">v0.4.0</span>
           </div>
           <p className="about-copy">
             给小时工、日结工、周结工和月结工用的个人记工工具。记工时、算工钱、等发薪，
@@ -585,10 +585,11 @@ export function Profile({ onOpenJobs }: ProfileProps) {
           </p>
           <ul className="about-list">
             <li>时薪 / 日薪 / 月薪 / 计件，四种算法</li>
+            <li>固定月薪、月休额度、随机休息留痕</li>
+            <li>默认班次模板，支持 6h + 午休 2h</li>
             <li>日结 / 周结 / 月结，逐期结算留底</li>
-            <li>上工计时、日历视图、每日提醒</li>
-            <li>工资条图片 / PDF、深色模式、离线使用</li>
-            <li>AES-GCM 加密备份，数据只存本机</li>
+            <li>计时、日历、提醒、深色模式、离线使用</li>
+            <li>工资条图片 / PDF、AES-GCM 加密备份</li>
           </ul>
           <div className="about-disclaimer">
             <strong>说明</strong>

@@ -1,4 +1,4 @@
-import type { AppState, Entry, Job, PayRule } from '../types';
+import type { AppState, Entry, Job, PayRule, RestDay } from '../types';
 import { addDays, hoursBetween, nowISO, todayISO } from './date';
 import { createId } from './id';
 import { autoOtHours } from './pay';
@@ -7,6 +7,8 @@ function rule(overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): 
   return {
     standardHours: 8,
     expectedDays: 22,
+    monthlyMode: 'prorated',
+    restDaysPerMonth: 0,
     unitLabel: '件',
     otEnabled: true,
     weekdayOT: 1.5,
@@ -61,7 +63,14 @@ export function createDemoState(): AppState {
   const createdAt = nowISO();
   const siteRule = rule({ payType: 'daily', rate: 320 });
   const sortingRule = rule({ payType: 'hourly', rate: 22 });
-  const renovationRule = rule({ payType: 'monthly', rate: 7500 });
+  const renovationRule = rule({
+    payType: 'monthly',
+    rate: 3500,
+    standardHours: 6,
+    monthlyMode: 'fixed',
+    restDaysPerMonth: 5,
+    otEnabled: false,
+  });
 
   const site: Job = {
     id: createId('job'),
@@ -69,6 +78,7 @@ export function createDemoState(): AppState {
     employer: '城南 · 三号院',
     color: 'amber',
     rule: siteRule,
+    shift: { startTime: '08:00', endTime: '18:00', breakMinutes: 60 },
     cycle: 'weekly',
     archived: false,
     createdAt,
@@ -79,6 +89,7 @@ export function createDemoState(): AppState {
     employer: '城东分拨中心',
     color: 'pine',
     rule: sortingRule,
+    shift: { startTime: '19:30', endTime: '04:30', breakMinutes: 30 },
     cycle: 'weekly',
     archived: false,
     createdAt,
@@ -89,6 +100,7 @@ export function createDemoState(): AppState {
     employer: '青禾设计',
     color: 'clay',
     rule: renovationRule,
+    shift: { startTime: '09:00', endTime: '17:00', breakMinutes: 120 },
     cycle: 'monthly',
     archived: false,
     createdAt,
@@ -105,6 +117,7 @@ export function createDemoState(): AppState {
     employer: '城西电商仓',
     color: 'olive',
     rule: pieceRule,
+    shift: { startTime: '14:00', endTime: '18:00', breakMinutes: 0 },
     cycle: 'weekly',
     archived: false,
     createdAt,
@@ -189,34 +202,17 @@ export function createDemoState(): AppState {
       job: renovation,
       offset: 0,
       start: '09:00',
-      end: '18:00',
-      breakMinutes: 60,
-      otHours: 0.5,
+      end: '17:00',
+      breakMinutes: 120,
       note: '收尾',
     }),
     makeEntry({
       job: renovation,
       offset: 1,
       start: '09:00',
-      end: '19:00',
-      breakMinutes: 60,
-      otHours: 1,
+      end: '17:00',
+      breakMinutes: 120,
       note: '水电验收',
-    }),
-    makeEntry({
-      job: renovation,
-      offset: 2,
-      start: '09:00',
-      end: '18:00',
-      breakMinutes: 60,
-    }),
-    makeEntry({
-      job: renovation,
-      offset: 3,
-      start: '09:00',
-      end: '18:30',
-      breakMinutes: 60,
-      otHours: 0.5,
     }),
     makeEntry({
       job: packing,
@@ -239,8 +235,24 @@ export function createDemoState(): AppState {
   ];
 
   const advanceDate = addDays(todayISO(), -2);
+  const restDays: RestDay[] = [
+    {
+      id: createId('rest'),
+      jobId: renovation.id,
+      date: addDays(todayISO(), -2),
+      note: '月休',
+      createdAt: `${addDays(todayISO(), -2)}T12:00:00.000Z`,
+    },
+    {
+      id: createId('rest'),
+      jobId: renovation.id,
+      date: addDays(todayISO(), -3),
+      note: '月休',
+      createdAt: `${addDays(todayISO(), -3)}T12:00:00.000Z`,
+    },
+  ];
   return {
-    version: 3,
+    version: 4,
     profile: { name: '李师傅', hideAmounts: false },
     settings: {
       weekStartsOn: 1,
@@ -249,6 +261,7 @@ export function createDemoState(): AppState {
     },
     jobs: [site, sorting, renovation, packing],
     entries,
+    restDays,
     advances: [
       {
         id: createId('advance'),

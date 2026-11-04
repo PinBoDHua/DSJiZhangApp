@@ -1,4 +1,5 @@
 export type PayType = 'hourly' | 'daily' | 'monthly' | 'piece';
+export type MonthlyMode = 'prorated' | 'fixed';
 export type Cycle = 'daily' | 'weekly' | 'monthly';
 export type WeekStart = 0 | 1;
 export type JobColor = 'pine' | 'amber' | 'clay' | 'sky' | 'plum' | 'olive';
@@ -12,6 +13,10 @@ export interface PayRule {
   standardHours: number;
   /** 月计薪天数，仅月薪使用 */
   expectedDays: number;
+  /** 月薪算法：按出勤折算 / 固定月薪 */
+  monthlyMode: MonthlyMode;
+  /** 固定月薪岗位的月休额度，仅用于统计和提示 */
+  restDaysPerMonth: number;
   /** 计件单位，例如 件 / 米 / 平方 */
   unitLabel: string;
   otEnabled: boolean;
@@ -20,14 +25,30 @@ export interface PayRule {
   holidayOT: number;
 }
 
+export interface ShiftTemplate {
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+}
+
 export interface Job {
   id: string;
   name: string;
   employer?: string;
   color: JobColor;
   rule: PayRule;
+  /** 新建工记时默认带入的班次 */
+  shift: ShiftTemplate;
   cycle: Cycle;
   archived: boolean;
+  createdAt: string;
+}
+
+export interface RestDay {
+  id: string;
+  jobId: string;
+  date: string;
+  note?: string;
   createdAt: string;
 }
 
@@ -72,8 +93,10 @@ export interface Settlement {
   periodStart: string;
   periodEnd: string;
   payType?: PayType;
+  monthlyMode?: MonthlyMode;
   quantity?: number;
   unitLabel?: string;
+  restDays?: number;
   base: number;
   otPay: number;
   bonus: number;
@@ -112,11 +135,12 @@ export interface WorkTimer {
 }
 
 export interface AppState {
-  version: 3;
+  version: 4;
   profile: Profile;
   settings: Settings;
   jobs: Job[];
   entries: Entry[];
+  restDays: RestDay[];
   advances: Advance[];
   settlements: Settlement[];
   activeTimer: WorkTimer | null;
@@ -160,8 +184,10 @@ export interface SettlementDraft {
   jobName: string;
   cycle: Cycle;
   payType: PayType;
+  monthlyMode: MonthlyMode;
   quantity: number;
   unitLabel: string;
+  restDays: number;
   period: Period;
   entries: Entry[];
   advances: Advance[];

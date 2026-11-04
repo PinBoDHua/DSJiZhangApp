@@ -5,8 +5,10 @@ import type {
   Entry,
   Job,
   JobColor,
+  MonthlyMode,
   PayRule,
   PayType,
+  RestDay,
   Settlement,
   ThemeMode,
   WorkTimer,
@@ -14,15 +16,15 @@ import type {
 import { JOB_COLORS } from './meta';
 import { nowISO } from './date';
 
-export const STORAGE_KEY = 'xinshi.state.v3';
-export const LEGACY_STORAGE_KEYS = ['xinshi.state.v2', 'xinshi.state.v1'];
+export const STORAGE_KEY = 'xinshi.state.v4';
+export const LEGACY_STORAGE_KEYS = ['xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
 export const THEME_KEY = 'xinshi.theme';
 export const EXPORT_APP = 'xinshi';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export function createEmptyState(name = ''): AppState {
   return {
-    version: 3,
+    version: 4,
     profile: { name, hideAmounts: false },
     settings: {
       weekStartsOn: 1,
@@ -31,6 +33,7 @@ export function createEmptyState(name = ''): AppState {
     },
     jobs: [],
     entries: [],
+    restDays: [],
     advances: [],
     settlements: [],
     activeTimer: null,
@@ -136,6 +139,7 @@ function requireObject(value: unknown, label: string): Raw {
 }
 
 const PAY_TYPES: PayType[] = ['hourly', 'daily', 'monthly', 'piece'];
+const MONTHLY_MODES: MonthlyMode[] = ['prorated', 'fixed'];
 const CYCLES: Cycle[] = ['daily', 'weekly', 'monthly'];
 const COLORS: JobColor[] = JOB_COLORS.map((color) => color.key);
 const THEMES: ThemeMode[] = ['system', 'light', 'dark'];
@@ -167,6 +171,11 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
   const rate = Math.max(0, asNumber(raw.rate, base?.rate ?? 0));
   const standardHours = Math.max(0.5, asNumber(raw.standardHours, base?.standardHours ?? 8));
   const expectedDays = Math.max(1, asNumber(raw.expectedDays, base?.expectedDays ?? 22));
+  const monthlyMode = pick(raw.monthlyMode, MONTHLY_MODES, base?.monthlyMode ?? 'prorated');
+  const restDaysPerMonth = Math.max(
+    0,
+    Math.min(31, Math.round(asNumber(raw.restDaysPerMonth, base?.restDaysPerMonth ?? 0))),
+  );
   const unitLabelRaw = asString(raw.unitLabel, base?.unitLabel ?? '件').trim();
   const unitLabel = (unitLabelRaw || '件').slice(0, 8);
   const weekdayOT = Math.max(1, asNumber(raw.weekdayOT, base?.weekdayOT ?? 1.5));
@@ -177,11 +186,32 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
     rate,
     standardHours,
     expectedDays,
+    monthlyMode,
+    restDaysPerMonth,
     unitLabel,
     otEnabled: asBoolean(raw.otEnabled, base?.otEnabled ?? false),
     weekdayOT,
     weekendOT,
     holidayOT,
+  };
+}
+
+function normalizeShift(value: unknown): Job['shift'] {
+  const raw = isRecord(value) ? value : {};
+  const startTime = /^\d{2}:\d{2}$/.test(asString(raw.startTime))
+    ? asString(raw.startTime)
+    : '08:00';
+  const endTime = /^\d{2}:\d{2}$/.test(asString(raw.endTime))
+    ? asString(raw.endTime)
+    : '17:00';
+  const breakMinutes = Math.max(
+    0,
+    Math.min(720, Math.round(asNumber(raw.breakMinutes, 60))),
+  );
+  return {
+    startTime: startTime === endTime ? '08:00' : startTime,
+    endTime: endTime === startTime ? '17:00' : endTime,
+    breakMinutes,
   };
 }
 
@@ -197,6 +227,7 @@ function normalizeJob(value: unknown): Job {
     employer: asString(raw.employer) || undefined,
     color: pick(raw.color, COLORS, 'pine'),
     rule: normalizeRule(raw.rule),
+    shift: normalizeShift(raw.shift),
     cycle: pick(raw.cycle, CYCLES, 'weekly'),
     archived: asBoolean(raw.archived),
     createdAt: asString(raw.createdAt, nowISO()),
@@ -249,6 +280,21 @@ function normalizeAdvance(value: unknown, jobs: Map<string, Job>, now: string): 
   };
 }
 
+function normalizeRestDay(value: unknown, jobs: Map<string, Job>, now: string): RestDay {
+  const raw = requireObject(value, '休息日数据');
+  const id = asString(raw.id);
+  const jobId = asString(raw.jobId);
+  if (!id) throw new Error('休息日数据缺少 ID');
+  if (!jobs.has(jobId)) throw new Error('休息日引用了不存在的工作');
+  return {
+    id,
+    jobId,
+    date: asDate(raw.date),
+    note: asString(raw.note) || undefined,
+    createdAt: asString(raw.createdAt, now),
+  };
+}
+
 function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string): Settlement {
   const raw = requireObject(value, '结算数据');
   const id = asString(raw.id);
@@ -264,8 +310,12 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
     periodStart: asDate(raw.periodStart),
     periodEnd: asDate(raw.periodEnd),
     payType: raw.payType ? pick(raw.payType, PAY_TYPES, job.rule.payType) : undefined,
+    monthlyMode: raw.monthlyMode
+      ? pick(raw.monthlyMode, MONTHLY_MODES, job.rule.monthlyMode)
+      : undefined,
     quantity: raw.quantity === undefined ? undefined : Math.max(0, asNumber(raw.quantity)),
     unitLabel: raw.unitLabel ? asString(raw.unitLabel) : undefined,
+    restDays: raw.restDays === undefined ? undefined : Math.max(0, asNumber(raw.restDays)),
     base: asNumber(raw.base),
     otPay: asNumber(raw.otPay),
     bonus: asNumber(raw.bonus),
@@ -295,7 +345,7 @@ export function validateImport(text: string): AppState {
   if (wrapper && 'app' in wrapper && wrapper.app !== EXPORT_APP) {
     throw new Error('这不是薪时的备份文件');
   }
-  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 3) {
+  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 4) {
     throw new Error('备份来自更新版本的薪时，请升级后再导入');
   }
   const raw = wrapper && isRecord(wrapper.data) ? wrapper.data : parsed;
@@ -315,6 +365,16 @@ export function validateImport(text: string): AppState {
   if (jobMap.size !== jobs.length) throw new Error('工作数据存在重复 ID');
 
   const entries = entriesRaw.map((item) => normalizeEntry(item, jobMap, now));
+  const restDaysRaw = raw.restDays;
+  const restDayKeys = new Set<string>();
+  const restDays: RestDay[] = [];
+  for (const item of Array.isArray(restDaysRaw) ? restDaysRaw : []) {
+    const restDay = normalizeRestDay(item, jobMap, now);
+    const key = `${restDay.jobId}|${restDay.date}`;
+    if (restDayKeys.has(key)) continue;
+    restDayKeys.add(key);
+    restDays.push(restDay);
+  }
   const advances = (Array.isArray(advancesRaw) ? advancesRaw : []).map((item) =>
     normalizeAdvance(item, jobMap, now),
   );
@@ -330,7 +390,7 @@ export function validateImport(text: string): AppState {
   const activeTimer = normalizeTimer(raw.activeTimer, jobMap);
 
   return {
-    version: 3,
+    version: 4,
     profile: {
       name: asString(profileRaw.name),
       hideAmounts: asBoolean(profileRaw.hideAmounts),
@@ -338,6 +398,7 @@ export function validateImport(text: string): AppState {
     settings: { weekStartsOn, theme, reminder },
     jobs,
     entries,
+    restDays,
     advances,
     settlements,
     activeTimer,

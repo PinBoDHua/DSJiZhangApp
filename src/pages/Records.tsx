@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, List, Plus } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Coffee,
+  List,
+  Plus,
+} from 'lucide-react';
 import { useStore } from '../store';
 import type { Entry } from '../types';
 import { EntryRow } from '../components/EntryRow';
@@ -7,6 +15,7 @@ import { EmptyState } from '../components/EmptyState';
 import { Money } from '../components/Money';
 import { JobDot } from '../components/JobDot';
 import { MonthCalendar } from '../components/MonthCalendar';
+import { RestSheet } from '../components/RestSheet';
 import {
   formatDateShort,
   formatMonthTitle,
@@ -41,6 +50,9 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
   const [jobFilter, setJobFilter] = useState<string>('all');
   const [view, setView] = useState<ViewMode>('list');
   const [selectedDate, setSelectedDate] = useState(today);
+  const [restSheetOpen, setRestSheetOpen] = useState(false);
+  const [restDate, setRestDate] = useState(today);
+  const [restJobId, setRestJobId] = useState<string | undefined>();
   const monthPeriod = useMemo(
     () => periodOf('monthly', anchor, state.settings.weekStartsOn),
     [anchor, state.settings.weekStartsOn],
@@ -49,7 +61,15 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
   const monthEntries = state.entries.filter(
     (entry) => entry.date >= monthPeriod.start && entry.date <= monthPeriod.end,
   );
-  const jobIdsInMonth = Array.from(new Set(monthEntries.map((entry) => entry.jobId)));
+  const monthRestDays = state.restDays.filter(
+    (rest) => rest.date >= monthPeriod.start && rest.date <= monthPeriod.end,
+  );
+  const jobIdsInMonth = Array.from(
+    new Set([
+      ...monthEntries.map((entry) => entry.jobId),
+      ...monthRestDays.map((rest) => rest.jobId),
+    ]),
+  );
   const filterJobs = state.jobs.filter((job) => jobIdsInMonth.includes(job.id));
   const visibleJob = filterJobs.find((job) => job.id === jobFilter);
   const effectiveFilter = jobFilter === 'all' || visibleJob ? jobFilter : 'all';
@@ -57,8 +77,13 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
     effectiveFilter === 'all'
       ? monthEntries
       : monthEntries.filter((entry) => entry.jobId === effectiveFilter);
+  const filteredRestDays =
+    effectiveFilter === 'all'
+      ? monthRestDays
+      : monthRestDays.filter((rest) => rest.jobId === effectiveFilter);
   const totals = sumEntriesCapped(filtered);
   const selectedEntries = sortEntries(filtered.filter((entry) => entry.date === selectedDate));
+  const selectedRestDays = filteredRestDays.filter((rest) => rest.date === selectedDate);
   const selectedTotals = sumEntries(selectedEntries);
 
   const groups = new Map<string, Entry[]>();
@@ -96,6 +121,23 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
     setView((current) => (current === 'list' ? 'calendar' : 'list'));
   };
 
+  const openRest = (date: string, jobId?: string) => {
+    setRestDate(date);
+    const fixedMonthlyJob = state.jobs.find(
+      (job) => !job.archived && job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed',
+    );
+    setRestJobId(
+      jobId ??
+        (effectiveFilter !== 'all'
+          ? effectiveFilter
+          : selectedRestDays[0]?.jobId ??
+            fixedMonthlyJob?.id ??
+            filterJobs[0]?.id ??
+            state.jobs[0]?.id),
+    );
+    setRestSheetOpen(true);
+  };
+
   return (
     <div className="page records-page">
       <header className="page-heading page-heading--row">
@@ -113,6 +155,22 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
           >
             {view === 'list' ? <CalendarDays size={15} /> : <List size={15} />}
             {view === 'list' ? '日历' : '列表'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm records-rest-btn"
+            onClick={() => {
+              if (state.jobs.length === 0) {
+                onOpenJobs();
+                return;
+              }
+              openRest(view === 'calendar' ? selectedDate : today);
+            }}
+            aria-label="记休息"
+            title="记休息"
+          >
+            <Coffee size={15} />
+            休息
           </button>
           <button type="button" className="btn btn--soft btn--sm records-add-btn" onClick={onAddEntry}>
             <Plus size={15} />
@@ -173,6 +231,12 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
           {totals.capAdjustment > 0 ? (
             <p className="summary-note">月薪已按整月封顶，超出部分不计入。</p>
           ) : null}
+          {filteredRestDays.length > 0 ? (
+            <p className="summary-note summary-note--rest">
+              <Coffee size={13} />
+              本月另休 {filteredRestDays.length} 天
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -205,6 +269,7 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
             <MonthCalendar
               monthStart={monthPeriod.start}
               entries={filtered}
+              restDays={filteredRestDays}
               jobs={state.jobs}
               weekStartsOn={state.settings.weekStartsOn}
               selectedDate={selectedDate}
@@ -222,10 +287,39 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
               </h2>
               <p>
                 {selectedEntries.length} 笔 · {formatHours(selectedTotals.hours)}h
+                {selectedRestDays.length > 0 ? ` · 休息 ${selectedRestDays.length} 天` : ''}
               </p>
             </div>
             <Money value={selectedTotals.total} />
           </div>
+          {selectedRestDays.length > 0 ? (
+            <div className="card rest-day-list">
+              {selectedRestDays.map((rest) => {
+                const job = state.jobs.find((item) => item.id === rest.jobId);
+                return (
+                  <div className="rest-day-row" key={rest.id}>
+                    <span className="rest-day-icon">
+                      <Coffee size={16} />
+                    </span>
+                    <div>
+                      <strong>休息</strong>
+                      <p>
+                        {job?.name ?? '工作'}
+                        {rest.note ? ` · ${rest.note}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-link"
+                      onClick={() => openRest(rest.date, rest.jobId)}
+                    >
+                      管理
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           {selectedEntries.length > 0 ? (
             <div className="card list-card">
               {selectedEntries.map((entry) => (
@@ -237,18 +331,30 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
                 />
               ))}
             </div>
-          ) : (
+          ) : selectedRestDays.length === 0 ? (
             <div className="card calendar-empty">
               <p>这天没有工记</p>
-              <button
-                type="button"
-                className="btn btn--soft btn--sm"
-                onClick={state.jobs.length === 0 ? onOpenJobs : onAddEntry}
-              >
-                {state.jobs.length === 0 ? '新建工作' : '补记一笔'}
-              </button>
+              <div className="calendar-empty-actions">
+                <button
+                  type="button"
+                  className="btn btn--soft btn--sm"
+                  onClick={state.jobs.length === 0 ? onOpenJobs : onAddEntry}
+                >
+                  {state.jobs.length === 0 ? '新建工作' : '补记一笔'}
+                </button>
+                {state.jobs.length > 0 ? (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => openRest(selectedDate)}
+                  >
+                    <Coffee size={14} />
+                    标为休息
+                  </button>
+                ) : null}
+              </div>
             </div>
-          )}
+          ) : null}
         </>
       ) : dates.length > 0 ? (
         <>
@@ -317,6 +423,14 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
           />
         </div>
       )}
+
+      <RestSheet
+        open={restSheetOpen}
+        jobs={state.jobs.filter((job) => !job.archived)}
+        initialJobId={restJobId}
+        initialDate={restDate}
+        onClose={() => setRestSheetOpen(false)}
+      />
     </div>
   );
 }

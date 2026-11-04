@@ -36,6 +36,9 @@ export function Stats({ onAddEntry }: StatsProps) {
   const entries = state.entries.filter(
     (entry) => entry.date >= period.start && entry.date <= period.end,
   );
+  const restDays = state.restDays.filter(
+    (rest) => rest.date >= period.start && rest.date <= period.end,
+  );
   const totals = mode === 'month' ? sumEntriesCapped(entries) : sumEntries(entries);
   const series = dailySeries(entries, period.start, period.end).map((point) => ({
     date: point.date,
@@ -123,7 +126,9 @@ export function Stats({ onAddEntry }: StatsProps) {
             <div className="stats-hero-orb" aria-hidden="true" />
             <div className="stats-hero-top">
               <span>本期收入</span>
-              <span className="stats-period">{entries.length} 笔工记</span>
+              <span className="stats-period">
+                {entries.length} 笔工记{restDays.length > 0 ? ` · 休 ${restDays.length} 天` : ''}
+              </span>
             </div>
             <Money value={totals.total} className="stats-amount" />
             <div className="stats-metrics">

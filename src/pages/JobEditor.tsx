@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Archive, Briefcase, Check, RotateCcw, Trash2 } from 'lucide-react';
-import type { Cycle, Job, JobColor, PayRule, PayType } from '../types';
+import { Archive, Briefcase, Check, Coffee, RotateCcw, Trash2 } from 'lucide-react';
+import type { Cycle, Job, JobColor, MonthlyMode, PayRule, PayType } from '../types';
 import { useStore } from '../store';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
@@ -8,7 +8,8 @@ import { JobDot } from '../components/JobDot';
 import { SubPage } from '../components/SubPage';
 import { Segmented } from '../components/Segmented';
 import { CYCLE_LABEL, JOB_COLORS, PAY_TYPE_LABEL, PAY_TYPE_UNIT, rateLabel } from '../lib/meta';
-import { toAmount } from '../lib/money';
+import { toAmount, formatHours } from '../lib/money';
+import { hoursBetween } from '../lib/date';
 
 interface JobEditorProps {
   jobId?: string;
@@ -25,11 +26,22 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
   const [rate, setRate] = useState(existing ? String(existing.rule.rate) : '25');
   const [unitLabel, setUnitLabel] = useState(existing?.rule.unitLabel ?? '件');
   const [cycle, setCycle] = useState<Cycle>(existing?.cycle ?? 'weekly');
+  const [monthlyMode, setMonthlyMode] = useState<MonthlyMode>(
+    existing?.rule.monthlyMode ?? 'prorated',
+  );
+  const [restDaysPerMonth, setRestDaysPerMonth] = useState(
+    existing ? String(existing.rule.restDaysPerMonth) : '5',
+  );
   const [standardHours, setStandardHours] = useState(
     existing ? String(existing.rule.standardHours) : '8',
   );
   const [expectedDays, setExpectedDays] = useState(
     existing ? String(existing.rule.expectedDays) : '22',
+  );
+  const [shiftStart, setShiftStart] = useState(existing?.shift.startTime ?? '08:00');
+  const [shiftEnd, setShiftEnd] = useState(existing?.shift.endTime ?? '17:00');
+  const [shiftBreak, setShiftBreak] = useState(
+    existing ? String(existing.shift.breakMinutes) : '60',
   );
   const [otEnabled, setOtEnabled] = useState(existing?.rule.otEnabled ?? true);
   const [weekdayOT, setWeekdayOT] = useState(
@@ -45,6 +57,8 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
     (entry) => entry.jobId === jobId && !entry.settlementId,
   ).length;
   const isPiece = payType === 'piece';
+  const isFixedMonthly = payType === 'monthly' && monthlyMode === 'fixed';
+  const shiftHours = hoursBetween(shiftStart, shiftEnd, Math.max(0, toAmount(shiftBreak, 60)));
   const timerActive = Boolean(existing && state.activeTimer?.jobId === existing.id);
   const canDelete =
     Boolean(existing) &&
@@ -64,7 +78,12 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
 
   const changePayType = (next: PayType) => {
     setPayType(next);
-    if (next === 'monthly') setCycle('monthly');
+    if (next === 'monthly') {
+      setCycle('monthly');
+      if (monthlyMode === 'fixed' && toAmount(restDaysPerMonth, 5) <= 0) {
+        setRestDaysPerMonth('5');
+      }
+    }
   };
 
   const save = () => {
@@ -89,6 +108,19 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
       setError('请填写计件单位，比如 件 / 米 / 平方');
       return;
     }
+    const parsedRestDays = Math.max(
+      0,
+      Math.min(31, Math.round(toAmount(restDaysPerMonth, 5))),
+    );
+    if (shiftStart === shiftEnd) {
+      setError('默认班次的下班时间不能和上班时间一样');
+      return;
+    }
+    const parsedBreak = Math.max(0, Math.min(720, Math.round(toAmount(shiftBreak, 0))));
+    if (hoursBetween(shiftStart, shiftEnd, parsedBreak) <= 0) {
+      setError('午休时长不能超过在岗时间');
+      return;
+    }
     const weekday = toAmount(weekdayOT, 1.5);
     const weekend = toAmount(weekendOT, 2);
     const holiday = toAmount(holidayOT, 3);
@@ -101,11 +133,18 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
       rate: parsedRate,
       standardHours: parsedStandard,
       expectedDays: parsedExpected,
+      monthlyMode: payType === 'monthly' ? monthlyMode : 'prorated',
+      restDaysPerMonth: isFixedMonthly ? parsedRestDays : 0,
       unitLabel: parsedUnit,
       otEnabled: isPiece ? false : otEnabled,
       weekdayOT: weekday,
       weekendOT: weekend,
       holidayOT: holiday,
+    };
+    const shift = {
+      startTime: shiftStart,
+      endTime: shiftEnd,
+      breakMinutes: parsedBreak,
     };
     const normalizedCycle: Cycle = payType === 'monthly' ? 'monthly' : cycle;
     setError('');
@@ -116,6 +155,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
         employer: employer.trim() || undefined,
         color,
         rule,
+        shift,
         cycle: normalizedCycle,
       };
       updateJob(next);
@@ -126,6 +166,7 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
         employer: employer.trim() || undefined,
         color,
         rule,
+        shift,
         cycle: normalizedCycle,
       });
       toast('工作已创建');
@@ -218,9 +259,15 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
               {CYCLE_LABEL[cycle]} ·{' '}
               {isPiece
                 ? '按数量计'
-                : otEnabled
-                  ? `加班 ${toAmount(weekdayOT, 1.5)}× 起`
-                  : '不含加班费'}
+                : isFixedMonthly
+                  ? `固定月薪 · 月休 ${toAmount(restDaysPerMonth, 5)} 天`
+                  : otEnabled
+                    ? `加班 ${toAmount(weekdayOT, 1.5)}× 起`
+                    : '不含加班费'}
+            </p>
+            <p className="rule-preview-shift">
+              默认 {shiftStart}–{shiftEnd} · 午休 {shiftBreak || 0} 分 · 在岗{' '}
+              {formatHours(Math.max(0, shiftHours))}h
             </p>
           </div>
         </section>
@@ -270,6 +317,84 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
                 ))}
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <h2>默认班次</h2>
+          <div className="editor-card">
+            <div className="time-grid">
+              <label className="time-box">
+                <span>上班</span>
+                <input
+                  type="time"
+                  value={shiftStart}
+                  onChange={(event) => {
+                    setShiftStart(event.target.value);
+                    if (error) setError('');
+                  }}
+                />
+              </label>
+              <span className="time-sep">→</span>
+              <label className="time-box">
+                <span>下班</span>
+                <input
+                  type="time"
+                  value={shiftEnd}
+                  onChange={(event) => {
+                    setShiftEnd(event.target.value);
+                    if (error) setError('');
+                  }}
+                />
+              </label>
+            </div>
+            <label className="field">
+              <span className="field-label">午休 / 休息</span>
+              <div className="inline-number">
+                <input
+                  type="number"
+                  min={0}
+                  max={720}
+                  step={5}
+                  value={shiftBreak}
+                  onChange={(event) => {
+                    setShiftBreak(event.target.value);
+                    if (error) setError('');
+                  }}
+                  inputMode="numeric"
+                />
+                <span>分钟</span>
+              </div>
+            </label>
+            <div className="shift-presets">
+              <button
+                type="button"
+                className="filter-chip"
+                onClick={() => {
+                  setShiftStart('09:00');
+                  setShiftEnd('17:00');
+                  setShiftBreak('120');
+                  setStandardHours('6');
+                }}
+              >
+                6h + 午休 2h
+              </button>
+              <button
+                type="button"
+                className="filter-chip"
+                onClick={() => {
+                  setShiftStart('08:00');
+                  setShiftEnd('17:00');
+                  setShiftBreak('60');
+                  setStandardHours('8');
+                }}
+              >
+                标准 8h
+              </button>
+            </div>
+            <p className="field-hint">
+              当前在岗 {formatHours(Math.max(0, shiftHours))} 小时；新建工记时自动带入，仍可单次修改。
+            </p>
           </div>
         </section>
 
@@ -339,6 +464,53 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
                 <p className="field-hint">工资按这个周期汇总，可以逐期结算。</p>
               )}
             </div>
+            {payType === 'monthly' ? (
+              <>
+                <div className="field">
+                  <span className="field-label">月薪算法</span>
+                  <Segmented
+                    value={monthlyMode}
+                    onChange={(value) => {
+                      const next = value as MonthlyMode;
+                      setMonthlyMode(next);
+                      if (next === 'fixed' && toAmount(restDaysPerMonth, 0) <= 0) {
+                        setRestDaysPerMonth('5');
+                      }
+                    }}
+                    options={[
+                      { value: 'prorated', label: '按出勤折算' },
+                      { value: 'fixed', label: '固定月薪' },
+                    ]}
+                    ariaLabel="月薪算法"
+                  />
+                  <p className="field-hint">
+                    {isFixedMonthly
+                      ? '整月固定发放，不因 4–5 天随机休息少发；超出月休的缺勤请在结算里用扣款调整。'
+                      : '按出勤天数 × 日折算，超过整月月薪时封顶。'}
+                  </p>
+                </div>
+                {isFixedMonthly ? (
+                  <label className="field">
+                    <span className="field-label">月休额度</span>
+                    <div className="inline-number">
+                      <input
+                        type="number"
+                        min={0}
+                        max={31}
+                        step={1}
+                        value={restDaysPerMonth}
+                        onChange={(event) => setRestDaysPerMonth(event.target.value)}
+                        inputMode="numeric"
+                      />
+                      <span>天 / 月</span>
+                    </div>
+                    <p className="field-hint">
+                      只用于统计「已休 / 剩余」，不会自动扣固定月薪。
+                    </p>
+                  </label>
+                ) : null}
+              </>
+            ) : null}
             {!isPiece ? (
               <>
                 <label className="field">
@@ -358,12 +530,16 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
                   <p className="field-hint">
                     {payType === 'hourly'
                       ? '超过这个时长会自动计为加班。'
-                      : '用来折算加班时薪。'}
+                      : isFixedMonthly
+                        ? '用于加班折算参考；不参与固定月薪的基础计算。'
+                        : '用来折算加班时薪。'}
                   </p>
                 </label>
                 {payType === 'monthly' ? (
                   <label className="field">
-                    <span className="field-label">月计薪天数</span>
+                    <span className="field-label">
+                      {isFixedMonthly ? '参考计薪天数' : '月计薪天数'}
+                    </span>
                     <div className="inline-number">
                       <input
                         type="number"
@@ -376,7 +552,11 @@ export function JobEditor({ jobId, onBack }: JobEditorProps) {
                       />
                       <span>天</span>
                     </div>
-                    <p className="field-hint">月薪按这个天数折算日薪，默认 22 天。</p>
+                    <p className="field-hint">
+                      {isFixedMonthly
+                        ? '仅用于单日折算参考，固定月薪按整月发放。'
+                        : '月薪按这个天数折算日薪，默认 22 天。'}
+                    </p>
                   </label>
                 ) : null}
               </>

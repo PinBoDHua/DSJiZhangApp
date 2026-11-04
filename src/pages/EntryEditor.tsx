@@ -66,6 +66,14 @@ export function EntryEditor({
         : selectableJobs[0]?.id ?? '');
   const preferredJob = state.jobs.find((job) => job.id === preferredJobId);
   const initialPayType = existing?.rule.payType ?? preferredJob?.rule.payType ?? 'hourly';
+  const initialShiftHours =
+    preferredJob && preferredJob.rule.payType === 'monthly' && preferredJob.rule.monthlyMode === 'fixed'
+      ? hoursBetween(
+          preferredJob.shift.startTime,
+          preferredJob.shift.endTime,
+          preferredJob.shift.breakMinutes,
+        )
+      : 8;
 
   const [jobId, setJobId] = useState(preferredJobId);
   const [date, setDate] = useState(existing?.date ?? initialTimes?.date ?? todayISO());
@@ -73,11 +81,16 @@ export function EntryEditor({
     existing ? (existing.startTime && existing.endTime ? 'range' : 'manual') : 'range',
   );
   const [startTime, setStartTime] = useState(
-    existing?.startTime ?? initialTimes?.startTime ?? '08:00',
+    existing?.startTime ?? initialTimes?.startTime ?? preferredJob?.shift.startTime ?? '08:00',
   );
-  const [endTime, setEndTime] = useState(existing?.endTime ?? initialTimes?.endTime ?? '17:00');
+  const [endTime, setEndTime] = useState(
+    existing?.endTime ?? initialTimes?.endTime ?? preferredJob?.shift.endTime ?? '17:00',
+  );
   const [breakMinutes, setBreakMinutes] = useState(
-    existing?.breakMinutes ?? initialTimes?.breakMinutes ?? 60,
+    existing?.breakMinutes ??
+      initialTimes?.breakMinutes ??
+      preferredJob?.shift.breakMinutes ??
+      60,
   );
   const [manualHours, setManualHours] = useState(
     existing
@@ -86,7 +99,9 @@ export function EntryEditor({
         ? String(initialTimerHours)
         : initialPayType === 'piece'
           ? '0'
-          : '8',
+          : initialPayType === 'monthly' && preferredJob?.rule.monthlyMode === 'fixed'
+            ? String(initialShiftHours)
+            : '8',
   );
   const [quantity, setQuantity] = useState(existing ? String(existing.quantity) : '');
   const [otHoursInput, setOtHoursInput] = useState(
@@ -124,6 +139,7 @@ export function EntryEditor({
   const payType = rule?.payType ?? 'hourly';
   const isHourly = payType === 'hourly';
   const isMonthly = payType === 'monthly';
+  const isFixedMonthly = isMonthly && rule?.monthlyMode === 'fixed';
   const isPiece = payType === 'piece';
   const isFixedDay = !isHourly && !isPiece;
 
@@ -188,9 +204,35 @@ export function EntryEditor({
   const chooseJob = (job: Job) => {
     setJobId(job.id);
     setError('');
+    if (!existing && !initialTimes) {
+      setStartTime(job.shift.startTime);
+      setEndTime(job.shift.endTime);
+      setBreakMinutes(job.shift.breakMinutes);
+    }
     if (!existing) {
       if (job.rule.payType === 'piece' && manualHours === '8') setManualHours('0');
-      if (job.rule.payType !== 'piece' && manualHours === '0') setManualHours('8');
+      if (
+        job.rule.payType === 'monthly' &&
+        job.rule.monthlyMode === 'fixed' &&
+        (manualHours === '8' || manualHours === '0')
+      ) {
+        setManualHours(
+          String(
+            hoursBetween(
+              job.shift.startTime,
+              job.shift.endTime,
+              job.shift.breakMinutes,
+            ),
+          ),
+        );
+      }
+      if (
+        job.rule.payType !== 'piece' &&
+        !(job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed') &&
+        manualHours === '0'
+      ) {
+        setManualHours('8');
+      }
     }
   };
 
@@ -590,7 +632,11 @@ export function EntryEditor({
                 <div>
                   <strong>出勤 1 天</strong>
                   <p>
-                    {isMonthly ? (
+                    {isFixedMonthly ? (
+                      <>
+                        固定月薪 <Money value={rule?.rate ?? 0} /> · 整月计
+                      </>
+                    ) : isMonthly ? (
                       <>
                         月薪 <Money value={rule?.rate ?? 0} /> ÷ {rule?.expectedDays ?? 22} 天折算
                       </>
@@ -600,6 +646,12 @@ export function EntryEditor({
                       </>
                     )}
                   </p>
+                  {isFixedMonthly ? (
+                    <p className="attendance-shift">
+                      默认 {startTime}–{endTime} · 午休 {breakMinutes} 分 · 在岗{' '}
+                      {formatHours(netHours)}h
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <label className="field">
@@ -616,7 +668,11 @@ export function EntryEditor({
                   />
                   <span>小时</span>
                 </div>
-                <p className="field-hint">只影响统计，不影响日薪 / 月薪。</p>
+                <p className="field-hint">
+                  {isFixedMonthly
+                    ? '默认按班次带入，只影响统计，不影响固定月薪。'
+                    : '只影响统计，不影响日薪 / 月薪。'}
+                </p>
               </label>
             </>
           )}
@@ -767,7 +823,15 @@ export function EntryEditor({
           {error ? <p className="form-error">{error}</p> : null}
           <div className="entry-footer-main">
             <div className="entry-preview">
-              <span>{isPiece ? '本笔计件' : isMonthly ? '本笔折算' : '本笔预计'}</span>
+              <span>
+                {isPiece
+                  ? '本笔计件'
+                  : isFixedMonthly
+                    ? '月薪内'
+                    : isMonthly
+                      ? '本笔折算'
+                      : '本笔预计'}
+              </span>
               <Money value={previewPay?.total ?? 0} className="entry-preview-money" />
               <p>
                 {previewPay && previewPay.otHours > 0 ? (
@@ -777,11 +841,13 @@ export function EntryEditor({
                 ) : null}
                 {isPiece
                   ? `${formatHours(quantityValue)} ${rule?.unitLabel || '件'} × 单价`
-                  : isMonthly
-                    ? '整月结算时封顶'
-                    : existing && existing.jobId === jobId
-                      ? '按记录时的单价'
-                      : '按当前单价计算'}
+                  : isFixedMonthly
+                    ? '固定月薪整月发放'
+                    : isMonthly
+                      ? '整月结算时封顶'
+                      : existing && existing.jobId === jobId
+                        ? '按记录时的单价'
+                        : '按当前单价计算'}
               </p>
             </div>
             <button

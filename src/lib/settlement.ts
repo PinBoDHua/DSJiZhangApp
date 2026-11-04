@@ -4,6 +4,7 @@ import type {
   Entry,
   Job,
   Period,
+  RestDay,
   Settlement,
   SettlementDraft,
   Totals,
@@ -113,9 +114,10 @@ export function sumEntriesCapped(entries: Entry[]): Totals {
     const expectedDays = latest.rule.expectedDays > 0 ? latest.rule.expectedDays : 22;
     const rate = Math.max(0, latest.rule.rate);
     const rawBase = (rate / expectedDays) * days;
-    const cappedBase = Math.min(rawBase, rate);
-    totals.base += round2(cappedBase);
-    totals.capAdjustment += Math.max(0, rawBase - rate);
+    const fixed = latest.rule.monthlyMode === 'fixed';
+    const paidBase = fixed ? rate : Math.min(rawBase, rate);
+    totals.base += round2(paidBase);
+    totals.capAdjustment += fixed ? 0 : Math.max(0, rawBase - rate);
     for (const entry of group) consume(entry, false);
   }
 
@@ -161,6 +163,7 @@ export function buildSettlementDraft(
   period: Period,
   extraBonus = 0,
   extraDeduction = 0,
+  restDays: RestDay[] = [],
 ): SettlementDraft {
   const jobEntries = entries
     .filter(
@@ -185,18 +188,24 @@ export function buildSettlementDraft(
   const net = round2(totals.total + safeBonus - safeDeduction - advanceTotal);
   const latestEntry = jobEntries[jobEntries.length - 1];
   const payType = latestEntry?.rule.payType ?? job.rule.payType;
+  const monthlyMode = latestEntry?.rule.monthlyMode ?? job.rule.monthlyMode;
   const unitLabel = latestEntry?.rule.unitLabel ?? job.rule.unitLabel ?? '件';
   const quantity = round2(
     jobEntries.reduce((sum, entry) => sum + (entry.quantity || 0), 0),
   );
+  const restCount = restDays.filter(
+    (rest) => rest.jobId === job.id && periodContains(period, rest.date),
+  ).length;
 
   return {
     jobId: job.id,
     jobName: job.name,
     cycle: job.cycle,
     payType,
+    monthlyMode,
     quantity,
     unitLabel,
+    restDays: restCount,
     period,
     entries: jobEntries,
     advances: includedAdvances,
@@ -299,8 +308,10 @@ export function makeSettlement(
     periodStart: draft.period.start,
     periodEnd: draft.period.end,
     payType: draft.payType,
+    monthlyMode: draft.monthlyMode,
     quantity: draft.quantity,
     unitLabel: draft.unitLabel,
+    restDays: draft.restDays,
     base: draft.base,
     otPay: draft.otPay,
     bonus: draft.bonus,
@@ -371,14 +382,20 @@ export function settlementPeriodLabel(settlement: Settlement): string {
 export function settlementCopyText(settlement: Settlement): string {
   const start = settlement.periodStart.replace(/-/g, '.');
   const end = settlement.periodEnd.replace(/-/g, '.');
+  const isFixedMonthly =
+    settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed';
   const lines = [
     '【薪时 · 结算单】',
     `工作：${settlement.jobName}`,
     `周期：${start} – ${end}`,
-    `出勤：${settlement.days} 天 · 工时：${settlement.hours} 小时${
+    `出勤：${settlement.days} 天${
+      isFixedMonthly ? ` · 休息：${settlement.restDays ?? 0} 天` : ''
+    } · 工时：${settlement.hours} 小时${
       settlement.otHours > 0 ? ` · 加班：${settlement.otHours} 小时` : ''
     }`,
-    `基础工资：${formatMoney(settlement.base, { symbol: true })}`,
+    `${isFixedMonthly ? '固定月薪' : '基础工资'}：${formatMoney(settlement.base, {
+      symbol: true,
+    })}`,
     `加班工资：${formatMoney(settlement.otPay, { symbol: true })}`,
     `奖金：${formatMoney(settlement.bonus + settlement.extraBonus, { symbol: true })}`,
     `扣款：${formatMoney(settlement.deduction + settlement.extraDeduction, { symbol: true })}`,

@@ -118,12 +118,14 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
             period,
             toAmount(extraBonus),
             toAmount(extraDeduction),
+            state.restDays,
           )
         : null,
     [
       job,
       state.entries,
       state.advances,
+      state.restDays,
       period.start,
       period.end,
       extraBonus,
@@ -241,6 +243,21 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
                   <strong>{draft.days} 天</strong>
                 </div>
               </>
+            ) : draft.payType === 'monthly' && draft.monthlyMode === 'fixed' ? (
+              <>
+                <div>
+                  <span>出勤</span>
+                  <strong>{draft.days} 天</strong>
+                </div>
+                <div>
+                  <span>休息</span>
+                  <strong>{draft.restDays} 天</strong>
+                </div>
+                <div>
+                  <span>工时</span>
+                  <strong>{formatHours(draft.hours)}h</strong>
+                </div>
+              </>
             ) : (
               <>
                 <div>
@@ -267,15 +284,23 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           </div>
           <div className="amount-list">
             <AmountRow
-              label={draft.payType === 'piece' ? '计件工资' : '基础工资'}
+              label={
+                draft.payType === 'piece'
+                  ? '计件工资'
+                  : draft.payType === 'monthly' && draft.monthlyMode === 'fixed'
+                    ? '固定月薪'
+                    : '基础工资'
+              }
               note={
                 draft.payType === 'piece'
                   ? `${formatHours(draft.quantity)} ${draft.unitLabel} × 单价`
-                  : job.rule.payType === 'monthly'
-                    ? `${job.rule.expectedDays} 天折算`
-                    : job.rule.payType === 'daily'
-                      ? `${draft.days} 天出勤`
-                      : '正常工时'
+                  : draft.payType === 'monthly' && draft.monthlyMode === 'fixed'
+                    ? `出勤 ${draft.days} 天 · 月休 ${draft.restDays} 天`
+                    : job.rule.payType === 'monthly'
+                      ? `${job.rule.expectedDays} 天折算`
+                      : job.rule.payType === 'daily'
+                        ? `${draft.days} 天出勤`
+                        : '正常工时'
               }
               amount={draft.base}
             />
@@ -318,7 +343,11 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
             <p className="empty-inline">本期没有工记。</p>
           )}
           {job.rule.payType === 'monthly' && draft.entries.length > 0 ? (
-            <p className="calc-note">月薪明细为单日折算，结算已按整月封顶。</p>
+            <p className="calc-note">
+              {draft.monthlyMode === 'fixed'
+                ? `固定月薪整月发放；上方单笔为日折算参考，实际不按出勤天数扣减。本期休息 ${draft.restDays} 天。`
+                : '月薪明细为单日折算，结算已按整月封顶。'}
+            </p>
           ) : null}
           {draft.payType === 'piece' && draft.entries.length > 0 ? (
             <p className="calc-note">计件明细按每条记录的数量 × 当时单价累计。</p>
@@ -581,6 +610,21 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
                   <strong>{settlement.days} 天</strong>
                 </div>
               </>
+            ) : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed' ? (
+              <>
+                <div>
+                  <span>出勤</span>
+                  <strong>{settlement.days} 天</strong>
+                </div>
+                <div>
+                  <span>休息</span>
+                  <strong>{settlement.restDays ?? 0} 天</strong>
+                </div>
+                <div>
+                  <span>工时</span>
+                  <strong>{formatHours(settlement.hours)}h</strong>
+                </div>
+              </>
             ) : (
               <>
                 <div>
@@ -607,7 +651,13 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
           </div>
           <div className="amount-list">
             <AmountRow
-              label={settlement.payType === 'piece' ? '计件工资' : '基础工资'}
+              label={
+                settlement.payType === 'piece'
+                  ? '计件工资'
+                  : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
+                    ? '固定月薪'
+                    : '基础工资'
+              }
               amount={settlement.base}
             />
             {settlement.otPay > 0 ? <AmountRow label="加班工资" amount={settlement.otPay} /> : null}
@@ -642,7 +692,11 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
               ))}
             </div>
             {entries.some((entry) => entry.rule.payType === 'monthly') ? (
-              <p className="calc-note">月薪明细为单日折算，结算已按整月封顶。</p>
+              <p className="calc-note">
+                {settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
+                  ? `固定月薪整月发放；上方单笔为日折算参考。本期休息 ${settlement.restDays ?? 0} 天。`
+                  : '月薪明细为单日折算，结算已按整月封顶。'}
+              </p>
             ) : null}
           </section>
         ) : null}

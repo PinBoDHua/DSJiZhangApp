@@ -47,12 +47,15 @@ export function Onboarding() {
         rate: parsedRate,
         standardHours: 8,
         expectedDays: 22,
+        monthlyMode: 'prorated',
+        restDaysPerMonth: 0,
         unitLabel: unitLabel.trim() || '件',
         otEnabled: payType !== 'piece',
         weekdayOT: 1.5,
         weekendOT: 2,
         holidayOT: 3,
       },
+      shift: { startTime: '08:00', endTime: '17:00', breakMinutes: 60 },
     });
   };
 
@@ -66,7 +69,7 @@ export function Onboarding() {
             <Logo size={34} light />
             <Wordmark light />
           </div>
-          <span className="onboarding-badge">v0.3 · MVP</span>
+          <span className="onboarding-badge">v0.4 · MVP</span>
         </div>
         <div className="onboarding-copy">
           <p className="onboarding-eyebrow">工时 · 薪资 · 结算</p>

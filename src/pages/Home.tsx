@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
+  Coffee,
   Eye,
   EyeOff,
   Plus,
@@ -21,6 +22,7 @@ import { EmptyState } from '../components/EmptyState';
 import { TimerLive } from '../components/TimerLive';
 import { TimerSheet } from '../components/TimerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { RestSheet } from '../components/RestSheet';
 import type { WorkTimer } from '../types';
 import type { TimerTimes } from '../lib/timer';
 import { buildTimerTimes } from '../lib/timer';
@@ -62,6 +64,7 @@ export function Home({
   const { state, updateProfile, startTimer, clearTimer, toast } = useStore();
   const [timerSheetOpen, setTimerSheetOpen] = useState(false);
   const [cancelTimerOpen, setCancelTimerOpen] = useState(false);
+  const [restSheetOpen, setRestSheetOpen] = useState(false);
   const today = todayISO();
   const month = periodOf('monthly', today, state.settings.weekStartsOn);
   const monthEntries = state.entries.filter((entry) => periodContains(month, entry.date));
@@ -73,6 +76,22 @@ export function Home({
   const todayEntries = state.entries
     .filter((entry) => entry.date === today)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const todayRestDays = state.restDays.filter((rest) => rest.date === today);
+  const monthRestDays = state.restDays.filter((rest) =>
+    periodContains(month, rest.date),
+  );
+  const lastUsedJobId = [...state.entries].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )[0]?.jobId;
+  const fixedMonthlyJob = activeJobs.find(
+    (job) => job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed',
+  );
+  const restJobId =
+    todayRestDays[0]?.jobId ??
+    fixedMonthlyJob?.id ??
+    (lastUsedJobId && activeJobs.some((job) => job.id === lastUsedJobId)
+      ? lastUsedJobId
+      : activeJobs[0]?.id);
   const backupDue = backupIsDue(state);
   const todayTotals = sumEntries(todayEntries);
   const recent = [...state.entries]
@@ -198,6 +217,7 @@ export function Home({
         <div className="hero-caption">
           <span>
             {formatMonthTitle(today)} · 已记 {summary.days} 天
+            {monthRestDays.length > 0 ? ` · 休 ${monthRestDays.length} 天` : ''}
           </span>
           {outstanding.net !== 0 ? (
             <button type="button" className="hero-pending" onClick={onGoSettlements}>
@@ -245,15 +265,23 @@ export function Home({
           onCancel={() => setCancelTimerOpen(true)}
         />
       ) : (
-        <section className={`today-strip ${todayEntries.length > 0 ? 'is-done' : ''}`}>
+        <section className={`today-strip ${todayEntries.length > 0 || todayRestDays.length > 0 ? 'is-done' : ''}`}>
           <span className="today-icon">
-            {todayEntries.length > 0 ? <Check size={19} strokeWidth={2.6} /> : <Sun size={20} />}
+            {todayEntries.length > 0 ? (
+              <Check size={19} strokeWidth={2.6} />
+            ) : todayRestDays.length > 0 ? (
+              <Coffee size={19} strokeWidth={2.4} />
+            ) : (
+              <Sun size={20} />
+            )}
           </span>
           <div className="today-copy">
             <h3>
               {todayEntries.length > 0
                 ? `今天已记 ${todayEntries.length} 笔`
-                : '今天还没记工'}
+                : todayRestDays.length > 0
+                  ? '今天休息'
+                  : '今天还没记工'}
             </h3>
             <p>
               {todayEntries.length > 0 ? (
@@ -261,6 +289,15 @@ export function Home({
                   {todayNames.slice(0, 2).join('、')}
                   {todayNames.length > 2 ? ` 等 ${todayNames.length} 份工作` : ''} ·{' '}
                   {formatHours(todayTotals.hours)}h · <Money value={todayTotals.total} />
+                </>
+              ) : todayRestDays.length > 0 ? (
+                <>
+                  {todayRestDays
+                    .map((rest) => activeJobs.find((job) => job.id === rest.jobId)?.name)
+                    .filter(Boolean)
+                    .join('、')}
+                  {' · '}
+                  本月已休 {monthRestDays.length} 天
                 </>
               ) : activeJobs.length > 0 ? (
                 '干完活花 10 秒记上，月底不用再翻聊天记录。'
@@ -270,7 +307,7 @@ export function Home({
             </p>
           </div>
           <div className="today-actions">
-            {timerJobs.length > 0 ? (
+            {timerJobs.length > 0 && todayRestDays.length === 0 ? (
               <button
                 type="button"
                 className="today-timer-btn"
@@ -280,6 +317,18 @@ export function Home({
               >
                 <Clock3 size={15} />
                 <span>计时</span>
+              </button>
+            ) : null}
+            {activeJobs.length > 0 ? (
+              <button
+                type="button"
+                className="today-rest-btn"
+                onClick={() => setRestSheetOpen(true)}
+                title="记休息"
+                aria-label="记休息"
+              >
+                <Coffee size={15} />
+                <span className="today-rest-text">休</span>
               </button>
             ) : null}
             <button
@@ -434,6 +483,14 @@ export function Home({
         jobs={timerJobs}
         onClose={() => setTimerSheetOpen(false)}
         onStart={beginTimer}
+      />
+
+      <RestSheet
+        open={restSheetOpen}
+        jobs={activeJobs}
+        initialJobId={restJobId}
+        initialDate={today}
+        onClose={() => setRestSheetOpen(false)}
       />
 
       <ConfirmDialog

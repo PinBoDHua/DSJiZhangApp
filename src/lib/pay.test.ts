@@ -8,6 +8,8 @@ import { formatMoney, round2 } from './money';
 const rule = (overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): PayRule => ({
   standardHours: 8,
   expectedDays: 22,
+  monthlyMode: 'prorated',
+  restDaysPerMonth: 0,
   unitLabel: '件',
   otEnabled: true,
   weekdayOT: 1.5,
@@ -20,6 +22,7 @@ const job = (overrides: Partial<Job> = {}): Job => ({
   id: 'job-1',
   name: '测试工作',
   color: 'pine',
+  shift: { startTime: '09:00', endTime: '17:00', breakMinutes: 120 },
   cycle: 'weekly',
   archived: false,
   createdAt: '2026-11-01T00:00:00.000Z',
@@ -52,7 +55,7 @@ const advance = (overrides: Partial<Advance> & Pick<Advance, 'date'>): Advance =
 });
 
 const state = (partial: Partial<AppState>): AppState => ({
-  version: 3,
+  version: 4,
   profile: { name: '测试', hideAmounts: false },
   settings: {
     weekStartsOn: 1,
@@ -61,6 +64,7 @@ const state = (partial: Partial<AppState>): AppState => ({
   },
   jobs: [job()],
   entries: [],
+  restDays: [],
   advances: [],
   settlements: [],
   activeTimer: null,
@@ -202,6 +206,75 @@ describe('月薪计算', () => {
     const totals = sumEntriesCapped(entries);
     expect(totals.base).toBe(7500);
     expect(totals.capAdjustment).toBeGreaterThan(0);
+  });
+
+  it('固定月薪按整月 3500 发放，不因随机休息少发', () => {
+    const fixedRule = rule({
+      payType: 'monthly',
+      rate: 3500,
+      standardHours: 6,
+      monthlyMode: 'fixed',
+      restDaysPerMonth: 5,
+      otEnabled: false,
+    });
+    const monthlyJob = job({ cycle: 'monthly', rule: fixedRule });
+    const entries = Array.from({ length: 20 }, (_, index) =>
+      entry({
+        date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+        hours: 6,
+        rule: fixedRule,
+      }),
+    );
+    const totals = sumEntriesCapped(entries);
+    expect(totals.base).toBe(3500);
+    expect(totals.capAdjustment).toBe(0);
+    expect(totals.days).toBe(20);
+  });
+
+  it('结算单记录固定月薪、休息天数和班次', () => {
+    const fixedRule = rule({
+      payType: 'monthly',
+      rate: 3500,
+      standardHours: 6,
+      monthlyMode: 'fixed',
+      restDaysPerMonth: 5,
+      otEnabled: false,
+    });
+    const monthlyJob = job({
+      cycle: 'monthly',
+      rule: fixedRule,
+      shift: { startTime: '09:00', endTime: '17:00', breakMinutes: 120 },
+    });
+    const period = periodOf('monthly', '2026-11-04', 1);
+    const draft = buildSettlementDraft(
+      monthlyJob,
+      [
+        entry({ date: '2026-11-02', hours: 6, rule: fixedRule }),
+        entry({ date: '2026-11-03', hours: 6, rule: fixedRule }),
+      ],
+      [],
+      period,
+      0,
+      0,
+      [
+        {
+          id: 'rest-1',
+          jobId: monthlyJob.id,
+          date: '2026-11-04',
+          createdAt: '2026-11-04T12:00:00.000Z',
+        },
+        {
+          id: 'rest-2',
+          jobId: monthlyJob.id,
+          date: '2026-12-01',
+          createdAt: '2026-12-01T12:00:00.000Z',
+        },
+      ],
+    );
+    expect(draft.base).toBe(3500);
+    expect(draft.monthlyMode).toBe('fixed');
+    expect(draft.restDays).toBe(1);
+    expect(monthlyJob.shift.breakMinutes).toBe(120);
   });
 });
 

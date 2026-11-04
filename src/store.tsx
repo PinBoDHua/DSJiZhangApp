@@ -14,6 +14,7 @@ import type {
   Job,
   Period,
   Profile,
+  RestDay,
   Settlement,
   Settings,
   ToastTone,
@@ -49,6 +50,8 @@ interface StoreValue {
   addEntry: (input: NewEntryInput) => Entry | null;
   updateEntry: (entryId: string, patch: EntryPatch) => boolean;
   deleteEntry: (entryId: string) => boolean;
+  addRestDay: (input: Omit<RestDay, 'id' | 'createdAt'>) => RestDay | null;
+  removeRestDay: (restDayId: string) => boolean;
   addAdvance: (input: Omit<Advance, 'id' | 'createdAt'>) => Advance;
   deleteAdvance: (advanceId: string) => boolean;
   settleJob: (
@@ -142,7 +145,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       current.advances.some((advance) => advance.jobId === jobId) ||
       current.settlements.some((settlement) => settlement.jobId === jobId);
     if (used) return false;
-    setState((prev) => ({ ...prev, jobs: prev.jobs.filter((job) => job.id !== jobId) }));
+    setState((prev) => ({
+      ...prev,
+      jobs: prev.jobs.filter((job) => job.id !== jobId),
+      restDays: prev.restDays.filter((rest) => rest.jobId !== jobId),
+    }));
     return true;
   }, []);
 
@@ -178,7 +185,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    setState((prev) => ({ ...prev, entries: [entry, ...prev.entries] }));
+    setState((prev) => ({
+      ...prev,
+      entries: [entry, ...prev.entries],
+      restDays: prev.restDays.filter(
+        (rest) => !(rest.jobId === entry.jobId && rest.date === entry.date),
+      ),
+    }));
     return entry;
   }, []);
 
@@ -201,6 +214,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       entries: prev.entries.map((entry) =>
         entry.id === entryId ? { ...entry, ...patch, updatedAt: nowISO() } : entry,
       ),
+      restDays: prev.restDays.filter(
+        (rest) => !(rest.jobId === targetJobId && rest.date === targetDate),
+      ),
     }));
     return true;
   }, []);
@@ -211,6 +227,59 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       entries: prev.entries.filter((entry) => entry.id !== entryId),
+    }));
+    return true;
+  }, []);
+
+  const addRestDay = useCallback((input: Omit<RestDay, 'id' | 'createdAt'>) => {
+    const current = stateRef.current;
+    const job = current.jobs.find((item) => item.id === input.jobId);
+    if (!job || job.archived) return null;
+    const settledPeriod = current.settlements.find(
+      (settlement) =>
+        settlement.jobId === input.jobId &&
+        input.date >= settlement.periodStart &&
+        input.date <= settlement.periodEnd,
+    );
+    if (settledPeriod) return null;
+    if (
+      current.entries.some(
+        (entry) => entry.jobId === input.jobId && entry.date === input.date,
+      )
+    ) {
+      return null;
+    }
+    if (
+      current.restDays.some(
+        (rest) => rest.jobId === input.jobId && rest.date === input.date,
+      )
+    ) {
+      return null;
+    }
+    const restDay: RestDay = {
+      ...input,
+      note: input.note?.trim() || undefined,
+      id: createId('rest'),
+      createdAt: nowISO(),
+    };
+    setState((prev) => ({ ...prev, restDays: [restDay, ...prev.restDays] }));
+    return restDay;
+  }, []);
+
+  const removeRestDay = useCallback((restDayId: string) => {
+    const current = stateRef.current;
+    const existing = current.restDays.find((rest) => rest.id === restDayId);
+    if (!existing) return false;
+    const settled = current.settlements.some(
+      (settlement) =>
+        settlement.jobId === existing.jobId &&
+        existing.date >= settlement.periodStart &&
+        existing.date <= settlement.periodEnd,
+    );
+    if (settled) return false;
+    setState((prev) => ({
+      ...prev,
+      restDays: prev.restDays.filter((rest) => rest.id !== restDayId),
     }));
     return true;
   }, []);
@@ -253,6 +322,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         period,
         extraBonus,
         extraDeduction,
+        current.restDays,
       );
       if (draft.entries.length === 0) return null;
       const settlement = makeSettlement(draft, createId('settlement'), nowISO(), note?.trim() || undefined);
@@ -356,6 +426,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addEntry,
     updateEntry,
     deleteEntry,
+    addRestDay,
+    removeRestDay,
     addAdvance,
     deleteAdvance,
     settleJob,

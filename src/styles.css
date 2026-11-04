@@ -1687,6 +1687,64 @@ ul {
   font-size: 9.5px;
 }
 
+.summary-note--rest {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent-ink);
+}
+
+.rest-day-list {
+  margin: 0 0 10px;
+  padding: 4px 13px;
+}
+
+.rest-day-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.rest-day-row:last-child {
+  border-bottom: 0;
+}
+
+.rest-day-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.rest-day-row > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.rest-day-row strong {
+  font-size: 11px;
+}
+
+.rest-day-row p {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.calendar-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 8px;
+}
+
 .record-groups {
   display: flex;
   flex-direction: column;
@@ -3306,6 +3364,26 @@ ul {
   opacity: 0.72;
 }
 
+.rule-preview-shift {
+  margin-top: 4px !important;
+  color: var(--muted) !important;
+  font-size: 9px !important;
+  opacity: 0.9 !important;
+}
+
+.shift-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.shift-presets .filter-chip {
+  height: 31px;
+  padding: 0 11px;
+  font-size: 10.5px;
+}
+
 .editor-section {
   margin-bottom: 21px;
 }
@@ -3955,6 +4033,64 @@ ul {
   box-shadow: 0 0 0 2px rgba(255, 253, 248, 0.25) !important;
 }
 
+.rest-sheet .job-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.rest-existing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(190, 128, 35, 0.18);
+  border-radius: 14px;
+  background: var(--accent-soft);
+}
+
+.rest-quota {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rest-existing-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(190, 128, 35, 0.13);
+  color: var(--accent-ink);
+}
+
+.rest-existing > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.rest-existing strong {
+  display: block;
+  font-size: 11.5px;
+}
+
+.rest-existing p {
+  margin-top: 2px;
+  color: var(--ink-soft);
+  font-size: 9.5px;
+}
+
+.text-link--danger {
+  color: var(--danger);
+}
+
 .quick-date-row {
   display: flex;
   flex-wrap: wrap;
@@ -4288,6 +4424,14 @@ ul {
   margin-top: 2px;
   color: rgba(15, 70, 49, 0.7);
   font-size: 10px;
+}
+
+.attendance-card .attendance-shift {
+  margin-top: 4px;
+  color: var(--primary);
+  font-size: 9.5px;
+  font-weight: 600;
+  opacity: 0.82;
 }
 
 .piece-card {
@@ -5211,6 +5355,29 @@ ul {
   font-weight: 600;
 }
 
+.today-rest-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 42px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(190, 128, 35, 0.18);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.today-rest-text {
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.today-rest-btn:hover {
+  border-color: rgba(190, 128, 35, 0.35);
+}
+
 .today-timer-btn:hover {
   border-color: var(--line-strong);
   background: var(--surface-2);
@@ -5541,6 +5708,28 @@ ul {
   background: var(--primary-soft);
 }
 
+.cal-day.has-rest:not(.has-entry) {
+  background: var(--accent-soft);
+}
+
+.cal-day.has-rest:not(.is-selected) .cal-day-num {
+  color: var(--accent-ink);
+}
+
+.cal-rest-flag {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  color: var(--accent-ink);
+  font-size: 7.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cal-day.is-selected .cal-rest-flag {
+  color: #f8e5c8;
+}
+
 .cal-day.is-today {
   border-color: var(--accent);
 }
@@ -5737,12 +5926,14 @@ ul {
 }
 
 @media (max-width: 360px) {
-  .today-timer-btn {
+  .today-timer-btn,
+  .today-rest-btn {
     width: 34px;
     padding: 0;
   }
 
-  .today-timer-btn span {
+  .today-timer-btn span,
+  .today-rest-text {
     display: none;
   }
 
