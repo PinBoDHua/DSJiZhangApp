@@ -42,7 +42,7 @@ await step('固定月薪岗位显示班次与月休设置', async () => {
   assert.ok(demoStats.includes('12h'), demoStats);
   assert.ok(demoStats.includes('2天'), demoStats);
   assert.ok(demoStats.includes('0h'), demoStats);
-  assert.ok((await page.locator('.hero-caption').innerText()).includes('休 2 天'));
+  assert.ok((await page.locator('.hero-caption').innerText()).includes('休 2/5 天'));
 
   // 同一天多份工作的合计工时要合理，超过 24h 直接拦截。
   await page.getByRole('button', { name: '记一笔工' }).click();
@@ -59,6 +59,8 @@ await step('固定月薪岗位显示班次与月休设置', async () => {
   await page.waitForTimeout(300);
   assert.ok((await page.locator('.form-error').innerText()).includes('超过 24 小时'));
   await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.waitForTimeout(250);
+  await page.locator('.dialog .btn--danger').click();
   await page.waitForTimeout(300);
 
   await page.getByRole('button', { name: '我的', exact: true }).click();

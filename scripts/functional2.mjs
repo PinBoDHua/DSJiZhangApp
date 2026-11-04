@@ -134,6 +134,8 @@ await step('结算后禁止往已结周期补记', async () => {
   await page.waitForTimeout(400);
   await expectText('.form-error', '这个周期已经结算过了');
   await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.waitForTimeout(250);
+  await page.locator('.dialog .btn--danger').click();
   await page.waitForTimeout(300);
 });
 

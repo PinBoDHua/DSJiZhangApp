@@ -28,6 +28,7 @@ import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
 import { Money } from '../components/Money';
 import { Sheet } from '../components/Sheet';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 interface EntryEditorProps {
   entryId?: string;
@@ -115,7 +116,9 @@ export function EntryEditor({
     Boolean(existing && (existing.bonus > 0 || existing.deduction > 0 || existing.note)),
   );
   const [error, setError] = useState('');
+  const [discardOpen, setDiscardOpen] = useState(false);
   const jobPickerRef = useRef<HTMLDivElement>(null);
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -202,6 +205,7 @@ export function EntryEditor({
   };
 
   const chooseJob = (job: Job) => {
+    dirtyRef.current = true;
     setJobId(job.id);
     setError('');
     if (!existing && !initialTimes) {
@@ -242,6 +246,14 @@ export function EntryEditor({
     }
     setTimeMode(next);
     setError('');
+  };
+
+  const requestClose = () => {
+    if (dirtyRef.current) {
+      setDiscardOpen(true);
+      return;
+    }
+    onClose();
   };
 
   const handleSubmit = (event: FormEvent) => {
@@ -357,6 +369,7 @@ export function EntryEditor({
       }
       toast('已记上一笔');
     }
+    dirtyRef.current = false;
     onClose();
   };
 
@@ -409,14 +422,24 @@ export function EntryEditor({
   }
 
   return (
-    <Sheet open onClose={onClose} className="entry-sheet">
-      <form className="entry-form" onSubmit={handleSubmit}>
+    <>
+      <Sheet open onClose={requestClose} className="entry-sheet">
+        <form
+          className="entry-form"
+          onSubmit={handleSubmit}
+          onChange={() => {
+            dirtyRef.current = true;
+          }}
+          onClick={() => {
+            dirtyRef.current = true;
+          }}
+        >
         <header className="entry-head">
           <div>
             <p className="eyebrow">{existing ? '修改记录' : '新的工记'}</p>
             <h2>{existing ? '编辑工记' : '记一笔'}</h2>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={requestClose} aria-label="关闭">
             <X size={20} />
           </button>
         </header>
@@ -869,6 +892,20 @@ export function EntryEditor({
           </div>
         </div>
       </form>
-    </Sheet>
+      </Sheet>
+
+      <ConfirmDialog
+        open={discardOpen}
+        title="放弃这次编辑？"
+        description="已经填写的内容不会保存。"
+        confirmLabel="放弃"
+        danger
+        onCancel={() => setDiscardOpen(false)}
+        onConfirm={() => {
+          setDiscardOpen(false);
+          onClose();
+        }}
+      />
+    </>
   );
 }

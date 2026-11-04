@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { LockKeyhole, Pencil, Trash2 } from 'lucide-react';
+import { Copy, LockKeyhole, Pencil, Trash2 } from 'lucide-react';
 import type { Entry, Job } from '../types';
 import { useStore } from '../store';
-import { formatDateTime, formatDateFull, formatTimeRange } from '../lib/date';
+import { formatDateTime, formatDateFull, formatTimeRange, todayISO } from '../lib/date';
 import { formatHours } from '../lib/money';
 import { payForEntry } from '../lib/pay';
 import { Sheet } from './Sheet';
@@ -17,7 +17,7 @@ interface EntryDetailProps {
 }
 
 export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
-  const { state, deleteEntry, toast } = useStore();
+  const { state, addEntry, deleteEntry, toast } = useStore();
   const [confirming, setConfirming] = useState(false);
   const entry = state.entries.find((item) => item.id === entryId);
   if (!entry) return null;
@@ -38,6 +38,38 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
     } else {
       toast('已结算的记录不能删除，请先撤销结算', 'error');
     }
+  };
+
+  const copyToToday = () => {
+    const today = todayISO();
+    const todayHours = state.entries
+      .filter((item) => item.date === today)
+      .reduce((sum, item) => sum + (item.hours || 0), 0);
+    if (todayHours + entry.hours > 24) {
+      toast('今天合计工时已经超过 24 小时，不能再复制', 'error');
+      return;
+    }
+    const created = addEntry({
+      jobId: entry.jobId,
+      date: today,
+      startTime: entry.startTime,
+      endTime: entry.endTime,
+      breakMinutes: entry.breakMinutes,
+      hours: entry.hours,
+      quantity: entry.quantity,
+      otHours: entry.otHours,
+      bonus: 0,
+      deduction: 0,
+      holiday: false,
+      note: entry.note,
+      rule: entry.rule,
+    });
+    if (!created) {
+      toast('今天所在的周期已经结算，不能复制', 'error');
+      return;
+    }
+    toast('已复制到今天，可去记录里调整');
+    onClose();
   };
 
   const formula = () => {
@@ -236,6 +268,18 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
                 <Pencil size={16} />
                 编辑
               </button>
+      {entry.date !== todayISO() ? (
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={copyToToday}
+          title="复制到今天"
+          aria-label="复制到今天"
+        >
+          <Copy size={16} />
+          复制
+        </button>
+      ) : null}
               <button
                 type="button"
                 className="btn btn--ghost btn--danger-text"

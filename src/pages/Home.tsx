@@ -86,6 +86,15 @@ export function Home({
   const fixedMonthlyJob = activeJobs.find(
     (job) => job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed',
   );
+  const fixedMonthlyJobs = activeJobs.filter(
+    (job) => job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed',
+  );
+  const fixedRestDays =
+    fixedMonthlyJob !== undefined
+      ? monthRestDays.filter((rest) => rest.jobId === fixedMonthlyJob.id).length
+      : monthRestDays.length;
+  const restQuota =
+    fixedMonthlyJobs.length === 1 ? fixedMonthlyJobs[0].rule.restDaysPerMonth : 0;
   const hasFixedMonthly = state.entries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
   );
@@ -223,7 +232,11 @@ export function Home({
         <div className="hero-caption">
           <span>
             {formatMonthTitle(today)} · 已记 {summary.days} 天
-            {monthRestDays.length > 0 ? ` · 休 ${monthRestDays.length} 天` : ''}
+            {restQuota > 0
+              ? ` · 休 ${fixedRestDays}/${restQuota} 天`
+              : monthRestDays.length > 0
+                ? ` · 休 ${monthRestDays.length} 天`
+                : ''}
           </span>
           {outstanding.net !== 0 ? (
             <button type="button" className="hero-pending" onClick={onGoSettlements}>
