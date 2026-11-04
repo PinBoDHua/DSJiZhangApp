@@ -85,6 +85,9 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
   const selectedEntries = sortEntries(filtered.filter((entry) => entry.date === selectedDate));
   const selectedRestDays = filteredRestDays.filter((rest) => rest.date === selectedDate);
   const selectedTotals = sumEntries(selectedEntries);
+  const hasFixedMonthly = filtered.some(
+    (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
+  );
 
   const groups = new Map<string, Entry[]>();
   for (const entry of filtered) {
@@ -237,6 +240,9 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
               本月另休 {filteredRestDays.length} 天
             </p>
           ) : null}
+          {hasFixedMonthly ? (
+            <p className="summary-note">月薪岗位的单日金额为折算参考，实际按整月发放。</p>
+          ) : null}
         </section>
       ) : null}
 
@@ -288,6 +294,9 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
               <p>
                 {selectedEntries.length} 笔 · {formatHours(selectedTotals.hours)}h
                 {selectedRestDays.length > 0 ? ` · 休息 ${selectedRestDays.length} 天` : ''}
+                {selectedTotals.hours > 24 ? (
+                  <em className="day-warning">当天合计超过 24h</em>
+                ) : null}
               </p>
             </div>
             <Money value={selectedTotals.total} />
@@ -374,6 +383,9 @@ export function Records({ onAddEntry, onOpenEntry, onOpenJobs }: RecordsProps) {
                       </h2>
                       <p>
                         {dayEntries.length} 笔 · {formatHours(dayTotals.hours)}h
+                        {dayTotals.hours > 24 ? (
+                          <em className="day-warning">当天合计超过 24h</em>
+                        ) : null}
                       </p>
                     </div>
                     <div className="record-day-total">

@@ -86,6 +86,9 @@ export function Home({
   const fixedMonthlyJob = activeJobs.find(
     (job) => job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed',
   );
+  const hasFixedMonthly = state.entries.some(
+    (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
+  );
   const restJobId =
     todayRestDays[0]?.jobId ??
     fixedMonthlyJob?.id ??
@@ -94,6 +97,9 @@ export function Home({
       : activeJobs[0]?.id);
   const backupDue = backupIsDue(state);
   const todayTotals = sumEntries(todayEntries);
+  const todayHasFixedMonthly = todayEntries.some(
+    (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
+  );
   const recent = [...state.entries]
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
     .slice(0, 4);
@@ -288,7 +294,18 @@ export function Home({
                 <>
                   {todayNames.slice(0, 2).join('、')}
                   {todayNames.length > 2 ? ` 等 ${todayNames.length} 份工作` : ''} ·{' '}
-                  {formatHours(todayTotals.hours)}h · <Money value={todayTotals.total} />
+                  {formatHours(todayTotals.hours)}h
+                  {todayHasFixedMonthly ? (
+                    <>
+                      {' · '}
+                      <span className="no-break">月薪</span>
+                    </>
+                  ) : (
+                    <>
+                      {' · '}
+                      <Money value={todayTotals.total} />
+                    </>
+                  )}
                 </>
               ) : todayRestDays.length > 0 ? (
                 <>
@@ -347,15 +364,20 @@ export function Home({
         <div className="section-head section-head--tight">
           <div>
             <h2>近 7 天</h2>
-            <p>每天挣了多少</p>
+            <p>{hasFixedMonthly ? '固定月薪按日折算参考' : '每天挣了多少'}</p>
           </div>
           <div className="trend-total">
-            <span>合计</span>
+            <span>{hasFixedMonthly ? '折算合计' : '合计'}</span>
             <Money value={weekTotal} />
           </div>
         </div>
         {weekTotal > 0 ? (
-          <BarChart data={series} height={126} labelEvery={1} />
+          <>
+            <BarChart data={series} height={126} labelEvery={1} />
+            {hasFixedMonthly ? (
+              <p className="calc-note">固定月薪实际按整月发放，图表仅按日折算展示。</p>
+            ) : null}
+          </>
         ) : (
           <div className="trend-empty">
             <span>这 7 天还是空的</span>

@@ -52,6 +52,9 @@ export function Stats({ onAddEntry }: StatsProps) {
   }));
   const jobTotal = breakdown.reduce((sum, item) => sum + item.total, 0);
   const avgHourly = totals.hours > 0 ? totals.total / totals.hours : 0;
+  const hasFixedMonthly = entries.some(
+    (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
+  );
   const overtimeShare = totals.hours > 0 ? (totals.otHours / totals.hours) * 100 : 0;
   const positiveTotal = totals.base + totals.otPay + totals.bonus;
   const canGoNext = period.end < today;
@@ -140,12 +143,19 @@ export function Stats({ onAddEntry }: StatsProps) {
                 <span>工时</span>
                 <strong>{formatHours(totals.hours)}h</strong>
               </div>
-              <div>
-                <span>平均时薪</span>
-                <strong>
-                  <Money value={avgHourly} />
-                </strong>
-              </div>
+              {hasFixedMonthly ? (
+                <div>
+                  <span>休息</span>
+                  <strong>{restDays.length} 天</strong>
+                </div>
+              ) : (
+                <div>
+                  <span>平均时薪</span>
+                  <strong>
+                    <Money value={avgHourly} />
+                  </strong>
+                </div>
+              )}
               <div>
                 <span>加班占比</span>
                 <strong>{overtimeShare.toFixed(0)}%</strong>
@@ -160,6 +170,7 @@ export function Stats({ onAddEntry }: StatsProps) {
                 <p>
                   峰值{' '}
                   <Money value={Math.max(...series.map((point) => point.value), 0)} />
+                  {hasFixedMonthly ? ' · 固定月薪按日折算' : ''}
                 </p>
               </div>
               <span className="chart-legend">

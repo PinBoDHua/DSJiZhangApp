@@ -258,6 +258,15 @@ export function EntryEditor({
       showError('这份工作的单价还是 0，请先去工作管理里设置');
       return;
     }
+    const otherDayHours = state.entries
+      .filter((entry) => entry.date === date && entry.id !== existing?.id)
+      .reduce((sum, entry) => sum + (entry.hours || 0), 0);
+    if (hours > 0 && otherDayHours + hours > 24) {
+      showError(
+        `当天已记 ${formatHours(otherDayHours)}h，再加 ${formatHours(hours)}h 会超过 24 小时，请核对`,
+      );
+      return;
+    }
     if (isHourly) {
       if (timeMode === 'range') {
         if (startTime === endTime) {

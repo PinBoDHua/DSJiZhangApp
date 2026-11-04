@@ -1,4 +1,4 @@
-const CACHE_NAME = 'xinshi-v4';
+const CACHE_NAME = 'xinshi-v5';
 const CORE = [
   '/',
   '/index.html',

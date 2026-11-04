@@ -38,6 +38,29 @@ await step('固定月薪岗位显示班次与月休设置', async () => {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /先看看示例数据/ }).click();
   await page.waitForTimeout(500);
+  const demoStats = compact(await page.locator('.hero-stats').innerText());
+  assert.ok(demoStats.includes('12h'), demoStats);
+  assert.ok(demoStats.includes('2天'), demoStats);
+  assert.ok(demoStats.includes('0h'), demoStats);
+  assert.ok((await page.locator('.hero-caption').innerText()).includes('休 2 天'));
+
+  // 同一天多份工作的合计工时要合理，超过 24h 直接拦截。
+  await page.getByRole('button', { name: '记一笔工' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.entry-sheet .job-choice').filter({ hasText: '城南工地' }).click();
+  await page.getByLabel('选择日期', { exact: true }).fill('2026-10-31');
+  await page.waitForTimeout(200);
+  const siteHours = page
+    .locator('.entry-sheet .field')
+    .filter({ hasText: '工时（选填）' })
+    .locator('input');
+  await siteHours.fill('20');
+  await page.locator('.entry-save').click();
+  await page.waitForTimeout(300);
+  assert.ok((await page.locator('.form-error').innerText()).includes('超过 24 小时'));
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.waitForTimeout(300);
+
   await page.getByRole('button', { name: '我的', exact: true }).click();
   await page.waitForTimeout(300);
   await page.locator('.settings-row').filter({ hasText: '工作管理' }).click();
