@@ -43,8 +43,23 @@ describe('按排班生成默认工记', () => {
   });
 
   it('批量补记可以覆盖统一备注', () => {
-    expect(makePlannedEntry(job(), '2026-11-06', '夜班补记')?.note).toBe('夜班补记');
-    expect(makePlannedEntry(job(), '2026-11-06', '   ')?.note).toBe('排班补记');
+    expect(makePlannedEntry(job(), '2026-11-06', { note: '夜班补记' })?.note).toBe('夜班补记');
+    expect(makePlannedEntry(job(), '2026-11-06', { note: '   ' })?.note).toBe('排班补记');
+  });
+
+  it('批量补记可以统一改工时和奖金', () => {
+    const input = makePlannedEntry(job(), '2026-11-06', { hours: 8, bonus: 50 });
+    expect(input?.hours).toBe(8);
+    expect(input?.bonus).toBe(50);
+    const hourly = job({
+      rule: rule({ payType: 'hourly', rate: 30, standardHours: 8, otEnabled: true }),
+      shift: { startTime: '08:00', endTime: '18:00', breakMinutes: 60 },
+      cycle: 'weekly',
+    });
+    const custom = makePlannedEntry(hourly, '2026-11-06', { hours: 7 });
+    expect(custom?.hours).toBe(7);
+    expect(custom?.startTime).toBeUndefined();
+    expect(custom?.breakMinutes).toBe(0);
   });
 
   it('日薪按班次净工时生成', () => {

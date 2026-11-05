@@ -172,12 +172,15 @@ export function Home({
     }
   }, [planJob?.id]);
 
-  const generatePlanEntries = (dates: string[], note?: string) => {
+  const generatePlanEntries = (
+    dates: string[],
+    options: { hours?: number; bonus?: number; note?: string },
+  ) => {
     if (!planJob) return;
     let added = 0;
     let skipped = 0;
     for (const date of dates) {
-      const input = makePlannedEntry(planJob, date, note);
+      const input = makePlannedEntry(planJob, date, options);
       if (!input) {
         skipped += 1;
         continue;
