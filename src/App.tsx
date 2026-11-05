@@ -1,30 +1,67 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { StoreProvider, useStore } from './store';
 import { BottomNav, type TabKey } from './components/BottomNav';
 import { Fab } from './components/Fab';
 import { EntryDetail } from './components/EntryDetail';
+import { PageLoading } from './components/PageLoading';
 import { Home } from './pages/Home';
-import { Records } from './pages/Records';
-import { Settlements } from './pages/Settlements';
-import { Stats } from './pages/Stats';
-import { Profile } from './pages/Profile';
-import { Jobs } from './pages/Jobs';
-import { JobEditor } from './pages/JobEditor';
-import { SettlementDraftPage, SettlementRecordPage } from './pages/SettlementPage';
 import { EntryEditor } from './pages/EntryEditor';
 import { Onboarding } from './pages/Onboarding';
+import { PrivacyGate } from './components/PrivacyGate';
+import { grantPrivacyConsent, hasPrivacyConsent } from './lib/compliance';
+import { runAutoBackup } from './lib/autoBackup';
 import type { TimerTimes } from './lib/timer';
 import { useTheme } from './hooks/useTheme';
 import { useReminder } from './hooks/useReminder';
+import { useAutoSnapshot } from './hooks/useAutoSnapshot';
 import { todayISO } from './lib/date';
 import { pushNativeBack } from './lib/nativeBack';
 import { schedulePaydayNotifications } from './lib/paydayNotifications';
+import { cancelDailyReminder, syncDailyReminder } from './lib/nativeReminders';
+import { isNativeApp } from './lib/native';
+
+const Records = lazy(() => import('./pages/Records').then((module) => ({ default: module.Records })));
+const Settlements = lazy(() =>
+  import('./pages/Settlements').then((module) => ({ default: module.Settlements })),
+);
+const Stats = lazy(() => import('./pages/Stats').then((module) => ({ default: module.Stats })));
+const Profile = lazy(() =>
+  import('./pages/Profile').then((module) => ({ default: module.Profile })),
+);
+const Jobs = lazy(() => import('./pages/Jobs').then((module) => ({ default: module.Jobs })));
+const JobEditor = lazy(() =>
+  import('./pages/JobEditor').then((module) => ({ default: module.JobEditor })),
+);
+const SettlementDraftPage = lazy(() =>
+  import('./pages/SettlementPage').then((module) => ({ default: module.SettlementDraftPage })),
+);
+const SettlementRecordPage = lazy(() =>
+  import('./pages/SettlementPage').then((module) => ({ default: module.SettlementRecordPage })),
+);
+const AttendancePage = lazy(() =>
+  import('./pages/Attendance').then((module) => ({ default: module.AttendancePage })),
+);
+const DataSafety = lazy(() =>
+  import('./pages/DataSafety').then((module) => ({ default: module.DataSafety })),
+);
+const Snapshots = lazy(() =>
+  import('./pages/Snapshots').then((module) => ({ default: module.Snapshots })),
+);
+const Health = lazy(() => import('./pages/Health').then((module) => ({ default: module.Health })));
+const Privacy = lazy(() =>
+  import('./pages/Privacy').then((module) => ({ default: module.Privacy })),
+);
 
 type Page =
   | { type: 'jobs' }
   | { type: 'jobEditor'; jobId?: string; template?: 'longterm' }
   | { type: 'settlementDraft'; jobId: string; periodStart: string }
-  | { type: 'settlementRecord'; settlementId: string };
+  | { type: 'settlementRecord'; settlementId: string }
+  | { type: 'attendance'; jobId?: string }
+  | { type: 'dataSafety' }
+  | { type: 'snapshots' }
+  | { type: 'health' }
+  | { type: 'privacy' };
 
 interface EditorState {
   entryId?: string;
@@ -47,13 +84,33 @@ function AppContent() {
   const [page, setPage] = useState<Page | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [privacyOk, setPrivacyOk] = useState(() => hasPrivacyConsent());
   useTheme(state.settings.theme);
   const todayEntryCount = state.entries.filter((entry) => entry.date === todayISO()).length;
   useReminder(state.settings.reminder, todayEntryCount);
+  useAutoSnapshot(state, privacyOk);
 
   useEffect(() => {
     void schedulePaydayNotifications(state.jobs);
   }, [state.jobs]);
+
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    if (!state.settings.reminder.enabled) {
+      void cancelDailyReminder();
+      return;
+    }
+    void syncDailyReminder(state.settings.reminder, todayEntryCount === 0);
+  }, [
+    state.settings.reminder.enabled,
+    state.settings.reminder.time,
+    todayEntryCount,
+  ]);
+
+  useEffect(() => {
+    if (!privacyOk || !state.onboardingDone) return;
+    void runAutoBackup(state);
+  }, [privacyOk, state]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -64,8 +121,21 @@ function AppContent() {
     return pushNativeBack(() => setPage(null));
   }, [page]);
 
-  if (!state.onboardingDone) {
-    return <Onboarding />;
+  useEffect(() => {
+    if (state.onboardingDone) return;
+    setPage(null);
+    setTab('home');
+  }, [state.onboardingDone]);
+
+  if (!privacyOk) {
+    return (
+      <PrivacyGate
+        onAgree={() => {
+          grantPrivacyConsent();
+          setPrivacyOk(true);
+        }}
+      />
+    );
   }
 
   const openEntryEditor = (jobId?: string, date?: string) => {
@@ -94,6 +164,7 @@ function AppContent() {
           onGoRecords={() => setTab('records')}
           onGoSettlements={() => setTab('settlements')}
           onOpenProfile={() => setTab('profile')}
+          onOpenDataSafety={() => setPage({ type: 'dataSafety' })}
           onFinishTimer={(jobId, times) => setEditor({ jobId, initialTimes: times })}
         />
       );
@@ -105,6 +176,7 @@ function AppContent() {
           onAddEntryAt={(jobId, date) => openEntryEditor(jobId, date)}
           onOpenEntry={openEntryDetail}
           onOpenJobs={openJobs}
+          onOpenAttendance={(jobId) => setPage({ type: 'attendance', jobId })}
         />
       );
     }
@@ -125,7 +197,7 @@ function AppContent() {
     if (tab === 'stats') {
       return <Stats onAddEntry={() => openEntryEditor()} />;
     }
-    return <Profile onOpenJobs={openJobs} />;
+    return <Profile onOpenJobs={openJobs} onOpenDataSafety={() => setPage({ type: 'dataSafety' })} />;
   };
 
   const renderPage = () => {
@@ -150,11 +222,58 @@ function AppContent() {
         />
       );
     }
+    if (page.type === 'attendance') {
+      return (
+        <AttendancePage
+          initialJobId={page.jobId}
+          onBack={() => setPage(null)}
+          onAddEntry={(jobId, date) => openEntryEditor(jobId, date)}
+          onOpenEntry={openEntryDetail}
+        />
+      );
+    }
+    if (page.type === 'dataSafety') {
+      return (
+        <DataSafety
+          onBack={() => setPage(null)}
+          onOpenSnapshots={() => setPage({ type: 'snapshots' })}
+          onOpenHealth={() => setPage({ type: 'health' })}
+          onOpenPrivacy={() => setPage({ type: 'privacy' })}
+        />
+      );
+    }
+    if (page.type === 'snapshots') {
+      return (
+        <Snapshots
+          onBack={() => setPage(state.onboardingDone ? { type: 'dataSafety' } : null)}
+        />
+      );
+    }
+    if (page.type === 'health') {
+      return (
+        <Health
+          onBack={() => setPage({ type: 'dataSafety' })}
+          onNavigate={(target) => {
+            if (target === 'jobs') {
+              setPage({ type: 'jobs' });
+              return;
+            }
+            setPage(null);
+            setTab(target);
+          }}
+        />
+      );
+    }
+    if (page.type === 'privacy') {
+      return <Privacy onBack={() => setPage({ type: 'dataSafety' })} />;
+    }
     if (page.type === 'settlementDraft') {
       return (
         <SettlementDraftPage
           jobId={page.jobId}
           periodStart={page.periodStart}
+          onAddEntry={(jobId, date) => openEntryEditor(jobId, date)}
+          onOpenEntry={openEntryDetail}
           onBack={() => setPage(null)}
           onSettled={(settlementId) =>
             setPage({ type: 'settlementRecord', settlementId })
@@ -173,13 +292,28 @@ function AppContent() {
     );
   };
 
+  if (!state.onboardingDone) {
+    return (
+      <>
+        <Onboarding onOpenSnapshots={() => setPage({ type: 'snapshots' })} />
+        {page ? (
+          <div className="app-shell">
+            <Suspense fallback={<PageLoading screen />}>{renderPage()}</Suspense>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <div className="app-shell">
       {page ? (
-        renderPage()
+        <Suspense fallback={<PageLoading screen />}>{renderPage()}</Suspense>
       ) : (
         <>
-          <main className="app-main">{renderTab()}</main>
+          <main className="app-main">
+            <Suspense fallback={<PageLoading />}>{renderTab()}</Suspense>
+          </main>
           {tab === 'home' ? <Fab onClick={() => openEntryEditor()} /> : null}
           <BottomNav
             active={tab}

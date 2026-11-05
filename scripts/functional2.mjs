@@ -12,6 +12,7 @@ const context = await browser.newContext({
   serviceWorkers: 'block',
 });
 const page = await context.newPage();
+await page.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
 const errors = [];
 page.on('console', (message) => {
   if (message.type() === 'error') errors.push(`[console] ${message.text()}`);

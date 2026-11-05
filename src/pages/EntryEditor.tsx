@@ -24,6 +24,7 @@ import { formatHours } from '../lib/money';
 import { round2, toAmount } from '../lib/money';
 import { autoOtHours, otHourlyRate, otMultiplierFor, payForEntry } from '../lib/pay';
 import type { TimerTimes } from '../lib/timer';
+import { DURATION_PRESETS, endTimeForDuration } from '../lib/timePreset';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
 import { Money } from '../components/Money';
@@ -526,6 +527,23 @@ export function EntryEditor({
 
               {timeMode === 'range' ? (
                 <>
+                  <div className="duration-presets" role="group" aria-label="常用时长">
+                    <span>常用时长</span>
+                    {DURATION_PRESETS.map((preset) => (
+                      <button
+                        type="button"
+                        key={preset}
+                        className={
+                          Math.abs(netHours - preset) < 0.01 ? 'is-active' : ''
+                        }
+                        onClick={() =>
+                          setEndTime(endTimeForDuration(startTime, preset, breakMinutes))
+                        }
+                      >
+                        {preset}h
+                      </button>
+                    ))}
+                  </div>
                   <div className="time-grid">
                     <label className="time-box">
                       <span>上班</span>

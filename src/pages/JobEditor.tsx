@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Archive, Briefcase, Check, Coffee, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
-import type { Cycle, Job, JobColor, MonthlyMode, PayRule, PayType } from '../types';
+import type {
+  Cycle,
+  Job,
+  JobColor,
+  MonthlyMode,
+  PayRule,
+  PayType,
+  RestPolicy,
+} from '../types';
 import { useStore } from '../store';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
@@ -38,6 +46,9 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
   );
   const [restDaysPerMonth, setRestDaysPerMonth] = useState(
     existing ? String(existing.rule.restDaysPerMonth) : '5',
+  );
+  const [restPolicy, setRestPolicy] = useState<RestPolicy>(
+    existing?.rule.restPolicy ?? 'quota',
   );
   const [overRestDeduct, setOverRestDeduct] = useState(
     existing?.rule.overRestDeduct ?? false,
@@ -85,6 +96,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     cycle,
     monthlyMode,
     restDaysPerMonth,
+    restPolicy,
     overRestDeduct,
     overRestDailyRate,
     payday,
@@ -112,6 +124,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       cycle !== initial.cycle ||
       monthlyMode !== initial.monthlyMode ||
       restDaysPerMonth !== initial.restDaysPerMonth ||
+      restPolicy !== initial.restPolicy ||
       overRestDeduct !== initial.overRestDeduct ||
       overRestDailyRate !== initial.overRestDailyRate ||
       payday !== initial.payday ||
@@ -135,6 +148,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     cycle,
     monthlyMode,
     restDaysPerMonth,
+    restPolicy,
     overRestDeduct,
     overRestDailyRate,
     payday,
@@ -170,6 +184,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
   ).length;
   const isPiece = payType === 'piece';
   const isFixedMonthly = payType === 'monthly' && monthlyMode === 'fixed';
+  const isFlexibleRest = isFixedMonthly && restPolicy === 'flexible';
   const shiftHours = hoursBetween(shiftStart, shiftEnd, Math.max(0, toAmount(shiftBreak, 60)));
   const timerActive = Boolean(existing && state.activeTimer?.jobId === existing.id);
   const canDelete =
@@ -192,7 +207,11 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     setPayType(next);
     if (next === 'monthly') {
       setCycle('monthly');
-      if (monthlyMode === 'fixed' && toAmount(restDaysPerMonth, 5) <= 0) {
+      if (
+        monthlyMode === 'fixed' &&
+        restPolicy === 'quota' &&
+        toAmount(restDaysPerMonth, 5) <= 0
+      ) {
         setRestDaysPerMonth('5');
       }
     }
@@ -224,6 +243,10 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       0,
       Math.min(31, Math.round(toAmount(restDaysPerMonth, 5))),
     );
+    if (isFixedMonthly && !isFlexibleRest && parsedRestDays <= 0) {
+      setError('固定额度至少 1 天；如果休息不固定，请把休息规则改为「随机休息」');
+      return;
+    }
     if (shiftStart === shiftEnd) {
       setError('默认班次的下班时间不能和上班时间一样');
       return;
@@ -246,10 +269,13 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       standardHours: parsedStandard,
       expectedDays: parsedExpected,
       monthlyMode: payType === 'monthly' ? monthlyMode : 'prorated',
-      restDaysPerMonth: isFixedMonthly ? parsedRestDays : 0,
-      overRestDeduct: isFixedMonthly ? overRestDeduct : false,
+      restDaysPerMonth: isFixedMonthly && !isFlexibleRest ? parsedRestDays : 0,
+      restPolicy: isFixedMonthly ? restPolicy : 'quota',
+      overRestDeduct: isFixedMonthly && !isFlexibleRest ? overRestDeduct : false,
       overRestDailyRate:
-        isFixedMonthly && overRestDeduct ? Math.max(0, toAmount(overRestDailyRate)) : 0,
+        isFixedMonthly && !isFlexibleRest && overRestDeduct
+          ? Math.max(0, toAmount(overRestDailyRate))
+          : 0,
       unitLabel: parsedUnit,
       otEnabled: isPiece ? false : otEnabled,
       weekdayOT: weekday,
@@ -402,7 +428,9 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
               {isPiece
                 ? '按数量计'
                 : isFixedMonthly
-                  ? `固定月薪 · 月休 ${toAmount(restDaysPerMonth, 5)} 天`
+                  ? isFlexibleRest
+                    ? '固定月薪 · 随机休息'
+                    : `固定月薪 · 月休 ${toAmount(restDaysPerMonth, 5)} 天`
                   : otEnabled
                     ? `加班 ${toAmount(weekdayOT, 1.5)}× 起`
                     : '不含加班费'}
@@ -675,7 +703,11 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
                     onChange={(value) => {
                       const next = value as MonthlyMode;
                       setMonthlyMode(next);
-                      if (next === 'fixed' && toAmount(restDaysPerMonth, 0) <= 0) {
+                      if (
+                        next === 'fixed' &&
+                        restPolicy === 'quota' &&
+                        toAmount(restDaysPerMonth, 0) <= 0
+                      ) {
                         setRestDaysPerMonth('5');
                       }
                     }}
@@ -687,20 +719,47 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
                   />
                   <p className="field-hint">
                     {isFixedMonthly
-                      ? overRestDeduct
-                        ? '整月固定发放，不因随机休息少发；超休按下方规则扣款。'
-                        : '整月固定发放，不因 4–5 天随机休息少发；超出月休的缺勤可在结算里用扣款调整。'
+                      ? isFlexibleRest
+                        ? '整月固定发放；休息日按实际日期记录，不设额度、不自动扣款。'
+                        : overRestDeduct
+                          ? '整月固定发放，不因随机休息少发；超休按下方规则扣款。'
+                          : '整月固定发放，不因 4–5 天随机休息少发；超出月休的缺勤可在结算里用扣款调整。'
                       : '按出勤天数 × 日折算，超过整月月薪时封顶。'}
                   </p>
                 </div>
                 {isFixedMonthly ? (
+                  <div className="field">
+                    <span className="field-label">休息规则</span>
+                    <Segmented
+                      value={restPolicy}
+                      onChange={(value) => {
+                        const next = value as RestPolicy;
+                        setRestPolicy(next);
+                        if (next === 'quota' && toAmount(restDaysPerMonth, 0) <= 0) {
+                          setRestDaysPerMonth('5');
+                        }
+                      }}
+                      options={[
+                        { value: 'quota', label: '固定额度' },
+                        { value: 'flexible', label: '随机休息' },
+                      ]}
+                      ariaLabel="休息规则"
+                    />
+                    <p className="field-hint">
+                      {isFlexibleRest
+                        ? '不设固定月休额度；休息日记在具体日期上，固定月薪不因此少发，也不会自动扣超休。'
+                        : '每月有固定休息额度，额度外用「超休扣款」决定是否按天扣。'}
+                    </p>
+                  </div>
+                ) : null}
+                {isFixedMonthly && !isFlexibleRest ? (
                   <>
                     <label className="field">
                       <span className="field-label">月休额度</span>
                       <div className="inline-number">
                         <input
                           type="number"
-                          min={0}
+                          min={1}
                           max={31}
                           step={1}
                           value={restDaysPerMonth}

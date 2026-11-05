@@ -242,6 +242,80 @@ describe('存储升级', () => {
     expect(payload.data.jobs[0].name).toBe('旧账本工作');
   });
 
+  it('保留随机休息规则和结算休息日期，旧数据默认固定额度', () => {
+    const flexibleJob = {
+      ...job,
+      id: 'job-flex',
+      rule: {
+        ...rule,
+        payType: 'monthly' as const,
+        monthlyMode: 'fixed' as const,
+        restDaysPerMonth: 0,
+        restPolicy: 'flexible' as const,
+      },
+    };
+    const v7 = {
+      ...v1State,
+      version: 7,
+      jobs: [flexibleJob, job],
+      settlements: [
+        {
+          id: 'settlement-rest',
+          jobId: 'job-flex',
+          jobName: '随机休息工作',
+          cycle: 'monthly',
+          periodStart: '2026-11-01',
+          periodEnd: '2026-11-30',
+          restDays: 2,
+          restDates: ['2026-11-10', '2026-11-03', '2026-11-03'],
+          base: 3500,
+          otPay: 0,
+          bonus: 0,
+          deduction: 0,
+          advanceTotal: 0,
+          extraBonus: 0,
+          extraDeduction: 0,
+          net: 3500,
+          hours: 12,
+          days: 2,
+          otHours: 0,
+          entryIds: [],
+          advanceIds: [],
+          createdAt: '2026-11-30T12:00:00.000Z',
+        },
+      ],
+    };
+    const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 }));
+    expect(imported.jobs[0].rule.restPolicy).toBe('flexible');
+    expect(imported.jobs[1].rule.restPolicy).toBe('quota');
+    expect(imported.settlements[0].restDates).toEqual(['2026-11-03', '2026-11-10']);
+  });
+
+  it('休息日保留半天，旧数据默认整天', () => {
+    const v7 = {
+      ...v1State,
+      version: 7,
+      restDays: [
+        {
+          id: 'rest-old',
+          jobId: 'job-1',
+          date: '2026-11-03',
+          createdAt: '2026-11-03T12:00:00.000Z',
+        },
+        {
+          id: 'rest-half',
+          jobId: 'job-1',
+          date: '2026-11-04',
+          days: 0.5,
+          createdAt: '2026-11-04T12:00:00.000Z',
+        },
+      ],
+    };
+    const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 }));
+    expect(imported.restDays.find((item) => item.id === 'rest-old')?.days).toBe(1);
+    expect(imported.restDays.find((item) => item.id === 'rest-half')?.days).toBe(0.5);
+  });
+
   it('拒绝未来版本与坏 JSON', () => {
     expect(() => validateImport('{')).toThrow('文件不是有效的 JSON');
     expect(() =>

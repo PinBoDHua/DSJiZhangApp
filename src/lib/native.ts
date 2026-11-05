@@ -3,6 +3,11 @@ import { saveFileToDownloads } from './saveFile';
 
 type SaveResult = 'web' | 'native';
 
+interface SaveOptions {
+  overwrite?: boolean;
+  subdirectory?: string;
+}
+
 interface CapacitorWindow {
   Capacitor?: {
     isNativePlatform?: () => boolean;
@@ -21,9 +26,13 @@ export function isAndroidApp(): boolean {
 }
 
 /** 原生 App 写入公共下载目录；网页继续用普通下载。 */
-export async function saveBlobFile(blob: Blob, filename: string): Promise<SaveResult> {
+export async function saveBlobFile(
+  blob: Blob,
+  filename: string,
+  options: SaveOptions = {},
+): Promise<SaveResult> {
   if (isNativeApp()) {
-    await saveFileToDownloads(blob, filename);
+    await saveFileToDownloads(blob, filename, options);
     return 'native';
   }
   const url = URL.createObjectURL(blob);
@@ -41,9 +50,10 @@ export async function saveTextFile(
   filename: string,
   text: string,
   mimeType = 'application/json;charset=utf-8',
+  options: SaveOptions = {},
 ): Promise<SaveResult> {
   if (isNativeApp()) {
-    return saveBlobFile(new Blob([text], { type: mimeType }), filename);
+    return saveBlobFile(new Blob([text], { type: mimeType }), filename, options);
   }
   downloadText(filename, text, mimeType);
   return 'web';

@@ -17,6 +17,7 @@ const context = await browser.newContext({
   acceptDownloads: true,
 });
 const page = await context.newPage();
+await page.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
 const errors = [];
 page.on('console', (message) => {
   if (message.type() === 'error') errors.push(`[console] ${message.text()}`);
@@ -169,6 +170,7 @@ const offlineContext = await browser.newContext({
   timezoneId: 'Asia/Shanghai',
 });
 const offlinePage = await offlineContext.newPage();
+await offlinePage.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
 await offlinePage.goto(BASE, { waitUntil: 'networkidle' });
 await offlinePage.getByRole('button', { name: /先看看示例数据/ }).click();
 await offlinePage.waitForTimeout(500);

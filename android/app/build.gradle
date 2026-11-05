@@ -1,14 +1,34 @@
 apply plugin: 'com.android.application'
 
+def keystorePropertiesFile = rootProject.file('keystore/signing.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+// 诊断用开关：-Pxinshi.versionCode=701 覆盖版本号；-Pxinshi.noMinify 关闭 R8 以对比排查。
+def xinshiVersionCode = project.hasProperty('xinshi.versionCode')
+    ? project.property('xinshi.versionCode').toString().toInteger()
+    : 700
+def xinshiVersionName = project.hasProperty('xinshi.versionName')
+    ? project.property('xinshi.versionName').toString()
+    : "0.7.0"
+def xinshiMinify = !project.hasProperty('xinshi.noMinify')
+def xinshiDiag = project.hasProperty('xinshi.diag')
+
 android {
     namespace "com.xinshi.app"
     compileSdk rootProject.ext.compileSdkVersion
+    buildFeatures {
+        buildConfig true
+    }
     defaultConfig {
         applicationId "com.xinshi.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 509
-        versionName "0.5.9"
+        versionCode xinshiVersionCode
+        versionName xinshiVersionName
+        buildConfigField "boolean", "XINSHI_DIAG", xinshiDiag ? "true" : "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +36,24 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled xinshiMinify
+            shrinkResources xinshiMinify
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }

@@ -9,6 +9,7 @@ function rule(overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): 
     expectedDays: 22,
     monthlyMode: 'prorated',
     restDaysPerMonth: 0,
+    restPolicy: 'quota',
     overRestDeduct: false,
     overRestDailyRate: 0,
     unitLabel: '件',

@@ -5,12 +5,19 @@ interface SaveFileResult {
   uri: string;
 }
 
+interface PruneResult {
+  deleted: number;
+}
+
 interface SaveFilePlugin {
   save(options: {
     filename: string;
     mimeType: string;
     data: string;
+    overwrite?: boolean;
+    subdir?: string;
   }): Promise<SaveFileResult>;
+  prune(options: { prefix: string; keep: number; subdir?: string }): Promise<PruneResult>;
 }
 
 const SaveFile = registerPlugin<SaveFilePlugin>('SaveFile');
@@ -29,12 +36,28 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /** 写入 Android 公共下载目录：Download/Xinshi/，不依赖分享面板。 */
-export async function saveFileToDownloads(blob: Blob, filename: string): Promise<string> {
+export async function saveFileToDownloads(
+  blob: Blob,
+  filename: string,
+  options: { overwrite?: boolean; subdirectory?: string } = {},
+): Promise<string> {
   const data = await blobToBase64(blob);
   const result = await SaveFile.save({
     filename,
     mimeType: blob.type || 'application/octet-stream',
     data,
+    overwrite: options.overwrite,
+    subdir: options.subdirectory,
   });
   return result.path;
+}
+
+/** 只清理Download/Xinshi（或指定子目录）下固定前缀的文件，按修改时间保留最新 keep 份。 */
+export async function pruneDownloadFiles(
+  prefix: string,
+  keep: number,
+  subdirectory?: string,
+): Promise<number> {
+  const result = await SaveFile.prune({ prefix, keep, subdir: subdirectory });
+  return result.deleted;
 }

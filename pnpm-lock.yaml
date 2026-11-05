@@ -26,6 +26,9 @@ importers:
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.1)
+      qrcode-generator:
+        specifier: ^2.0.4
+        version: 2.0.4
       react:
         specifier: ^19.0.0
         version: 19.3.1
@@ -1132,6 +1135,9 @@ packages:
   prompts@2.4.2:
     resolution: {integrity: sha512-NxNv/kLguCA7p3jE8oL2aEBsrJWgAakBpgmgK6lpPWV+WuOmY6r2/zbAVnP+T8bQlA0nzHXSJSJW0Hq7ylaD2Q==}
     engines: {node: '>= 6'}
+
+  qrcode-generator@2.0.4:
+    resolution: {integrity: sha512-mZSiP6RnbHl4xL2Ap5HfkjLnmxfKcPWpWe/c+5XxCuetEenqmNFf1FH/ftXPCtFG5/TDobjsjz6sSNL0Sr8Z9g==}
 
   raf@3.4.1:
     resolution: {integrity: sha512-Sq4CW4QhwOHE8ucn6J34MqtZCeWFP2aQSmrlroYgqAV1PjStIhJXxYuTgUIfkEk7zTLjmIjLmU5q+fbD1NnOJA==}
@@ -2435,6 +2441,8 @@ snapshots:
     dependencies:
       kleur: 3.0.3
       sisteransi: 1.0.5
+
+  qrcode-generator@2.0.4: {}
 
   raf@3.4.1:
     dependencies:

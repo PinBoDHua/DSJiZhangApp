@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Advance, AppState, Entry, Job, PayRule, RestDay } from '../types';
-import { buildSettlementDraft, computeOutstanding, getSettlementOverview, sumEntriesCapped } from './settlement';
+import {
+  buildSettlementDraft,
+  computeOutstanding,
+  getSettlementOverview,
+  makeSettlement,
+  settlementCopyText,
+  sumEntriesCapped,
+} from './settlement';
 import { payForEntry } from './pay';
 import { addMonths, endOfWeek, hoursBetween, periodOf, shiftPeriod, startOfWeek } from './date';
 import { formatMoney, round2 } from './money';
@@ -498,6 +505,199 @@ describe('结算汇总', () => {
     );
     expect(override.overRestDeduction).toBe(200);
     expect(override.net).toBe(3300);
+
+    // 月结页取消休息后，之前填过的超休金额不能继续扣。
+    const noOver = buildSettlementDraft(
+      fixedJob,
+      [work],
+      [],
+      period,
+      0,
+      0,
+      restDays.slice(0, 5),
+      true,
+      200,
+    );
+    expect(noOver.overRestDays).toBe(0);
+    expect(noOver.overRestDeduction).toBe(0);
+    expect(noOver.net).toBe(3500);
+  });
+
+  it('结算只收本期、本岗位的休息日，并按日期排序去重', () => {
+    const fixedJob = job({
+      cycle: 'monthly',
+      rule: rule({
+        payType: 'monthly',
+        rate: 3500,
+        standardHours: 6,
+        monthlyMode: 'fixed',
+        restDaysPerMonth: 5,
+        overRestDeduct: false,
+        otEnabled: false,
+      }),
+    });
+    const period = periodOf('monthly', '2026-11-03', 1);
+    const restDays: RestDay[] = [
+      {
+        id: 'rest-3',
+        jobId: 'job-1',
+        date: '2026-11-03',
+        createdAt: '2026-11-03T12:00:00.000Z',
+      },
+      {
+        id: 'rest-10',
+        jobId: 'job-1',
+        date: '2026-11-10',
+        createdAt: '2026-11-10T12:00:00.000Z',
+      },
+      {
+        id: 'rest-3-duplicate',
+        jobId: 'job-1',
+        date: '2026-11-03',
+        createdAt: '2026-11-03T13:00:00.000Z',
+      },
+      {
+        id: 'rest-other-job',
+        jobId: 'job-2',
+        date: '2026-11-04',
+        createdAt: '2026-11-04T12:00:00.000Z',
+      },
+      {
+        id: 'rest-next-month',
+        jobId: 'job-1',
+        date: '2026-12-01',
+        createdAt: '2026-12-01T12:00:00.000Z',
+      },
+    ];
+    const draft = buildSettlementDraft(
+      fixedJob,
+      [entry({ date: '2026-11-05', hours: 6, rule: fixedJob.rule })],
+      [],
+      period,
+      0,
+      0,
+      restDays,
+    );
+    expect(draft.restDays).toBe(2);
+    expect(draft.restDates).toEqual(['2026-11-03', '2026-11-10']);
+  });
+
+  it('随机休息不设额度，不产生超休扣款', () => {
+    const flexibleJob = job({
+      cycle: 'monthly',
+      rule: rule({
+        payType: 'monthly',
+        rate: 3500,
+        standardHours: 6,
+        monthlyMode: 'fixed',
+        restDaysPerMonth: 0,
+        restPolicy: 'flexible',
+        overRestDeduct: true,
+        otEnabled: false,
+      }),
+    });
+    const restDays: RestDay[] = [1, 2, 3, 4, 5, 6, 7].map((day) => ({
+      id: `rest-${day}`,
+      jobId: 'job-1',
+      date: `2026-11-${String(day).padStart(2, '0')}`,
+      createdAt: '2026-11-01T00:00:00.000Z',
+    }));
+    const draft = buildSettlementDraft(
+      flexibleJob,
+      [entry({ date: '2026-11-20', hours: 6, rule: flexibleJob.rule })],
+      [],
+      periodOf('monthly', '2026-11-03', 1),
+      0,
+      0,
+      restDays,
+    );
+    expect(draft.restDays).toBe(7);
+    expect(draft.overRestDays).toBe(0);
+    expect(draft.overRestDeduction).toBe(0);
+    expect(draft.net).toBe(3500);
+  });
+
+  it('结算快照和复制文案保留具体休息日', () => {
+    const fixedJob = job({
+      cycle: 'monthly',
+      rule: rule({
+        payType: 'monthly',
+        rate: 3500,
+        standardHours: 6,
+        monthlyMode: 'fixed',
+        restDaysPerMonth: 5,
+        otEnabled: false,
+      }),
+    });
+    const period = periodOf('monthly', '2026-11-03', 1);
+    const restDays: RestDay[] = [
+      {
+        id: 'rest-3',
+        jobId: 'job-1',
+        date: '2026-11-03',
+        createdAt: '2026-11-03T12:00:00.000Z',
+      },
+      {
+        id: 'rest-10',
+        jobId: 'job-1',
+        date: '2026-11-10',
+        createdAt: '2026-11-10T12:00:00.000Z',
+      },
+    ];
+    const draft = buildSettlementDraft(
+      fixedJob,
+      [entry({ date: '2026-11-05', hours: 6, rule: fixedJob.rule })],
+      [],
+      period,
+      0,
+      0,
+      restDays,
+    );
+    const settlement = makeSettlement(draft, 'settlement-1', '2026-11-30T12:00:00.000Z');
+    expect(settlement.restDates).toEqual(['2026-11-03', '2026-11-10']);
+    expect(settlementCopyText(settlement)).toContain('休息日：11月3日、11月10日');
+  });
+
+  it('半天休息按 0.5 天计入超休扣款', () => {
+    const fixedJob = job({
+      cycle: 'monthly',
+      rule: rule({
+        payType: 'monthly',
+        rate: 3500,
+        standardHours: 6,
+        monthlyMode: 'fixed',
+        restDaysPerMonth: 5,
+        overRestDeduct: true,
+        otEnabled: false,
+      }),
+    });
+    const restDays: RestDay[] = [1, 2, 3, 4, 5].map((day) => ({
+      id: `rest-${day}`,
+      jobId: 'job-1',
+      date: `2026-11-${String(day).padStart(2, '0')}`,
+      days: 1,
+      createdAt: '2026-11-01T00:00:00.000Z',
+    }));
+    restDays.push({
+      id: 'rest-half',
+      jobId: 'job-1',
+      date: '2026-11-06',
+      days: 0.5,
+      createdAt: '2026-11-06T00:00:00.000Z',
+    });
+    const draft = buildSettlementDraft(
+      fixedJob,
+      [entry({ date: '2026-11-20', hours: 6, rule: fixedJob.rule })],
+      [],
+      periodOf('monthly', '2026-11-03', 1),
+      0,
+      0,
+      restDays,
+    );
+    expect(draft.restDays).toBe(5.5);
+    expect(draft.overRestDays).toBe(0.5);
+    expect(draft.overRestDeduction).toBe(79.55);
+    expect(draft.net).toBe(3420.45);
   });
 
   it('全部未结金额扣除借支', () => {

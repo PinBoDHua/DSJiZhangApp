@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#14563D" />
+    <title>薪时 XINSHI · 隐私政策</title>
+    <style>
+      :root {
+        --paper: #f4f1e8;
+        --surface: #fffdf8;
+        --ink: #17251f;
+        --muted: #6f7b72;
+        --line: #e6e0d2;
+        --primary: #14563d;
+        --primary-soft: #e4efe7;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(900px 520px at 88% -8%, rgba(233, 161, 59, 0.12), transparent 62%),
+          radial-gradient(760px 540px at -12% 6%, rgba(20, 86, 61, 0.08), transparent 60%),
+          var(--paper);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+        font-size: 15px;
+        line-height: 1.75;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 36px 20px 72px;
+      }
+      header {
+        margin-bottom: 24px;
+        padding: 26px 24px;
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: var(--surface);
+        box-shadow: 0 10px 28px rgba(23, 37, 31, 0.06);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+        color: var(--primary);
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        background: var(--primary);
+        color: #f4f1e8;
+        font-size: 16px;
+        font-weight: 750;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 28px;
+        line-height: 1.25;
+        letter-spacing: -0.03em;
+      }
+      .updated { color: var(--muted); font-size: 12.5px; }
+      h2 {
+        margin: 30px 0 8px;
+        font-size: 17px;
+        letter-spacing: -0.01em;
+      }
+      p { margin: 8px 0; }
+      ul { margin: 8px 0; padding-left: 22px; }
+      li { margin: 5px 0; }
+      strong { font-weight: 650; }
+      .lead {
+        margin: 18px 0 0;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: var(--primary-soft);
+        color: #0f4631;
+        font-size: 14px;
+      }
+      .card {
+        padding: 22px 22px 16px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--surface);
+      }
+      a { color: var(--primary); word-break: break-all; }
+      footer {
+        margin-top: 26px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #121a16;
+          --surface: #182420;
+          --ink: #eef2ec;
+          --muted: #9daaa2;
+          --line: #2b3a33;
+          --primary: #9ecfb4;
+          --primary-soft: #1f342a;
+        }
+        .lead { color: #dff0e6; }
+        a { color: #b7dfc8; }
+      }
+      @media print {
+        body { background: #fff; }
+        main { max-width: none; padding: 0; }
+        .card, header { box-shadow: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand"><span class="mark">薪</span>薪时 XINSHI · 隐私政策</div>
+        <h1>你的工资账本，只留在你的设备上</h1>
+        <p class="updated">生效日期：2026-11-05 · 政策版本 2026-11-05</p>
+        <p class="lead">
+          薪时不登录、不上传、不联网也能用。我们没有服务器保存你的账本，也没有广告、
+          统计或追踪 SDK。
+        </p>
+      </header>
+
+      <div class="card">
+        <h2>1. 我们收集什么</h2>
+        <p>
+          薪时<strong>不收集、不上传</strong>你的个人信息。你主动录入的称呼、工作名称、
+          工时、薪资、借支、休息与结算记录，只保存在这台设备的本地存储里。
+        </p>
+        <p>
+          应用没有账号体系，不需要手机号、邮箱、身份证或位置信息；没有广告、统计、
+          追踪或用户画像。
+        </p>
+
+        <h2>2. 数据存在哪里</h2>
+        <ul>
+          <li>账本数据：设备本地 <code>localStorage</code>；本机快照：设备本地 IndexedDB。</li>
+          <li>
+            你主动导出的备份、搬家包、工资条、PDF、Excel 和 CSV：写到系统下载目录
+            <code>Download/Xinshi/</code> 或你选择的位置，由你保管。
+          </li>
+          <li>
+            Android 版不申请网络权限，应用内没有上传接口；网页版只加载自身静态资源，
+            不会把账本数据发到服务器。
+          </li>
+          <li>
+            「自动备份」默认关闭。开启后，每天首次打开 App 时把一份未加密的普通备份写入
+            <code>Download/Xinshi/自动备份/</code>，保留最近 14 份；可随时关闭。
+          </li>
+        </ul>
+
+        <h2>3. 权限与用途</h2>
+        <ul>
+          <li><strong>通知（可选）</strong>：用于每日记工提醒和发薪提醒；拒绝后仍可正常记工。</li>
+          <li><strong>开机恢复通知</strong>：设备重启后重新安排本地提醒，不读取任何内容。</li>
+          <li>
+            不申请存储、相机、位置、通讯录、电话或短信权限。导出文件通过系统媒体库写入
+            应用自己的下载目录，不需要存储权限。
+          </li>
+          <li>不申请精确闹钟权限。</li>
+        </ul>
+
+        <h2>4. 共享、第三方与广告</h2>
+        <p>
+          我们不向任何第三方出售、出租或共享你的数据。应用内没有广告、统计 SDK、
+          推送服务或云同步服务。二维码、PDF、图表、图标等库都在本地运行。
+        </p>
+        <p>
+          只有你主动把备份、搬家包、工资条或二维码发给别人时，数据才会离开这台设备；
+          发送范围由你决定。
+        </p>
+
+        <h2>5. 删除你的数据</h2>
+        <ul>
+          <li>应用内「我的 → 数据与安全 → 清空所有数据」会删除工作、工记、休息、借支和结算。</li>
+          <li>卸载 App 会删除应用本地数据；系统可能保留应用缓存，可在系统设置中清除。</li>
+          <li>已经导出的文件不在应用控制范围内，请自行在文件管理器中删除。</li>
+          <li>本机快照可以在「本机时光机」里逐条删除或一次清空。</li>
+          <li>因为没有账号，所以没有「注销账号」流程；删除数据即完成删除。</li>
+        </ul>
+
+        <h2>6. 儿童与未成年人</h2>
+        <p>
+          薪时面向有劳动收入记录的成年人，不面向儿童设计，也不会主动收集未成年人的信息。
+        </p>
+
+        <h2>7. 安全说明</h2>
+        <p>
+          工资数据属于敏感信息。我们提供 AES-GCM 加密的备份 / 搬家包密码保护；
+          密码不会保存，忘记后无法恢复加密文件。自动备份默认关闭，开启后为明文文件，
+          请注意手机文件可能被其他应用读取。
+        </p>
+
+        <h2>8. 政策更新与联系</h2>
+        <p>
+          政策更新会在应用内提示重新确认，并更新本页顶部的版本号。若你对隐私有疑问，
+          可联系：<a href="mailto:support@xinshi.app">support@xinshi.app</a>。
+        </p>
+        <p>
+          在线版本：
+          <a href="https://pinbodhua.github.io/DSJiZhangApp/privacy-policy.html"
+            >https://pinbodhua.github.io/DSJiZhangApp/privacy-policy.html</a
+          >
+        </p>
+      </div>
+
+      <footer>
+        薪时 XINSHI · 个人记工工具。计算结果仅供参考，不构成劳动、税务或法律意见。
+      </footer>
+    </main>
+  </body>
+</html>

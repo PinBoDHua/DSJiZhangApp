@@ -13,6 +13,7 @@ import {
 } from '../lib/date';
 import { JobDot } from './JobDot';
 import { formatWorkWeekdays } from '../lib/plan';
+import { formatRestDays, totalRestDays } from '../lib/rest';
 import { Sheet } from './Sheet';
 
 interface RestPlanSheetProps {
@@ -71,11 +72,14 @@ export function RestPlanSheet({
     }
   }
 
-  const existingCount = state.restDays.filter(
-    (rest) =>
-      rest.jobId === jobId && rest.date >= period.start && rest.date <= period.end,
-  ).length;
-  const quota = job?.rule.restDaysPerMonth ?? 0;
+  const existingCount = totalRestDays(
+    state.restDays.filter(
+      (rest) =>
+        rest.jobId === jobId && rest.date >= period.start && rest.date <= period.end,
+    ),
+  );
+  const quota =
+    job?.rule.restPolicy === 'flexible' ? 0 : job?.rule.restDaysPerMonth ?? 0;
   const template = job?.workWeekdays;
   const days = eachDay(period.start, period.end);
 
@@ -241,7 +245,7 @@ export function RestPlanSheet({
 
         <div className="plan-summary">
           <span>
-            本月已休 {existingCount}
+            本月已休 {formatRestDays(existingCount)}
             {quota > 0 ? ` / ${quota}` : ''} 天
           </span>
           <span>已选 {selected.size} 天</span>

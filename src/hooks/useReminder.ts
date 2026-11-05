@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { todayISO } from '../lib/date';
+import { isNativeApp } from '../lib/native';
 import type { Settings } from '../types';
 import {
   REMINDER_LAST_KEY,
@@ -14,6 +15,8 @@ export function useReminder(
 ): void {
   useEffect(() => {
     if (!reminder.enabled) return;
+    // 原生端由系统本地通知调度，App 打开时不再重复弹通知。
+    if (isNativeApp()) return;
     let cancelled = false;
 
     const check = async () => {

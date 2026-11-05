@@ -12,7 +12,9 @@ import {
   weekdayShort,
 } from '../lib/date';
 import { formatHours } from '../lib/money';
+import { formatRestDays, totalRestDays } from '../lib/rest';
 import { jobColor } from '../lib/meta';
+import { buildHeatmap, heatmapAriaLabel } from '../lib/insights';
 import {
   dailySeries,
   jobBreakdown,
@@ -39,6 +41,7 @@ export function Stats({ onAddEntry }: StatsProps) {
   const restDays = state.restDays.filter(
     (rest) => rest.date >= period.start && rest.date <= period.end,
   );
+  const restTotal = totalRestDays(restDays);
   const totals = mode === 'month' ? sumEntriesCapped(entries) : sumEntries(entries);
   const series = dailySeries(entries, period.start, period.end).map((point) => ({
     date: point.date,
@@ -59,6 +62,10 @@ export function Stats({ onAddEntry }: StatsProps) {
   const positiveTotal = totals.base + totals.otPay + totals.bonus;
   const canGoNext = period.end < today;
   const isCurrent = today >= period.start && today <= period.end;
+  const heatmap = buildHeatmap(state.entries, {
+    today,
+    weekStartsOn: state.settings.weekStartsOn,
+  });
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -130,7 +137,7 @@ export function Stats({ onAddEntry }: StatsProps) {
             <div className="stats-hero-top">
               <span>本期收入</span>
               <span className="stats-period">
-                {entries.length} 笔工记{restDays.length > 0 ? ` · 休 ${restDays.length} 天` : ''}
+                {entries.length} 笔工记{restTotal > 0 ? ` · 休 ${formatRestDays(restTotal)} 天` : ''}
               </span>
             </div>
             <Money value={totals.total} className="stats-amount" />
@@ -146,7 +153,7 @@ export function Stats({ onAddEntry }: StatsProps) {
               {hasFixedMonthly ? (
                 <div>
                   <span>休息</span>
-                  <strong>{restDays.length} 天</strong>
+                  <strong>{formatRestDays(restTotal)} 天</strong>
                 </div>
               ) : (
                 <div>
@@ -162,6 +169,46 @@ export function Stats({ onAddEntry }: StatsProps) {
               </div>
             </div>
           </section>
+
+          {heatmap.totalHours > 0 ? (
+            <section className="card heat-card">
+              <div className="section-head section-head--tight">
+                <div>
+                  <h2>最近 12 周</h2>
+                  <p>颜色越深，干活越多</p>
+                </div>
+                <span className="heat-total">{formatHours(heatmap.totalHours)}h</span>
+              </div>
+              <div className="heat-grid" role="img" aria-label={heatmapAriaLabel(heatmap)}>
+                {heatmap.weeks.map((week) => (
+                  <div className="heat-week" key={week.start}>
+                    {week.days.map((day) => (
+                      <span
+                        key={day.date}
+                        className={[
+                          'heat-day',
+                          `heat-day--${day.level}`,
+                          day.isFuture ? 'is-future' : '',
+                          day.isToday ? 'is-today' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        title={`${day.date} · ${formatHours(day.hours)}h`}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="heat-legend">
+                <span>少</span>
+                {[1, 2, 3, 4].map((level) => (
+                  <i key={level} className={`heat-day heat-day--${level}`} />
+                ))}
+                <span>多</span>
+                <em>12 周 · {formatHours(heatmap.totalHours)}h</em>
+              </div>
+            </section>
+          ) : null}
 
           <section className="card chart-card">
             <div className="section-head section-head--tight">

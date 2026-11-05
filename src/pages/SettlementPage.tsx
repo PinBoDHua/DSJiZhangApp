@@ -3,32 +3,39 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Coffee,
   Copy,
   Image as ImageIcon,
   LockKeyhole,
   Plus,
+  QrCode,
   Trash2,
   Undo2,
 } from 'lucide-react';
 import type { Advance, Entry } from '../types';
 import { useStore } from '../store';
 import { AdvanceSheet } from '../components/AdvanceSheet';
+import { AttendanceDaySheet } from '../components/AttendanceDaySheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
 import { Money } from '../components/Money';
 import { PayslipSheet } from '../components/PayslipSheet';
 import { PaymentSheet } from '../components/PaymentSheet';
+import { ShareQrSheet } from '../components/ShareQrSheet';
 import { SubPage } from '../components/SubPage';
 import {
+  eachDay,
   formatDateShort,
   formatDateWithWeekday,
   formatDateTime,
+  periodContains,
   periodOf,
   todayISO,
   weekdayCN,
 } from '../lib/date';
 import { formatHours, toAmount } from '../lib/money';
+import { formatRestDays, restDayAmount } from '../lib/rest';
 import { CYCLE_LABEL, jobColor } from '../lib/meta';
 import { payForEntry } from '../lib/pay';
 import {
@@ -36,6 +43,7 @@ import {
   settlementCopyText,
 } from '../lib/settlement';
 import { copyText } from '../lib/clipboard';
+import { saveSnapshot } from '../lib/snapshots';
 import { pushNativeBack } from '../lib/nativeBack';
 import {
   PAYMENT_STATUS_LABEL,
@@ -49,6 +57,8 @@ interface DraftPageProps {
   periodStart: string;
   onBack: () => void;
   onSettled: (settlementId: string) => void;
+  onAddEntry: (jobId: string, date: string) => void;
+  onOpenEntry: (entryId: string) => void;
 }
 
 function AmountRow({
@@ -73,6 +83,14 @@ function AmountRow({
       <Money value={negative ? -amount : amount} />
     </div>
   );
+}
+
+const WEEKDAYS_MONDAY = ['一', '二', '三', '四', '五', '六', '日'];
+const WEEKDAYS_SUNDAY = ['日', '一', '二', '三', '四', '五', '六'];
+
+function weekdayOffset(date: string, weekStartsOn: 0 | 1): number {
+  const day = new Date(`${date}T00:00:00`).getDay();
+  return weekStartsOn === 1 ? (day + 6) % 7 : day;
 }
 
 function SettleEntryRow({ entry }: { entry: Entry }) {
@@ -105,7 +123,14 @@ function SettleEntryRow({ entry }: { entry: Entry }) {
   );
 }
 
-export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: DraftPageProps) {
+export function SettlementDraftPage({
+  jobId,
+  periodStart,
+  onBack,
+  onSettled,
+  onAddEntry,
+  onOpenEntry,
+}: DraftPageProps) {
   const { state, settleJob, deleteAdvance, restoreAdvance, toast } = useStore();
   const [extraBonus, setExtraBonus] = useState('');
   const [extraDeduction, setExtraDeduction] = useState('');
@@ -118,6 +143,7 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
     state.jobs.find((item) => item.id === jobId)?.rule.overRestDeduct ?? false,
   );
   const [overRestAmount, setOverRestAmount] = useState('');
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const dirtyRef = useRef(false);
 
   useEffect(() => {
@@ -209,6 +235,24 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
   } as CSSProperties;
   const hasEntries = draft.entries.length > 0;
   const isFixedDraft = draft.payType === 'monthly' && draft.monthlyMode === 'fixed';
+  const isFlexibleRest =
+    isFixedDraft && (job.rule.restPolicy ?? 'quota') === 'flexible';
+  const isMonthlyDraft = draft.payType === 'monthly';
+  const monthRestDays = state.restDays
+    .filter((rest) => rest.jobId === job.id && periodContains(period, rest.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const monthRestByDate = new Map(monthRestDays.map((rest) => [rest.date, rest]));
+  const monthEntryDates = new Set(draft.entries.map((entry) => entry.date));
+  const monthDays = isMonthlyDraft ? eachDay(period.start, period.end) : [];
+  const monthOffset = isMonthlyDraft
+    ? weekdayOffset(period.start, state.settings.weekStartsOn)
+    : 0;
+  const monthWeekdays =
+    state.settings.weekStartsOn === 1 ? WEEKDAYS_MONDAY : WEEKDAYS_SUNDAY;
+
+  const handleMonthDayClick = (date: string) => {
+    setSelectedDay(date);
+  };
 
   const handleConfirm = () => {
     const settlement = settleJob(
@@ -306,7 +350,7 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
                   <strong>{draft.days} 天</strong>
                 </div>
               </>
-            ) : draft.payType === 'monthly' && draft.monthlyMode === 'fixed' ? (
+            ) : draft.payType === 'monthly' ? (
               <>
                 <div>
                   <span>出勤</span>
@@ -340,6 +384,99 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           </div>
         </section>
 
+        {isMonthlyDraft ? (
+          <section className="detail-card rest-month-card">
+            <div className="detail-card-head">
+              <div>
+                <h2>本月出勤 / 休息</h2>
+                <p className="overrest-meta">
+                  出勤 {draft.days} 天 · 休息 {draft.restDays} 天
+                  {isFixedDraft && !isFlexibleRest && job.rule.restDaysPerMonth > 0
+                    ? ` · 额度 ${job.rule.restDaysPerMonth} 天`
+                    : isFlexibleRest
+                      ? ' · 随机休息'
+                      : ''}
+                </p>
+              </div>
+              <span className="rest-month-hint">点日期补记工 / 标休息</span>
+            </div>
+            <div className="rest-month-weekdays">
+              {monthWeekdays.map((day) => (
+                <span key={day}>{day}</span>
+              ))}
+            </div>
+            <div className="rest-month-grid">
+              {Array.from({ length: monthOffset }).map((_, index) => (
+                <span key={`blank-${index}`} />
+              ))}
+              {monthDays.map((date) => {
+                const rest = monthRestByDate.get(date);
+                const worked = monthEntryDates.has(date);
+                return (
+                  <button
+                    type="button"
+                    key={date}
+                    data-date={date}
+                    className={[
+                      'rest-month-day',
+                      worked ? 'is-worked' : rest ? 'is-rest' : 'is-empty',
+                      date === today ? 'is-today' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => handleMonthDayClick(date)}
+                    aria-label={`${formatDateShort(date)}${
+                      worked
+                        ? '已记工'
+                        : rest
+                          ? `休息 ${formatRestDays(restDayAmount(rest))} 天`
+                          : '未记，点一下补记工或标休息'
+                    }`}
+                  >
+                    <span>{Number(date.slice(8))}</span>
+                    {worked ? (
+                      <b>班</b>
+                    ) : rest ? (
+                      restDayAmount(rest) === 0.5 ? (
+                        <b>½</b>
+                      ) : (
+                        <Coffee size={9} />
+                      )
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="rest-month-legend">
+              <span>
+                <i className="legend-worked" />
+                已记工
+              </span>
+              <span>
+                <i className="legend-rest" />
+                休息
+              </span>
+              <span>
+                <i className="legend-empty" />
+                未记
+              </span>
+            </div>
+            {isFixedDraft && !isFlexibleRest && draft.overRestDays > 0 ? (
+              <p className="rest-month-warning">
+                已超月休额度 {draft.overRestDays} 天
+                {job.rule.overRestDeduct
+                  ? '，本期会按超休规则扣款'
+                  : '；当前规则不自动扣款'}
+              </p>
+            ) : null}
+            <p className="field-hint">
+              {isFixedDraft
+                ? '点日期可以补记工或标休息；休息日会写进本期结算和工资条。'
+                : '按出勤折算的休息日不计薪，只做统计；如果休息不扣钱，请在工作设置里改用「固定月薪 + 随机休息」。'}
+            </p>
+          </section>
+        ) : null}
+
         <section className="detail-card">
           <div className="detail-card-head">
             <h2>金额明细</h2>
@@ -358,9 +495,11 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
                 draft.payType === 'piece'
                   ? `${formatHours(draft.quantity)} ${draft.unitLabel} × 单价`
                   : draft.payType === 'monthly' && draft.monthlyMode === 'fixed'
-                    ? `出勤 ${draft.days} 天 · 月休 ${draft.restDays} 天`
+                    ? `出勤 ${draft.days} 天 · ${
+                        isFlexibleRest ? '随机休息' : '月休'
+                      } ${draft.restDays} 天`
                     : job.rule.payType === 'monthly'
-                      ? `${job.rule.expectedDays} 天折算`
+                      ? `${job.rule.expectedDays} 天折算 · 休息 ${draft.restDays} 天`
                       : job.rule.payType === 'daily'
                         ? `${draft.days} 天出勤`
                         : '正常工时'
@@ -416,8 +555,16 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           {job.rule.payType === 'monthly' && draft.entries.length > 0 ? (
             <p className="calc-note">
               {draft.monthlyMode === 'fixed'
-                ? `固定月薪整月发放；上方单笔为日折算参考，实际不按出勤天数扣减。本期休息 ${draft.restDays} 天。`
-                : '月薪明细为单日折算，结算已按整月封顶。'}
+                ? `固定月薪整月发放；上方单笔为日折算参考，实际不按出勤天数扣减。本期休息 ${
+                    draft.restDays
+                  } 天${
+                    draft.restDates.length > 0
+                      ? `（${draft.restDates.map(formatDateShort).join('、')}）`
+                      : ''
+                  }。`
+                : `月薪明细为单日折算，结算已按整月封顶；休息日不计薪。本期休息 ${
+                    draft.restDays
+                  } 天。`}
             </p>
           ) : null}
           {draft.payType === 'piece' && draft.entries.length > 0 ? (
@@ -425,7 +572,7 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
           ) : null}
         </section>
 
-        {isFixedDraft && job.rule.overRestDeduct ? (
+        {isFixedDraft && !isFlexibleRest && job.rule.overRestDeduct ? (
           <section className="detail-card overrest-card">
             <div className="detail-card-head">
               <div>
@@ -613,6 +760,22 @@ export function SettlementDraftPage({ jobId, periodStart, onBack, onSettled }: D
         onConfirm={handleConfirm}
       />
 
+      <AttendanceDaySheet
+        open={Boolean(selectedDay)}
+        job={job}
+        date={selectedDay}
+        entries={
+          selectedDay
+            ? draft.entries.filter((entry) => entry.date === selectedDay)
+            : []
+        }
+        rest={selectedDay ? monthRestByDate.get(selectedDay) : undefined}
+        settled={false}
+        onClose={() => setSelectedDay(null)}
+        onAddEntry={onAddEntry}
+        onOpenEntry={onOpenEntry}
+      />
+
       <ConfirmDialog
         open={Boolean(advanceToDelete)}
         title="删除这笔借支？"
@@ -635,6 +798,7 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
   const { state, undoSettlement, toast } = useStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [payslipOpen, setPayslipOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const settlement = state.settlements.find((item) => item.id === settlementId);
   if (!settlement) {
@@ -675,6 +839,7 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
   };
 
   const handleUndo = () => {
+    void saveSnapshot(state, 'before-undo-settlement').catch(() => undefined);
     const ok = undoSettlement(settlement.id);
     setConfirmOpen(false);
     if (ok) {
@@ -706,6 +871,10 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
             >
               <ImageIcon size={16} />
               工资条
+            </button>
+            <button type="button" className="btn btn--soft" onClick={() => setQrOpen(true)}>
+              <QrCode size={16} />
+              二维码
             </button>
             <button type="button" className="btn btn--soft" onClick={handleCopy}>
               <Copy size={16} />
@@ -758,7 +927,7 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
                   <strong>{settlement.days} 天</strong>
                 </div>
               </>
-            ) : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed' ? (
+            ) : settlement.payType === 'monthly' ? (
               <>
                 <div>
                   <span>出勤</span>
@@ -888,10 +1057,38 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
             {entries.some((entry) => entry.rule.payType === 'monthly') ? (
               <p className="calc-note">
                 {settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
-                  ? `固定月薪整月发放；上方单笔为日折算参考。本期休息 ${settlement.restDays ?? 0} 天。`
-                  : '月薪明细为单日折算，结算已按整月封顶。'}
+                  ? `固定月薪整月发放；上方单笔为日折算参考。本期休息 ${
+                      settlement.restDays ?? 0
+                    } 天。`
+                  : '月薪明细为单日折算，结算已按整月封顶；休息日不计薪。'}
               </p>
             ) : null}
+          </section>
+        ) : null}
+
+        {settlement.payType === 'monthly' && (settlement.restDays ?? 0) > 0 ? (
+          <section className="detail-card">
+            <div className="detail-card-head">
+              <h2>本期休息</h2>
+              <span>{settlement.restDays ?? 0} 天</span>
+            </div>
+            {(settlement.restDates ?? []).length > 0 ? (
+              <div className="rest-date-list">
+                {(settlement.restDates ?? []).map((date) => (
+                  <span className="rest-date-chip" key={date}>
+                    {formatDateShort(date)}
+                    <em>{weekdayCN(date)}</em>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-inline">
+                这张结算单生成于旧版本，只记录了休息天数，没有保存具体日期。
+              </p>
+            )}
+            <p className="calc-note">
+              休息日期按结算时的快照保留，之后修改休息记录不会改动这张结算单。
+            </p>
           </section>
         ) : null}
 
@@ -930,6 +1127,10 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
         onCancel={() => setConfirmOpen(false)}
         onConfirm={handleUndo}
       />
+
+      {qrOpen ? (
+        <ShareQrSheet settlement={settlement} onClose={() => setQrOpen(false)} />
+      ) : null}
 
       {payslipOpen ? (
         <PayslipSheet

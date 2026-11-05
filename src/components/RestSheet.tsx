@@ -3,7 +3,9 @@ import { CalendarDays, Coffee, Trash2 } from 'lucide-react';
 import type { Job } from '../types';
 import { useStore } from '../store';
 import { addDays, formatDateCompact, formatDateFull, periodOf, todayISO } from '../lib/date';
+import { formatRestDays, restDayAmount, totalRestDays } from '../lib/rest';
 import { JobDot } from './JobDot';
+import { Segmented } from './Segmented';
 import { Sheet } from './Sheet';
 
 interface RestSheetProps {
@@ -27,12 +29,14 @@ export function RestSheet({
   const [jobId, setJobId] = useState(initialJobId ?? jobs[0]?.id ?? '');
   const [date, setDate] = useState(initialDate ?? todayISO());
   const [note, setNote] = useState('');
+  const [restAmount, setRestAmount] = useState(1);
 
   useEffect(() => {
     if (!open) return;
     setJobId(initialJobId ?? jobs[0]?.id ?? '');
     setDate(initialDate ?? todayISO());
     setNote('');
+    setRestAmount(1);
     // jobs 由父级按当前工作列表传入，打开时取第一个即可；不要在每次父级渲染时重置。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialJobId, initialDate]);
@@ -52,20 +56,30 @@ export function RestSheet({
   );
   const blocked = entryExists || periodSettled;
   const month = periodOf('monthly', date, state.settings.weekStartsOn);
-  const usedRestDays = state.restDays.filter(
-    (rest) =>
-      rest.jobId === jobId && rest.date >= month.start && rest.date <= month.end,
-  ).length;
+  const usedRestDays = totalRestDays(
+    state.restDays.filter(
+      (rest) =>
+        rest.jobId === jobId && rest.date >= month.start && rest.date <= month.end,
+    ),
+  );
   const restQuota = selectedJob?.rule.restDaysPerMonth ?? 0;
+  const isFlexibleRest =
+    selectedJob?.rule.payType === 'monthly' &&
+    selectedJob.rule.monthlyMode === 'fixed' &&
+    (selectedJob.rule.restPolicy ?? 'quota') === 'flexible';
 
   const save = () => {
     if (!selectedJob) return;
-    const created = addRestDay({ jobId, date, note });
+    const created = addRestDay({ jobId, date, note, days: restAmount });
     if (!created) {
       toast('这天已有工记、已结算或已标休息，不能再标休息', 'error');
       return;
     }
-    toast(`已记 ${formatDateCompact(date)} 休息`);
+    toast(
+      `已记 ${formatDateCompact(date)} ${
+        restAmount === 0.5 ? '半天' : '一天'
+      }休息`,
+    );
     onClose();
   };
 
@@ -143,12 +157,16 @@ export function RestSheet({
             </label>
           </div>
           <p className="field-hint">{formatDateFull(date)}</p>
-          {selectedJob?.rule.payType === 'monthly' &&
-          selectedJob.rule.monthlyMode === 'fixed' &&
-          restQuota > 0 ? (
+          {isFlexibleRest ? (
             <p className="rest-quota">
-              本月已休 {usedRestDays} / {restQuota} 天 · 剩余{' '}
-              {Math.max(0, restQuota - usedRestDays)} 天
+              随机休息 · 本月已休 {formatRestDays(usedRestDays)} 天，不设固定额度
+            </p>
+          ) : selectedJob?.rule.payType === 'monthly' &&
+            selectedJob.rule.monthlyMode === 'fixed' &&
+            restQuota > 0 ? (
+            <p className="rest-quota">
+              本月已休 {formatRestDays(usedRestDays)} / {restQuota} 天 · 剩余{' '}
+              {formatRestDays(Math.max(0, restQuota - usedRestDays))} 天
             </p>
           ) : null}
         </div>
@@ -159,7 +177,10 @@ export function RestSheet({
               <Coffee size={18} />
             </span>
             <div>
-              <strong>这天已标为休息</strong>
+              <strong>
+                这天已标为休息
+                {restDayAmount(existing) === 0.5 ? '（半天）' : ''}
+              </strong>
               <p>{selectedJob?.name} · {formatDateFull(existing.date)}</p>
             </div>
             <button type="button" className="text-link text-link--danger" onClick={remove}>
@@ -175,6 +196,21 @@ export function RestSheet({
                   ? '这天已有工记，换一天或删除工记后再标休息'
                   : '这天已经结算，不能补标休息'}
               </p>
+            ) : null}
+            {!blocked ? (
+              <div className="field">
+                <span className="field-label">休息时长</span>
+                <Segmented
+                  value={String(restAmount)}
+                  onChange={(value) => setRestAmount(value === '0.5' ? 0.5 : 1)}
+                  options={[
+                    { value: '1', label: '整天' },
+                    { value: '0.5', label: '半天' },
+                  ]}
+                  ariaLabel="休息时长"
+                />
+                <p className="field-hint">半天按 0.5 天计入月休和结算。</p>
+              </div>
             ) : null}
             <label className="field">
               <span className="field-label">备注（选填）</span>

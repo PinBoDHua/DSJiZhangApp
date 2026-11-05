@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  RotateCcw,
   ShieldAlert,
   Sun,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ import type { TimerTimes } from '../lib/timer';
 import { buildTimerTimes } from '../lib/timer';
 import {
   addDays,
+  daysInMonth,
   formatDateWithWeekday,
   formatMonthTitle,
   greeting,
@@ -41,6 +43,7 @@ import {
   weekdayShort,
 } from '../lib/date';
 import { formatHours } from '../lib/money';
+import { formatRestDays, totalRestDays } from '../lib/rest';
 import { cycleLabel, jobColor, rateLabel } from '../lib/meta';
 import { computeOutstanding, dailySeries, getSettlementOverview, sumEntries, sumEntriesCapped } from '../lib/settlement';
 import { backupDueText, backupIsDue } from '../lib/backupStatus';
@@ -66,6 +69,7 @@ interface HomeProps {
   onGoRecords: () => void;
   onGoSettlements: () => void;
   onOpenProfile: () => void;
+  onOpenDataSafety: () => void;
   onFinishTimer: (jobId: string, times: TimerTimes) => void;
 }
 
@@ -77,6 +81,7 @@ export function Home({
   onGoRecords,
   onGoSettlements,
   onOpenProfile,
+  onOpenDataSafety,
   onFinishTimer,
 }: HomeProps) {
   const { state, updateProfile, startTimer, clearTimer, toast, addEntry } = useStore();
@@ -105,18 +110,28 @@ export function Home({
   const lastUsedJobId = [...state.entries].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   )[0]?.jobId;
+  const repeatEntry = [...state.entries]
+    .filter((entry) => entry.startTime && entry.endTime && entry.date !== today)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))[0];
+  const monthDay = Number(today.slice(8, 10));
+  const monthLength = daysInMonth(today);
+  const monthProgress = Math.min(100, Math.round((monthDay / monthLength) * 100));
   const fixedMonthlyJob = activeJobs.find(
     (job) => job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed',
   );
   const fixedMonthlyJobs = activeJobs.filter(
     (job) => job.rule.payType === 'monthly' && job.rule.monthlyMode === 'fixed',
   );
+  const monthRestTotal = totalRestDays(monthRestDays);
   const fixedRestDays =
     fixedMonthlyJob !== undefined
-      ? monthRestDays.filter((rest) => rest.jobId === fixedMonthlyJob.id).length
-      : monthRestDays.length;
+      ? totalRestDays(monthRestDays.filter((rest) => rest.jobId === fixedMonthlyJob.id))
+      : monthRestTotal;
   const restQuota =
-    fixedMonthlyJobs.length === 1 ? fixedMonthlyJobs[0].rule.restDaysPerMonth : 0;
+    fixedMonthlyJobs.length === 1 &&
+    (fixedMonthlyJobs[0].rule.restPolicy ?? 'quota') !== 'flexible'
+      ? fixedMonthlyJobs[0].rule.restDaysPerMonth
+      : 0;
   const hasFixedMonthly = state.entries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
   );
@@ -296,7 +311,7 @@ export function Home({
       </div>
 
       {backupDue ? (
-        <button type="button" className="backup-nudge" onClick={onOpenProfile}>
+        <button type="button" className="backup-nudge" onClick={onOpenDataSafety}>
           <span className="backup-nudge-icon">
             <ShieldAlert size={17} />
           </span>
@@ -349,9 +364,9 @@ export function Home({
           <span>
             {formatMonthTitle(today)} · 已记 {summary.days} 天
             {restQuota > 0
-              ? ` · 休 ${fixedRestDays}/${restQuota} 天`
-              : monthRestDays.length > 0
-                ? ` · 休 ${monthRestDays.length} 天`
+              ? ` · 休 ${formatRestDays(fixedRestDays)}/${restQuota} 天`
+              : monthRestTotal > 0
+                ? ` · 休 ${formatRestDays(monthRestTotal)} 天`
                 : ''}
           </span>
           {outstanding.net !== 0 ? (
@@ -366,6 +381,9 @@ export function Home({
               工钱已结清
             </span>
           )}
+        </div>
+        <div className="hero-progress" aria-hidden="true">
+          <span style={{ width: `${monthProgress}%` }} />
         </div>
         <div className="hero-stats">
           <div>
@@ -447,7 +465,7 @@ export function Home({
                     .filter(Boolean)
                     .join('、')}
                   {' · '}
-                  本月已休 {monthRestDays.length} 天
+                  本月已休 {formatRestDays(monthRestTotal)} 天
                 </>
               ) : activeJobs.length > 0 ? (
                 todayPlan === 'work'
@@ -459,6 +477,23 @@ export function Home({
                 '先建一份工作，再开始记工。'
               )}
             </p>
+            {todayEntries.length === 0 && repeatEntry?.startTime && repeatEntry.endTime ? (
+              <button
+                type="button"
+                className="today-repeat-link"
+                onClick={() =>
+                  onFinishTimer(repeatEntry.jobId, {
+                    date: today,
+                    startTime: repeatEntry.startTime as string,
+                    endTime: repeatEntry.endTime as string,
+                    breakMinutes: repeatEntry.breakMinutes,
+                  })
+                }
+              >
+                <RotateCcw size={12} />
+                照上次班次
+              </button>
+            ) : null}
           </div>
           <div className="today-actions">
             {timerJobs.length > 0 && todayRestDays.length === 0 ? (

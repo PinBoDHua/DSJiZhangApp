@@ -1,6 +1,9 @@
 package com.xinshi.app;
 
+import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.ContentValues;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -18,11 +21,15 @@ import java.io.OutputStream;
 @CapacitorPlugin(name = "SaveFile")
 public class SaveFilePlugin extends Plugin {
 
+    private static final String BASE_PATH = Environment.DIRECTORY_DOWNLOADS + "/Xinshi";
+
     @PluginMethod
     public void save(PluginCall call) {
         String filename = call.getString("filename");
         String mimeType = call.getString("mimeType", "application/octet-stream");
         String data = call.getString("data");
+        boolean overwrite = Boolean.TRUE.equals(call.getBoolean("overwrite", false));
+        String subdir = safeSubdir(call.getString("subdir", ""));
 
         if (filename == null || filename.isEmpty() || data == null) {
             call.reject("保存参数不完整");
@@ -30,6 +37,10 @@ public class SaveFilePlugin extends Plugin {
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             call.reject("当前 Android 版本请使用分享保存");
+            return;
+        }
+        if (subdir == null) {
+            call.reject("目录名称不合法");
             return;
         }
 
@@ -41,7 +52,26 @@ public class SaveFilePlugin extends Plugin {
             return;
         }
 
-        String relativePath = Environment.DIRECTORY_DOWNLOADS + "/Xinshi";
+        String relativePath = relativePath(subdir);
+        ContentResolver resolver = getContext().getContentResolver();
+        Uri existing = overwrite ? findExisting(relativePath, filename) : null;
+
+        if (existing != null) {
+            try (OutputStream stream = resolver.openOutputStream(existing, "wt")) {
+                if (stream == null) {
+                    call.reject("无法写入文件");
+                    return;
+                }
+                stream.write(bytes);
+                stream.flush();
+            } catch (Exception error) {
+                call.reject(error.getMessage() == null ? "覆盖失败" : error.getMessage());
+                return;
+            }
+            resolveSaved(call, existing, subdir, filename);
+            return;
+        }
+
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
         values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
@@ -50,15 +80,12 @@ public class SaveFilePlugin extends Plugin {
 
         Uri uri = null;
         try {
-            uri = getContext().getContentResolver().insert(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                values
-            );
+            uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
                 call.reject("无法在下载目录创建文件");
                 return;
             }
-            try (OutputStream stream = getContext().getContentResolver().openOutputStream(uri)) {
+            try (OutputStream stream = resolver.openOutputStream(uri)) {
                 if (stream == null) {
                     call.reject("无法写入文件");
                     return;
@@ -68,17 +95,120 @@ public class SaveFilePlugin extends Plugin {
             }
             ContentValues done = new ContentValues();
             done.put(MediaStore.MediaColumns.IS_PENDING, 0);
-            getContext().getContentResolver().update(uri, done, null, null);
+            resolver.update(uri, done, null, null);
 
-            JSObject result = new JSObject();
-            result.put("path", "下载/Xinshi/" + filename);
-            result.put("uri", uri.toString());
-            call.resolve(result);
+            resolveSaved(call, uri, subdir, filename);
         } catch (Exception error) {
             if (uri != null) {
-                getContext().getContentResolver().delete(uri, null, null);
+                resolver.delete(uri, null, null);
             }
             call.reject(error.getMessage() == null ? "保存失败" : error.getMessage());
         }
+    }
+
+    @PluginMethod
+    public void prune(PluginCall call) {
+        String prefix = call.getString("prefix", "");
+        int keep = Math.max(1, call.getInt("keep", 14));
+        String subdir = safeSubdir(call.getString("subdir", ""));
+
+        if (prefix == null || prefix.isEmpty()) {
+            call.reject("缺少文件前缀");
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            call.reject("当前 Android 版本不支持自动清理");
+            return;
+        }
+        if (subdir == null) {
+            call.reject("目录名称不合法");
+            return;
+        }
+
+        String relativePath = relativePath(subdir);
+        ContentResolver resolver = getContext().getContentResolver();
+        String selection = MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? AND "
+                + MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?";
+        String[] args = new String[] { prefix + "%", relativePath + "%" };
+        String[] columns = new String[] {
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.DATE_MODIFIED
+        };
+
+        int deleted = 0;
+        try (Cursor cursor = resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                columns,
+                selection,
+                args,
+                MediaStore.MediaColumns.DATE_MODIFIED + " DESC, " + MediaStore.MediaColumns._ID + " DESC")) {
+            if (cursor == null) {
+                call.reject("无法读取备份目录");
+                return;
+            }
+            int index = 0;
+            while (cursor.moveToNext()) {
+                index += 1;
+                if (index <= keep) continue;
+                long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID));
+                Uri uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id);
+                try {
+                    deleted += resolver.delete(uri, null, null);
+                } catch (Exception ignored) {
+                    // 单个文件删除失败不影响其他备份
+                }
+            }
+        } catch (Exception error) {
+            call.reject(error.getMessage() == null ? "清理失败" : error.getMessage());
+            return;
+        }
+
+        JSObject result = new JSObject();
+        result.put("deleted", deleted);
+        call.resolve(result);
+    }
+
+    private String relativePath(String subdir) {
+        if (subdir == null || subdir.isEmpty()) return BASE_PATH;
+        return BASE_PATH + "/" + subdir;
+    }
+
+    /** 只允许中文、字母、数字、下划线和短横线，避免目录穿越。 */
+    private String safeSubdir(String value) {
+        if (value == null || value.isEmpty()) return "";
+        String cleaned = value.replaceAll("[^\\p{L}\\p{N}_-]", "");
+        if (cleaned.isEmpty() || cleaned.length() > 32) return null;
+        return cleaned;
+    }
+
+    private Uri findExisting(String relativePath, String filename) {
+        ContentResolver resolver = getContext().getContentResolver();
+        String selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
+                + MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?";
+        String[] args = new String[] { filename, relativePath + "%" };
+        try (Cursor cursor = resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                new String[] { MediaStore.MediaColumns._ID },
+                selection,
+                args,
+                null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID));
+                return ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id);
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private void resolveSaved(PluginCall call, Uri uri, String subdir, String filename) {
+        JSObject result = new JSObject();
+        String path = "下载/Xinshi/";
+        if (subdir != null && !subdir.isEmpty()) path += subdir + "/";
+        result.put("path", path + filename);
+        result.put("uri", uri.toString());
+        call.resolve(result);
     }
 }

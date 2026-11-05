@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
+  CalendarRange,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -27,6 +28,7 @@ import {
   weekdayCN,
 } from '../lib/date';
 import { formatHours } from '../lib/money';
+import { formatRestDays, totalRestDays } from '../lib/rest';
 import { plannedWorkDates, planStatusForJob } from '../lib/plan';
 import { sumEntries, sumEntriesCapped } from '../lib/settlement';
 
@@ -35,6 +37,7 @@ interface RecordsProps {
   onAddEntryAt: (jobId: string | undefined, date: string) => void;
   onOpenEntry: (entryId: string) => void;
   onOpenJobs: () => void;
+  onOpenAttendance: (jobId?: string) => void;
 }
 
 type ViewMode = 'list' | 'calendar';
@@ -50,6 +53,7 @@ export function Records({
   onAddEntryAt,
   onOpenEntry,
   onOpenJobs,
+  onOpenAttendance,
 }: RecordsProps) {
   const { state } = useStore();
   const today = todayISO();
@@ -91,6 +95,7 @@ export function Records({
     effectiveFilter === 'all'
       ? monthRestDays
       : monthRestDays.filter((rest) => rest.jobId === effectiveFilter);
+  const filteredRestTotal = totalRestDays(filteredRestDays);
   const totals = sumEntriesCapped(filtered);
   const planJobs =
     effectiveFilter === 'all'
@@ -190,6 +195,22 @@ export function Records({
           </button>
           <button
             type="button"
+            className="btn btn--ghost btn--sm records-attendance-btn"
+            onClick={() => {
+              if (state.jobs.length === 0) {
+                onOpenJobs();
+                return;
+              }
+              onOpenAttendance(effectiveFilter === 'all' ? undefined : effectiveFilter);
+            }}
+            aria-label="月度考勤"
+            title="月度考勤"
+          >
+            <CalendarRange size={15} />
+            考勤
+          </button>
+          <button
+            type="button"
             className="btn btn--ghost btn--sm records-rest-btn"
             onClick={() => {
               if (state.jobs.length === 0) {
@@ -263,10 +284,10 @@ export function Records({
           {totals.capAdjustment > 0 ? (
             <p className="summary-note">月薪已按整月封顶，超出部分不计入。</p>
           ) : null}
-          {filteredRestDays.length > 0 ? (
+          {filteredRestTotal > 0 ? (
             <p className="summary-note summary-note--rest">
               <Coffee size={13} />
-              本月另休 {filteredRestDays.length} 天
+              本月另休 {formatRestDays(filteredRestTotal)} 天
             </p>
           ) : null}
           {hasFixedMonthly ? (

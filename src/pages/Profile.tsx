@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Bell,
   Briefcase,
@@ -38,19 +38,40 @@ import {
   markBackedUp,
 } from '../lib/backupStatus';
 import { isNativeApp, saveTextFile } from '../lib/native';
+import {
+  getNativeReminderPermission,
+  requestNativeReminderPermission,
+  sendTestNativeReminder,
+  syncDailyReminder,
+  type ReminderPermission,
+} from '../lib/nativeReminders';
 
 interface ProfileProps {
   onOpenJobs: () => void;
+  onOpenDataSafety: () => void;
 }
 
-export function Profile({ onOpenJobs }: ProfileProps) {
+function normalizePermission(
+  value: NotificationPermission | 'unsupported',
+): ReminderPermission {
+  if (value === 'granted') return 'granted';
+  if (value === 'denied') return 'denied';
+  if (value === 'unsupported') return 'unsupported';
+  return 'prompt';
+}
+
+export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   const { state, updateProfile, updateSettings, replaceState, resetAll, toast } = useStore();
+  const nativeApp = isNativeApp();
   const [nameOpen, setNameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(state.profile.name);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
-  const [permission, setPermission] = useState(() => notificationPermission());
+  const [permission, setPermission] = useState<ReminderPermission>(() => {
+    if (nativeApp) return 'prompt';
+    return normalizePermission(notificationPermission());
+  });
   const [backupAt, setBackupAt] = useState(() => getLastBackupAt());
   const [exportOpen, setExportOpen] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
@@ -62,6 +83,17 @@ export function Profile({ onOpenJobs }: ProfileProps) {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!nativeApp) return;
+    let active = true;
+    void getNativeReminderPermission().then((next) => {
+      if (active) setPermission(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, [nativeApp]);
 
   const totals = sumEntriesCapped(state.entries);
   const activeJobs = state.jobs.filter((job) => !job.archived);
@@ -170,14 +202,54 @@ export function Profile({ onOpenJobs }: ProfileProps) {
   };
 
   const enableNotifications = async () => {
-    const result = await askNotificationPermission();
+    const result = nativeApp
+      ? await requestNativeReminderPermission()
+      : normalizePermission(await askNotificationPermission());
     setPermission(result);
-    if (result === 'granted') toast('浏览器通知已开启');
-    else if (result === 'denied') toast('通知被拒绝，可在浏览器设置里手动打开', 'error');
-    else if (result === 'unsupported') toast('当前浏览器不支持系统通知', 'error');
+    if (result === 'granted') {
+      if (nativeApp) {
+        const count = await syncDailyReminder(
+          state.settings.reminder,
+          !state.entries.some((entry) => entry.date === todayISO()),
+        );
+        toast(
+          count > 0
+            ? `系统通知已开启，已排 ${count} 天提醒`
+            : '系统通知已开启，明天开始提醒',
+        );
+      } else {
+        toast('浏览器通知已开启');
+      }
+      return;
+    }
+    if (result === 'denied') {
+      toast(
+        nativeApp
+          ? '通知被拒绝，请到系统设置 → 应用 → 薪时 → 通知里打开'
+          : '通知被拒绝，可在浏览器设置里手动打开',
+        'error',
+      );
+      return;
+    }
+    if (result === 'unsupported') {
+      toast(
+        nativeApp ? '当前设备不支持系统通知' : '当前浏览器不支持系统通知',
+        'error',
+      );
+      return;
+    }
+    toast('没有拿到通知权限，可以再试一次', 'error');
   };
 
   const testReminder = async () => {
+    if (nativeApp) {
+      const ok = await sendTestNativeReminder();
+      toast(
+        ok ? '测试通知已发送，几秒后收到' : '通知发送失败，请检查系统通知权限',
+        ok ? 'success' : 'error',
+      );
+      return;
+    }
     const ok = await showLocalNotification(
       '薪时 · 测试提醒',
       '到点我会这样提醒你记工。',
@@ -186,13 +258,45 @@ export function Profile({ onOpenJobs }: ProfileProps) {
     toast(ok ? '测试通知已发送' : '通知发送失败，请检查权限', ok ? 'success' : 'error');
   };
 
+  const toggleReminder = async () => {
+    const next = !state.settings.reminder.enabled;
+    if (next && nativeApp) {
+      const result = await requestNativeReminderPermission();
+      setPermission(result);
+      if (result !== 'granted') {
+        toast(
+          result === 'denied'
+            ? '请在系统设置 → 应用 → 薪时 → 通知里允许通知'
+            : '没有拿到系统通知权限，暂时无法开启',
+          'error',
+        );
+        return;
+      }
+    }
+    if (next && !nativeApp) {
+      const result = normalizePermission(await askNotificationPermission());
+      setPermission(result);
+      if (result === 'denied') {
+        toast('通知未授权；仍可开启开关后使用「添加到系统日历」', 'info');
+      }
+    }
+    updateSettings({
+      reminder: {
+        ...state.settings.reminder,
+        enabled: next,
+      },
+    });
+  };
+
   const permissionLabel =
     permission === 'granted'
       ? '已开启'
       : permission === 'denied'
         ? '被拒绝'
         : permission === 'unsupported'
-          ? '浏览器不支持'
+          ? nativeApp
+            ? '系统不支持'
+            : '浏览器不支持'
           : '未开启';
 
   return (
@@ -344,14 +448,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
               role="switch"
               aria-checked={state.settings.reminder.enabled}
               aria-label="每日记工提醒"
-              onClick={() =>
-                updateSettings({
-                  reminder: {
-                    ...state.settings.reminder,
-                    enabled: !state.settings.reminder.enabled,
-                  },
-                })
-              }
+              onClick={() => void toggleReminder()}
             >
               <i />
             </button>
@@ -361,7 +458,11 @@ export function Profile({ onOpenJobs }: ProfileProps) {
               <div className="settings-row settings-row--stack">
                 <span className="settings-body">
                   <strong>提醒时间</strong>
-                  <em>网页通知只在 App 打开时生效</em>
+                  <em>
+                    {nativeApp
+                      ? '由系统通知提醒，App 关着也生效；当天已记工会跳过'
+                      : '网页通知只在 App 打开时生效'}
+                  </em>
                 </span>
                 <input
                   className="time-input"
@@ -382,22 +483,32 @@ export function Profile({ onOpenJobs }: ProfileProps) {
               </div>
               <div className="settings-row settings-row--stack">
                 <span className="settings-body">
-                  <strong>浏览器通知 · {permissionLabel}</strong>
+                  <strong>
+                    {nativeApp ? '系统通知' : '浏览器通知'} · {permissionLabel}
+                  </strong>
                   <em>
                     {permission === 'granted'
-                      ? '系统通知已就绪'
+                      ? nativeApp
+                        ? '已就绪，App 关着也会按时间提醒'
+                        : '系统通知已就绪'
                       : permission === 'denied'
-                        ? '需到浏览器站点设置里手动允许'
+                        ? nativeApp
+                          ? '需到系统设置 → 应用 → 薪时 → 通知里手动允许'
+                          : '需到浏览器站点设置里手动允许'
                         : permission === 'unsupported'
-                          ? '当前浏览器不支持系统通知'
-                          : '首次开启会请求通知权限'}
+                          ? nativeApp
+                            ? '当前设备不支持系统通知'
+                            : '当前浏览器不支持系统通知'
+                          : nativeApp
+                            ? '首次开启会请求系统通知权限'
+                            : '首次开启会请求通知权限'}
                   </em>
                 </span>
                 <div className="reminder-actions">
                   <button
                     type="button"
                     className="btn btn--soft btn--sm"
-                    onClick={enableNotifications}
+                    onClick={() => void enableNotifications()}
                     disabled={permission === 'unsupported' || permission === 'granted'}
                   >
                     {permission === 'granted'
@@ -409,7 +520,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm"
-                    onClick={testReminder}
+                    onClick={() => void testReminder()}
                     disabled={permission !== 'granted'}
                   >
                     测试通知
@@ -438,13 +549,25 @@ export function Profile({ onOpenJobs }: ProfileProps) {
         </div>
         <p className="settings-note">
           <Bell size={14} />
-          网页通知受浏览器限制，只会在 App 打开时提醒；想关掉 App 也提醒，请用「添加到系统日历」。
+          {nativeApp
+            ? '系统通知由本地闹钟调度，不依赖服务器；省电模式下可能延迟。'
+            : '网页通知受浏览器限制，只会在 App 打开时提醒；想关掉 App 也提醒，请用「添加到系统日历」。'}
         </p>
       </section>
 
       <section className="settings-group">
         <h2>数据</h2>
         <div className="settings-card">
+          <button type="button" className="settings-row" onClick={onOpenDataSafety}>
+            <span className="settings-icon">
+              <ShieldCheck size={18} />
+            </span>
+            <span className="settings-body">
+              <strong>数据与安全</strong>
+              <em>备份、搬家、本机时光机、账本体检、Excel 导出</em>
+            </span>
+            <ChevronRight size={16} className="settings-chevron" />
+          </button>
           <button type="button" className="settings-row" onClick={handleExport}>
             <span className="settings-icon">
               <Download size={18} />
@@ -523,7 +646,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>关于薪时</strong>
-              <em>v0.5.9 · 每一小时，都算数</em>
+              <em>v0.7.2 · 每一小时，都算数</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -531,7 +654,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
       </section>
 
       <p className="profile-footer">
-        薪时 XINSHI · v0.5.9
+        薪时 XINSHI · v0.7.2
         <br />
         个人记工工具，计算结果仅供参考
       </p>
@@ -577,7 +700,7 @@ export function Profile({ onOpenJobs }: ProfileProps) {
               <h3>薪时 XINSHI</h3>
               <p>每一小时，都算数。</p>
             </div>
-            <span className="about-version">v0.5.9</span>
+            <span className="about-version">v0.7.2</span>
           </div>
           <p className="about-copy">
             给小时工、日结工、周结工和月结工用的个人记工工具。记工时、算工钱、等发薪，
@@ -585,11 +708,12 @@ export function Profile({ onOpenJobs }: ProfileProps) {
           </p>
           <ul className="about-list">
             <li>时薪 / 日薪 / 月薪 / 计件，四种算法</li>
-            <li>固定月薪、月休额度、随机休息留痕</li>
+            <li>固定月薪、随机休息、月度考勤与半天休</li>
             <li>默认班次模板，支持 6h + 午休 2h</li>
             <li>日结 / 周结 / 月结，逐期结算留底</li>
             <li>计时、日历、提醒、深色模式、离线使用</li>
-            <li>工资条图片 / PDF、AES-GCM 加密备份</li>
+            <li>工资条图片 / 文字版 PDF、结算二维码、考勤 CSV</li>
+            <li>AES-GCM 加密备份</li>
           </ul>
           <div className="about-disclaimer">
             <strong>说明</strong>

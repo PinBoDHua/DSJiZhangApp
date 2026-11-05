@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import {
   eachDay,
+  formatDateShort,
   formatDateWithWeekday,
   monthKey,
   periodContains,
@@ -19,6 +20,8 @@ import {
 } from './date';
 import { formatMoney, round2 } from './money';
 import { payForEntry } from './pay';
+import { restDayAmount } from './rest';
+import { settlementChecksum } from './checksum';
 import {
   PAYMENT_STATUS_LABEL,
   paidAmountOf,
@@ -200,21 +203,43 @@ export function buildSettlementDraft(
   const quantity = round2(
     jobEntries.reduce((sum, entry) => sum + (entry.quantity || 0), 0),
   );
-  const restCount = restDays.filter(
-    (rest) => rest.jobId === job.id && periodContains(period, rest.date),
-  ).length;
+  const periodRestDays = restDays
+    .filter(
+      (rest) =>
+        rest.jobId === job.id && periodContains(period, rest.date),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const periodRestDates = Array.from(
+    new Set(periodRestDays.map((rest) => rest.date)),
+  ).sort();
+  const restAmountByDate = new Map<string, number>();
+  for (const rest of periodRestDays) {
+    if (!restAmountByDate.has(rest.date)) {
+      restAmountByDate.set(rest.date, restDayAmount(rest));
+    }
+  }
+  const restCount = round2(
+    Array.from(restAmountByDate.values()).reduce((sum, amount) => sum + amount, 0),
+  );
   const isFixedMonthly = payType === 'monthly' && monthlyMode === 'fixed';
   const policy = job.rule;
-  const overRestDays = isFixedMonthly
-    ? Math.max(0, restCount - Math.max(0, policy.restDaysPerMonth))
-    : 0;
+  const isFlexibleRest =
+    isFixedMonthly && (policy.restPolicy ?? 'quota') === 'flexible';
+  const overRestDays =
+    isFixedMonthly && !isFlexibleRest
+      ? Math.max(0, restCount - Math.max(0, policy.restDaysPerMonth))
+      : 0;
   const dailyRate =
     policy.overRestDailyRate > 0
       ? policy.overRestDailyRate
       : policy.rate / Math.max(1, policy.expectedDays);
   const autoOverRestDeduction = round2(overRestDays * dailyRate);
   const overRestDeduction =
-    isFixedMonthly && policy.overRestDeduct && overRestEnabled
+    isFixedMonthly &&
+    !isFlexibleRest &&
+    policy.overRestDeduct &&
+    overRestEnabled &&
+    overRestDays > 0
       ? round2(
           Math.min(
             Math.max(0, totals.base),
@@ -238,6 +263,7 @@ export function buildSettlementDraft(
     quantity,
     unitLabel,
     restDays: restCount,
+    restDates: periodRestDates,
     period,
     entries: jobEntries,
     advances: includedAdvances,
@@ -346,6 +372,7 @@ export function makeSettlement(
     quantity: draft.quantity,
     unitLabel: draft.unitLabel,
     restDays: draft.restDays,
+    restDates: draft.restDates,
     base: draft.base,
     otPay: draft.otPay,
     bonus: draft.bonus,
@@ -422,15 +449,20 @@ export function settlementCopyText(settlement: Settlement): string {
   const end = settlement.periodEnd.replace(/-/g, '.');
   const isFixedMonthly =
     settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed';
+  const isMonthly = settlement.payType === 'monthly';
+  const restDates = settlement.restDates ?? [];
   const lines = [
     '【薪时 · 结算单】',
     `工作：${settlement.jobName}`,
     `周期：${start} – ${end}`,
     `出勤：${settlement.days} 天${
-      isFixedMonthly ? ` · 休息：${settlement.restDays ?? 0} 天` : ''
+      isMonthly ? ` · 休息：${settlement.restDays ?? 0} 天` : ''
     } · 工时：${settlement.hours} 小时${
       settlement.otHours > 0 ? ` · 加班：${settlement.otHours} 小时` : ''
     }`,
+    ...(isMonthly && restDates.length > 0
+      ? [`休息日：${restDates.map(formatDateShort).join('、')}`]
+      : []),
     `${isFixedMonthly ? '固定月薪' : '基础工资'}：${formatMoney(settlement.base, {
       symbol: true,
     })}`,
@@ -446,6 +478,7 @@ export function settlementCopyText(settlement: Settlement): string {
       : []),
     `借支抵扣：${formatMoney(settlement.advanceTotal, { symbol: true })}`,
     `应发净额：${formatMoney(settlement.net, { symbol: true })}`,
+    `校验码：${settlementChecksum(settlement)}`,
     `收款：${PAYMENT_STATUS_LABEL[paymentStatusOf(settlement)]} · 已收 ${formatMoney(
       paidAmountOf(settlement),
       { symbol: true },

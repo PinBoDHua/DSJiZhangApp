@@ -1,5 +1,7 @@
 export type PayType = 'hourly' | 'daily' | 'monthly' | 'piece';
 export type MonthlyMode = 'prorated' | 'fixed';
+/** 固定月薪的休息规则：固定额度 / 随机休息 */
+export type RestPolicy = 'quota' | 'flexible';
 export type Cycle = 'daily' | 'weekly' | 'monthly';
 export type WeekStart = 0 | 1;
 export type JobColor = 'pine' | 'amber' | 'clay' | 'sky' | 'plum' | 'olive';
@@ -24,6 +26,8 @@ export interface PayRule {
   monthlyMode: MonthlyMode;
   /** 固定月薪岗位的月休额度，仅用于统计和提示 */
   restDaysPerMonth: number;
+  /** 固定月薪的休息规则；缺省按固定额度处理，兼容旧数据 */
+  restPolicy?: RestPolicy;
   /** 固定月薪时，超出月休额度是否自动扣款 */
   overRestDeduct: boolean;
   /** 超休每天扣款；0 表示按 月薪 / 计薪天数 自动计算 */
@@ -68,6 +72,8 @@ export interface RestDay {
   id: string;
   jobId: string;
   date: string;
+  /** 0.5 = 半天，1 = 整天；缺省按整天处理 */
+  days?: number;
   note?: string;
   createdAt: string;
 }
@@ -117,6 +123,8 @@ export interface Settlement {
   quantity?: number;
   unitLabel?: string;
   restDays?: number;
+  /** 结算时锁定的具体休息日期，旧结算可能没有 */
+  restDates?: string[];
   base: number;
   otPay: number;
   bonus: number;
@@ -216,6 +224,7 @@ export interface SettlementDraft {
   quantity: number;
   unitLabel: string;
   restDays: number;
+  restDates: string[];
   period: Period;
   entries: Entry[];
   advances: Advance[];

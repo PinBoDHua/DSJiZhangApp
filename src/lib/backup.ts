@@ -1,10 +1,17 @@
 import type { AppState } from '../types';
 import { EXPORT_APP, SCHEMA_VERSION, validateImport } from './storage';
+import {
+  PBKDF2_ITERATIONS,
+  SALT_BYTES,
+  IV_BYTES,
+  assertCrypto,
+  base64ToBytes,
+  bytesToBase64,
+  deriveAesKey,
+  randomBytes,
+} from './crypto';
 
 const ENCRYPTED_MARKER = 'xinshi-encrypted';
-const PBKDF2_ITERATIONS = 250_000;
-const SALT_BYTES = 16;
-const IV_BYTES = 12;
 
 interface EncryptedEnvelope {
   app: typeof EXPORT_APP;
@@ -20,48 +27,6 @@ interface EncryptedEnvelope {
   exportedAt: string;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function base64ToBytes(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-function assertCrypto(): SubtleCrypto {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error('当前环境不支持加密备份，请用较新的浏览器打开');
-  }
-  return globalThis.crypto.subtle;
-}
-
-async function deriveKey(
-  password: string,
-  salt: Uint8Array,
-  iterations: number,
-): Promise<CryptoKey> {
-  const subtle = assertCrypto();
-  const material = await subtle.importKey(
-    'raw',
-    new TextEncoder().encode(password),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  );
-  return subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
-}
-
 export function isEncryptedBackup(text: string): boolean {
   try {
     const parsed = JSON.parse(text) as { app?: unknown; encrypted?: unknown };
@@ -74,9 +39,9 @@ export function isEncryptedBackup(text: string): boolean {
 export async function encryptBackup(state: AppState, password: string): Promise<string> {
   if (!password.trim()) throw new Error('请输入备份密码');
   const subtle = assertCrypto();
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const key = await deriveKey(password, salt, PBKDF2_ITERATIONS);
+  const salt = randomBytes(SALT_BYTES);
+  const iv = randomBytes(IV_BYTES);
+  const key = await deriveAesKey(password, salt, PBKDF2_ITERATIONS);
   const plaintext = new TextEncoder().encode(JSON.stringify(state));
   const ciphertext = await subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
   const envelope: EncryptedEnvelope = {
@@ -123,7 +88,7 @@ export async function decryptBackup(text: string, password: string): Promise<App
     const salt = base64ToBytes(envelope.salt);
     const iv = base64ToBytes(envelope.iv);
     const data = base64ToBytes(envelope.data);
-    const key = await deriveKey(password, salt, envelope.iterations);
+    const key = await deriveAesKey(password, salt, envelope.iterations);
     const plaintext = await assertCrypto().decrypt({ name: 'AES-GCM', iv }, key, data);
     const decoded = JSON.parse(new TextDecoder().decode(plaintext));
     return validateImport(

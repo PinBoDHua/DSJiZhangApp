@@ -9,6 +9,7 @@ import type {
   PayRule,
   PayType,
   RestDay,
+  RestPolicy,
   Settlement,
   ThemeMode,
   TrashedJob,
@@ -147,6 +148,7 @@ function requireObject(value: unknown, label: string): Raw {
 
 const PAY_TYPES: PayType[] = ['hourly', 'daily', 'monthly', 'piece'];
 const MONTHLY_MODES: MonthlyMode[] = ['prorated', 'fixed'];
+const REST_POLICIES: RestPolicy[] = ['quota', 'flexible'];
 const CYCLES: Cycle[] = ['daily', 'weekly', 'monthly'];
 const COLORS: JobColor[] = JOB_COLORS.map((color) => color.key);
 const THEMES: ThemeMode[] = ['system', 'light', 'dark'];
@@ -183,6 +185,11 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
     0,
     Math.min(31, Math.round(asNumber(raw.restDaysPerMonth, base?.restDaysPerMonth ?? 0))),
   );
+  const restPolicy = pick(
+    raw.restPolicy,
+    REST_POLICIES,
+    base?.restPolicy ?? 'quota',
+  );
   const overRestDeduct = asBoolean(raw.overRestDeduct, base?.overRestDeduct ?? false);
   const overRestDailyRate = Math.max(
     0,
@@ -200,6 +207,7 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
     expectedDays,
     monthlyMode,
     restDaysPerMonth,
+    restPolicy,
     overRestDeduct,
     overRestDailyRate,
     unitLabel,
@@ -326,6 +334,7 @@ function normalizeRestDay(value: unknown, jobs: Map<string, Job>, now: string): 
     id,
     jobId,
     date: asDate(raw.date),
+    days: raw.days === 0.5 ? 0.5 : 1,
     note: asString(raw.note) || undefined,
     createdAt: asString(raw.createdAt, now),
   };
@@ -340,6 +349,15 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
   if (!job) throw new Error('结算引用了不存在的工作');
   const net = asNumber(raw.net);
   const paidAmount = Math.max(0, asNumber(raw.paidAmount));
+  const restDates = Array.isArray(raw.restDates)
+    ? Array.from(
+        new Set(
+          raw.restDates
+            .map((item) => asString(item))
+            .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item)),
+        ),
+      ).sort()
+    : undefined;
   const paymentStatus = raw.paymentStatus
     ? pick(raw.paymentStatus, ['unpaid', 'partial', 'paid'] as const, 'unpaid')
     : paidAmount <= 0
@@ -361,6 +379,7 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
     quantity: raw.quantity === undefined ? undefined : Math.max(0, asNumber(raw.quantity)),
     unitLabel: raw.unitLabel ? asString(raw.unitLabel) : undefined,
     restDays: raw.restDays === undefined ? undefined : Math.max(0, asNumber(raw.restDays)),
+    restDates,
     base: asNumber(raw.base),
     otPay: asNumber(raw.otPay),
     bonus: asNumber(raw.bonus),

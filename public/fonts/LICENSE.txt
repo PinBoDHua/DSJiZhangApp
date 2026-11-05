@@ -1,0 +1,13 @@
+Xinshi Sans PDF subset
+======================
+
+This font is a subset of Noto Sans SC, used only for the optional text-based
+payslip PDF.
+
+Noto Sans SC
+Copyright 2014-2024 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+Copyright 2014-2024 Google Inc. (http://www.google.com/).
+
+Licensed under the SIL Open Font License, Version 1.1.
+Full license: https://scripts.sil.org/OFL
+Font source: https://fonts.google.com/noto/specimen/Noto+Sans+SC

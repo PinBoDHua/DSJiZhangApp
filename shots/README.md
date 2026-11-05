@@ -1,5 +1,13 @@
 # 截图目录
 
+- `v0.7/`：轻小美视觉、首页、记一笔、照上次、统计热力图、深色模式、桌面。
+- `android-v070/`：v0.7.0 实机首页、时长快选、统计热力图。
+- `v0.6/`：数据与安全、本机时光机、加密搬家包、导入前对比、账本体检、隐私政策。
+- `android-v060/`：v0.6.0 实机隐私弹窗、数据与安全、自动备份开关、快照。
+- `v0.5.14/`：二维码校验码、工资条模板、文字版 PDF。
+- `v0.5.13/`：结算二维码、工资条明细行自定义、考勤 CSV。
+- `v0.5.12/`：月度考勤总表、半天休、月结补记工。
+- `v0.5.10/`：月结排休、随机休息设置、结算休息日期。
 - `v0.5.9/`：模板与逐天备注、模板导入 / 导出。
 - `v0.5.8/`：批量扣款、逐天微调、常用模板。
 - `v0.5.7/`：自定义范围、跨范围勾选、批量工时 / 奖金。
@@ -12,11 +20,11 @@
 - `v0.5/`：发薪日、超休扣款、收款、本月流水 CSV。
 - `v0.4/`：固定月薪、随机休息、班次模板、撤销与模板。
 - `v0.3/`：计件、PDF、加密备份、备份提醒版本。
-- `apk/`：Capacitor Android 测试包截图（含系统状态栏）。
+- `apk/`：Capacitor Android 测试包截图（含系统状态栏、系统提醒设置）。
 - `v0.2/`：计时、日历、工资条、深色模式版本。
 - `v0.1/`：首个 MVP 版本留存，仅作历史对照。
 
-重新生成 v0.4 / v0.5 / v0.5.1 / v0.5.2 / v0.5.3 / v0.5.4 / v0.5.5 / v0.5.6 / v0.5.7 / v0.5.8 / v0.5.9 截图：
+重新生成 v0.4 / v0.5 / v0.5.1 / v0.5.2 / v0.5.3 / v0.5.4 / v0.5.5 / v0.5.6 / v0.5.7 / v0.5.8 / v0.5.9 / v0.5.10 / v0.5.12 / v0.5.13 / v0.5.14 / v0.6 / v0.7 截图：
 
 ```bash
 pnpm build
@@ -24,4 +32,4 @@ pnpm preview   # 另开终端，默认 http://127.0.0.1:4173
 pnpm shots
 ```
 
-截图脚本使用本机 Edge；换环境请修改 `scripts/shoot-v04-final.mjs` / `scripts/shoot-v05-final.mjs` / `scripts/shoot-v051-final.mjs` 里的 `EDGE` 路径。
+截图脚本使用本机 Edge；换环境请修改 `scripts/shoot-v04-final.mjs` / `scripts/shoot-v05-final.mjs` / `scripts/shoot-v051-final.mjs` / `scripts/shoot-v0510-final.mjs` / `scripts/shoot-v0512-final.mjs` / `scripts/shoot-v0513-final.mjs` / `scripts/shoot-v0514-final.mjs` / `scripts/shoot-v060-final.mjs` / `scripts/shoot-v070-final.mjs` 里的 `EDGE` 路径。

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, History, Sparkles, Upload } from 'lucide-react';
 import { Logo, Wordmark } from '../components/Logo';
+import { MoveSheet } from '../components/MoveSheet';
 import { Segmented } from '../components/Segmented';
 import { useStore } from '../store';
 import type { Cycle, JobColor, PayType } from '../types';
@@ -14,7 +15,7 @@ const COLORS: Record<PayType, JobColor> = {
   piece: 'olive',
 };
 
-export function Onboarding() {
+export function Onboarding({ onOpenSnapshots }: { onOpenSnapshots?: () => void }) {
   const store = useStore();
   const [name, setName] = useState('');
   const [jobName, setJobName] = useState('');
@@ -23,6 +24,7 @@ export function Onboarding() {
   const [unitLabel, setUnitLabel] = useState('件');
   const [cycle, setCycle] = useState<Cycle>('weekly');
   const [error, setError] = useState('');
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const effectiveCycle: Cycle = payType === 'monthly' ? 'monthly' : cycle;
 
@@ -49,6 +51,7 @@ export function Onboarding() {
         expectedDays: 22,
         monthlyMode: 'prorated',
         restDaysPerMonth: 0,
+        restPolicy: 'quota',
         overRestDeduct: false,
         overRestDailyRate: 0,
         unitLabel: unitLabel.trim() || '件',
@@ -71,7 +74,7 @@ export function Onboarding() {
             <Logo size={34} light />
             <Wordmark light />
           </div>
-          <span className="onboarding-badge">v0.5.9 · MVP</span>
+          <span className="onboarding-badge">v0.7.2 · 全分辨率</span>
         </div>
         <div className="onboarding-copy">
           <p className="onboarding-eyebrow">工时 · 薪资 · 结算</p>
@@ -226,10 +229,24 @@ export function Onboarding() {
           先看看示例数据
         </button>
 
+        <button type="button" className="demo-link" onClick={() => setMoveOpen(true)}>
+          <Upload size={16} />
+          我是换手机，从备份恢复
+        </button>
+
+        {onOpenSnapshots ? (
+          <button type="button" className="demo-link" onClick={onOpenSnapshots}>
+            <History size={16} />
+            从本机快照找回
+          </button>
+        ) : null}
+
         <p className="onboarding-fineprint">
           薪时是个人记工工具，计算结果仅供参考，实际工资以用人单位约定为准。
         </p>
       </main>
+
+      <MoveSheet open={moveOpen} mode="import" onClose={() => setMoveOpen(false)} />
     </div>
   );
 }

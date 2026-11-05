@@ -8,6 +8,7 @@ import {
   weekdayCN,
 } from '../lib/date';
 import { formatCompactMoney } from '../lib/money';
+import { formatRestDays, totalRestDays } from '../lib/rest';
 import { sumEntries } from '../lib/settlement';
 import { jobColor } from '../lib/meta';
 
@@ -69,6 +70,7 @@ export function MonthCalendar({
           }
           const dayEntries = byDate.get(date) ?? [];
           const dayRest = restByDate.get(date) ?? [];
+          const dayRestTotal = totalRestDays(dayRest);
           const plannedWork = plannedSet.has(date) && dayRest.length === 0;
           const totals = dayEntries.length > 0 ? sumEntries(dayEntries) : null;
           const colors = Array.from(
@@ -94,13 +96,19 @@ export function MonthCalendar({
               onClick={() => onSelect(date)}
               aria-pressed={selected}
               aria-label={`${date}，${dayEntries.length} 笔工记${
-                dayRest.length > 0 ? `，休息 ${dayRest.length} 个岗位` : ''
+                dayRestTotal > 0
+                  ? `，休息 ${formatRestDays(dayRestTotal)} 天`
+                  : ''
               }${plannedWork ? '，计划上班' : ''}${
                 totals ? `，${formatCompactMoney(totals.total)} 元` : ''
               }`}
             >
               <span className="cal-day-num">{day}</span>
-              {dayRest.length > 0 ? <span className="cal-rest-flag">休</span> : null}
+              {dayRestTotal > 0 ? (
+                <span className="cal-rest-flag">
+                  {dayRestTotal === 0.5 ? '半' : '休'}
+                </span>
+              ) : null}
               {plannedWork ? <span className="cal-plan-flag">班</span> : null}
               <span className="cal-dots">
                 {colors.map((colorKey) => (

@@ -2,6 +2,10 @@ import type { Settlement } from '../types';
 import { formatDateTime } from './date';
 import { formatMoney, splitMoney } from './money';
 import { saveBlobFile } from './native';
+import {
+  DEFAULT_PAYSLIP_OPTIONS,
+  type PayslipOptions,
+} from './payslipOptions';
 
 const FONT = '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
 const W = 1080;
@@ -94,9 +98,57 @@ function moneyText(value: number, negative = false): string {
   return `${negative ? '−' : ''}${formatMoney(Math.abs(value), { symbol: true })}`;
 }
 
+export interface PayslipRow {
+  label: string;
+  value: number;
+  negative?: boolean;
+}
+
+export function buildPayslipRows(
+  settlement: Settlement,
+  options: PayslipOptions = DEFAULT_PAYSLIP_OPTIONS,
+): PayslipRow[] {
+  const rows: PayslipRow[] = [
+    {
+      label:
+        settlement.payType === 'piece'
+          ? '计件工资'
+          : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
+            ? '固定月薪'
+            : '基础工资',
+      value: settlement.base,
+    },
+  ];
+  if (options.showOvertime) {
+    rows.push({ label: '加班工资', value: settlement.otPay });
+  }
+  if (options.showBonus) {
+    rows.push({ label: '奖金补贴', value: settlement.bonus + settlement.extraBonus });
+  }
+  if (options.showDeduction) {
+    rows.push({
+      label: '扣款',
+      value: settlement.deduction + settlement.extraDeduction,
+      negative: true,
+    });
+  }
+  if (options.showOverRest) {
+    rows.push({
+      label: '超休扣款',
+      value: settlement.overRestDeduction ?? 0,
+      negative: true,
+    });
+  }
+  if (options.showAdvance) {
+    rows.push({ label: '借支抵扣', value: settlement.advanceTotal, negative: true });
+  }
+  return rows.filter((row) => row.value > 0);
+}
+
 export async function createPayslipBlob(
   settlement: Settlement,
   accent: string,
+  options: PayslipOptions = DEFAULT_PAYSLIP_OPTIONS,
 ): Promise<Blob> {
   const canvas = document.createElement('canvas');
   canvas.width = W;
@@ -214,26 +266,7 @@ export async function createPayslipBlob(
 
   dashedLine(ctx, 104, 604, 976);
 
-  const rows: Array<{ label: string; value: number; negative?: boolean }> = [
-    {
-      label:
-        settlement.payType === 'piece'
-          ? '计件工资'
-          : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
-            ? '固定月薪'
-            : '基础工资',
-      value: settlement.base,
-    },
-    { label: '加班工资', value: settlement.otPay },
-    { label: '奖金补贴', value: settlement.bonus + settlement.extraBonus },
-    { label: '扣款', value: settlement.deduction + settlement.extraDeduction, negative: true },
-    {
-      label: '超休扣款',
-      value: settlement.overRestDeduction ?? 0,
-      negative: true,
-    },
-    { label: '借支抵扣', value: settlement.advanceTotal, negative: true },
-  ].filter((row) => row.value > 0);
+  const rows = buildPayslipRows(settlement, options);
 
   let rowY = 660;
   for (const row of rows) {
@@ -274,7 +307,7 @@ export async function createPayslipBlob(
           { label: '工时', value: `${settlement.hours} 小时` },
           { label: '出勤', value: `${settlement.days} 天` },
         ]
-      : settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
+      : settlement.payType === 'monthly'
         ? [
             { label: '出勤', value: `${settlement.days} 天` },
             { label: '休息', value: `${settlement.restDays ?? 0} 天` },
@@ -297,11 +330,28 @@ export async function createPayslipBlob(
     ctx.textAlign = 'left';
   });
 
+  let infoY = statsY + 162;
+  const restDates = settlement.restDates ?? [];
+  if (settlement.payType === 'monthly' && restDates.length > 0 && options.showRestDates) {
+    const listed = restDates
+      .slice(0, 6)
+      .map((date) => date.slice(5).replace('-', '.'))
+      .join('、');
+    ctx.fillStyle = '#7C4D0E';
+    ctx.font = `500 17px ${FONT}`;
+    ctx.fillText(
+      `休息日：${listed}${restDates.length > 6 ? ` 等 ${restDates.length} 天` : ''}`,
+      104,
+      infoY,
+    );
+    infoY += 26;
+  }
+
   if (settlement.note) {
     ctx.fillStyle = '#6F7B72';
     ctx.font = `400 18px ${FONT}`;
     const note = settlement.note.length > 42 ? `${settlement.note.slice(0, 42)}…` : settlement.note;
-    ctx.fillText(`备注：${note}`, 104, statsY + 168);
+    ctx.fillText(`备注：${note}`, 104, infoY);
   }
 
   // 结算章，填一点留白也让工资条更有凭证感
@@ -333,7 +383,8 @@ export async function createPayslipBlob(
   ctx.fillText('薪时 · 每一小时，都算数。', 540, 1352);
   ctx.fillStyle = '#8A958C';
   ctx.font = `400 15px ${FONT}`;
-  ctx.fillText(`结算于 ${formatDateTime(settlement.createdAt)} · 个人记账参考`, 540, 1384);
+  const footer = options.footerNote.trim() || '个人记账参考';
+  ctx.fillText(`结算于 ${formatDateTime(settlement.createdAt)} · ${footer}`, 540, 1384);
   ctx.textAlign = 'left';
 
   return new Promise<Blob>((resolve, reject) => {
