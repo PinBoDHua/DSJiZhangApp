@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ClipboardList } from 'lucide-react';
 import type { Entry, Job, RestDay, Settlement } from '../types';
+import { useStore } from '../store';
+import { saveTextFile } from '../lib/native';
 import {
   addDays,
   eachDay,
@@ -17,6 +19,9 @@ import {
 import {
   deleteBatchTemplate,
   loadBatchTemplates,
+  mergeBatchTemplates,
+  parseBatchTemplateFile,
+  serializeBatchTemplates,
   upsertBatchTemplate,
   type BatchTemplate,
 } from '../lib/batchTemplates';
@@ -41,10 +46,16 @@ interface DayOverride {
   hours: string;
   bonus: string;
   deduction: string;
+  note: string;
 }
 
 const PRESETS = [7, 14, 30];
-const EMPTY_OVERRIDE: DayOverride = { hours: '', bonus: '', deduction: '' };
+const EMPTY_OVERRIDE: DayOverride = {
+  hours: '',
+  bonus: '',
+  deduction: '',
+  note: '',
+};
 
 export function BatchPlanSheet({
   open,
@@ -55,7 +66,9 @@ export function BatchPlanSheet({
   onClose,
   onGenerate,
 }: BatchPlanSheetProps) {
+  const { toast } = useStore();
   const today = todayISO();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [start, setStart] = useState(today);
   const [end, setEnd] = useState(addDays(today, 29));
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -109,6 +122,13 @@ export function BatchPlanSheet({
 
   if (!job) return null;
 
+  const templatesForJob = templates.filter(
+    (template) =>
+      !template.jobId ||
+      template.jobId === job.id ||
+      (template.jobName && template.jobName === job.name),
+  );
+
   const validRange = Boolean(start && end && end >= start);
   const available = validRange
     ? eachDay(start, end).filter((date) => isCandidate(date))
@@ -136,7 +156,7 @@ export function BatchPlanSheet({
       deduction: override.deduction.trim()
         ? Number(override.deduction)
         : baseDeduction,
-      note: note.trim() || undefined,
+      note: override.note.trim() || note.trim() || undefined,
     };
   };
 
@@ -206,7 +226,12 @@ export function BatchPlanSheet({
     setOverrides((prev) => {
       const current = { ...(prev[date] ?? EMPTY_OVERRIDE), [key]: value };
       const copy = { ...prev };
-      if (!current.hours && !current.bonus && !current.deduction) {
+      if (
+        !current.hours &&
+        !current.bonus &&
+        !current.deduction &&
+        !current.note
+      ) {
         delete copy[date];
       } else {
         copy[date] = current;
@@ -237,6 +262,8 @@ export function BatchPlanSheet({
       bonus: baseBonus,
       deduction: baseDeduction,
       note: note.trim(),
+      jobId: job.id,
+      jobName: job.name,
     });
     setTemplates(result.templates);
     setTemplateId(result.saved.id);
@@ -246,6 +273,42 @@ export function BatchPlanSheet({
     if (!templateId) return;
     setTemplates(deleteBatchTemplate(templates, templateId));
     setTemplateId('');
+  };
+
+  const exportTemplates = async () => {
+    try {
+      const result = await saveTextFile(
+        `薪时批量模板-${today}.json`,
+        serializeBatchTemplates(templates),
+      );
+      toast(
+        result === 'native'
+          ? '模板已保存到下载目录'
+          : '模板文件已生成',
+      );
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : '模板导出失败',
+        'error',
+      );
+    }
+  };
+
+  const importTemplates = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const imported = parseBatchTemplateFile(await file.text());
+      const merged = mergeBatchTemplates(templates, imported);
+      setTemplates(merged);
+      toast(`已导入 ${imported.length} 个模板`);
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : '模板导入失败',
+        'error',
+      );
+    } finally {
+      if (fileRef.current) fileRef.current.value = '';
+    }
   };
 
   return (
@@ -406,7 +469,7 @@ export function BatchPlanSheet({
             aria-label="常用模板"
           >
             <option value="">常用模板</option>
-            {templates.map((template) => (
+            {templatesForJob.map((template) => (
               <option value={template.id} key={template.id}>
                 {template.name} · {formatHours(template.hours)}h
               </option>
@@ -428,6 +491,30 @@ export function BatchPlanSheet({
           >
             删除
           </button>
+        </div>
+        <div className="batch-template-io">
+          <button
+            type="button"
+            className="text-link"
+            onClick={exportTemplates}
+            disabled={templates.length === 0}
+          >
+            导出模板
+          </button>
+          <button
+            type="button"
+            className="text-link"
+            onClick={() => fileRef.current?.click()}
+          >
+            导入模板
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="visually-hidden"
+            onChange={(event) => importTemplates(event.target.files?.[0])}
+          />
         </div>
 
         <label className="batch-note-field">
@@ -484,7 +571,7 @@ export function BatchPlanSheet({
         <details className="batch-overrides">
           <summary>逐天微调（已选 {sorted.length} 天）</summary>
           {sorted.length === 0 ? (
-            <p className="field-hint">先勾选日期，再逐天修改工时、奖金或扣款。</p>
+            <p className="field-hint">先勾选日期，再逐天修改工时、奖金、扣款或备注。</p>
           ) : (
             <div className="batch-override-list">
               {sorted.map((date) => {
@@ -535,6 +622,17 @@ export function BatchPlanSheet({
                         aria-label={`${date} 扣款`}
                       />
                     </label>
+                    <input
+                      className="batch-override-note"
+                      type="text"
+                      value={override.note}
+                      placeholder={note.trim() || '当天备注（可选）'}
+                      maxLength={40}
+                      onChange={(event) =>
+                        updateOverride(date, 'note', event.target.value)
+                      }
+                      aria-label={`${date} 备注`}
+                    />
                   </div>
                 );
               })}

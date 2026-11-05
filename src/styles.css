@@ -4848,6 +4848,22 @@ html[data-theme="dark"] .longterm-template {
   cursor: default;
 }
 
+.batch-template-io {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: -2px 0 8px;
+}
+
+.batch-template-io .text-link {
+  font-size: 8.5px;
+}
+
+.batch-template-io .text-link:disabled {
+  color: var(--line-strong);
+  cursor: default;
+}
+
 .batch-overrides {
   margin: 10px 0 8px;
   padding: 8px 10px;
@@ -4916,6 +4932,26 @@ html[data-theme="dark"] .longterm-template {
 .batch-override-row input::placeholder {
   color: var(--muted);
   opacity: 0.55;
+}
+
+.batch-override-row .batch-override-note {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 9px;
+  text-align: left;
+  outline: none;
+}
+
+.batch-override-note::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
 }
 
 .batch-select-bar {

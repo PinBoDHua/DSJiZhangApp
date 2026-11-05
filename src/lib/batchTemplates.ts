@@ -10,6 +10,15 @@ export interface BatchTemplate {
   bonus: number;
   deduction: number;
   note: string;
+  jobId?: string;
+  jobName?: string;
+}
+
+export interface BatchTemplateFile {
+  app: 'xinshi';
+  kind: 'batch-templates';
+  version: 1;
+  templates: BatchTemplate[];
 }
 
 function asAmount(value: unknown, max: number): number {
@@ -41,6 +50,11 @@ export function normalizeBatchTemplates(value: unknown): BatchTemplate[] {
       deduction: asAmount(raw.deduction, 1_000_000),
       note:
         typeof raw.note === 'string' ? raw.note.trim().slice(0, 40) : '',
+      jobId: typeof raw.jobId === 'string' && raw.jobId ? raw.jobId : undefined,
+      jobName:
+        typeof raw.jobName === 'string' && raw.jobName
+          ? raw.jobName.trim().slice(0, 30)
+          : undefined,
     });
     seen.add(id);
   }
@@ -73,7 +87,9 @@ export function upsertBatchTemplate(
   const saved: BatchTemplate = { ...input, id: createId('tpl') };
   const next = [
     saved,
-    ...templates.filter((item) => item.name !== saved.name),
+    ...templates.filter(
+      (item) => item.name !== saved.name || item.jobId !== saved.jobId,
+    ),
   ].slice(0, MAX_TEMPLATES);
   return { templates: saveBatchTemplates(next), saved };
 }
@@ -83,4 +99,59 @@ export function deleteBatchTemplate(
   id: string,
 ): BatchTemplate[] {
   return saveBatchTemplates(templates.filter((item) => item.id !== id));
+}
+
+export function serializeBatchTemplates(templates: BatchTemplate[]): string {
+  const payload: BatchTemplateFile = {
+    app: 'xinshi',
+    kind: 'batch-templates',
+    version: 1,
+    templates: normalizeBatchTemplates(templates),
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+export function parseBatchTemplateFile(text: string): BatchTemplate[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error('模板文件不是有效的 JSON');
+  }
+  const wrapper =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : null;
+  if (wrapper && wrapper.kind && wrapper.kind !== 'batch-templates') {
+    throw new Error('这不是薪时批量模板文件');
+  }
+  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 1) {
+    throw new Error('模板文件版本过高，请升级 App');
+  }
+  const source = Array.isArray(raw)
+    ? raw
+    : wrapper && Array.isArray(wrapper.templates)
+      ? wrapper.templates
+      : null;
+  if (!source) throw new Error('模板文件缺少 templates');
+  const templates = normalizeBatchTemplates(source);
+  if (templates.length === 0) throw new Error('模板文件里没有可用模板');
+  return templates;
+}
+
+export function mergeBatchTemplates(
+  existing: BatchTemplate[],
+  imported: BatchTemplate[],
+): BatchTemplate[] {
+  const map = new Map<string, BatchTemplate>();
+  for (const item of existing) {
+    map.set(`${item.jobId ?? ''}::${item.name}`, item);
+  }
+  for (const item of imported) {
+    map.set(`${item.jobId ?? ''}::${item.name}`, {
+      ...item,
+      id: createId('tpl'),
+    });
+  }
+  return saveBatchTemplates([...map.values()].slice(0, MAX_TEMPLATES));
 }
