@@ -46,7 +46,7 @@ import { computeOutstanding, dailySeries, getSettlementOverview, sumEntries, sum
 import { backupDueText, backupIsDue } from '../lib/backupStatus';
 import { daysUntilPayday } from '../lib/payment';
 import { planStatusForJob, shortWeekday, formatWorkWeekdays } from '../lib/plan';
-import { makePlannedEntry } from '../lib/planEntries';
+import { makePlannedEntry, type PlannedEntryOptions } from '../lib/planEntries';
 
 const PLAN_JOB_KEY = 'xinshi.planJobId';
 
@@ -173,20 +173,19 @@ export function Home({
   }, [planJob?.id]);
 
   const generatePlanEntries = (
-    dates: string[],
-    options: { hours?: number; bonus?: number; note?: string },
+    items: Array<{ date: string; options: PlannedEntryOptions }>,
   ) => {
     if (!planJob) return;
     let added = 0;
     let skipped = 0;
-    for (const date of dates) {
-      const input = makePlannedEntry(planJob, date, options);
+    for (const item of items) {
+      const input = makePlannedEntry(planJob, item.date, item.options);
       if (!input) {
         skipped += 1;
         continue;
       }
       const dayHours = state.entries
-        .filter((entry) => entry.date === date)
+        .filter((entry) => entry.date === item.date)
         .reduce((sum, entry) => sum + entry.hours, 0);
       if (dayHours + input.hours > 24) {
         skipped += 1;

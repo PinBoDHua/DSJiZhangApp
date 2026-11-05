@@ -48,9 +48,14 @@ describe('按排班生成默认工记', () => {
   });
 
   it('批量补记可以统一改工时和奖金', () => {
-    const input = makePlannedEntry(job(), '2026-11-06', { hours: 8, bonus: 50 });
+    const input = makePlannedEntry(job(), '2026-11-06', {
+      hours: 8,
+      bonus: 50,
+      deduction: 5,
+    });
     expect(input?.hours).toBe(8);
     expect(input?.bonus).toBe(50);
+    expect(input?.deduction).toBe(5);
     const hourly = job({
       rule: rule({ payType: 'hourly', rate: 30, standardHours: 8, otEnabled: true }),
       shift: { startTime: '08:00', endTime: '18:00', breakMinutes: 60 },

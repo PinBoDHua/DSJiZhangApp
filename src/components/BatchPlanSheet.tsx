@@ -14,7 +14,18 @@ import {
   plannedEntryHours,
   type PlannedEntryOptions,
 } from '../lib/planEntries';
+import {
+  deleteBatchTemplate,
+  loadBatchTemplates,
+  upsertBatchTemplate,
+  type BatchTemplate,
+} from '../lib/batchTemplates';
 import { Sheet } from './Sheet';
+
+interface PlanItem {
+  date: string;
+  options: PlannedEntryOptions;
+}
 
 interface BatchPlanSheetProps {
   open: boolean;
@@ -23,10 +34,17 @@ interface BatchPlanSheetProps {
   restDays: RestDay[];
   settlements: Settlement[];
   onClose: () => void;
-  onGenerate: (dates: string[], options: PlannedEntryOptions) => void;
+  onGenerate: (items: PlanItem[]) => void;
+}
+
+interface DayOverride {
+  hours: string;
+  bonus: string;
+  deduction: string;
 }
 
 const PRESETS = [7, 14, 30];
+const EMPTY_OVERRIDE: DayOverride = { hours: '', bonus: '', deduction: '' };
 
 export function BatchPlanSheet({
   open,
@@ -44,6 +62,10 @@ export function BatchPlanSheet({
   const [note, setNote] = useState('');
   const [hoursInput, setHoursInput] = useState('');
   const [bonusInput, setBonusInput] = useState('0');
+  const [deductionInput, setDeductionInput] = useState('0');
+  const [overrides, setOverrides] = useState<Record<string, DayOverride>>({});
+  const [templates, setTemplates] = useState<BatchTemplate[]>(loadBatchTemplates);
+  const [templateId, setTemplateId] = useState('');
 
   const isCandidate = (date: string) => {
     if (!job) return false;
@@ -64,6 +86,10 @@ export function BatchPlanSheet({
     setNote('');
     setHoursInput(String(plannedEntryHours(job)));
     setBonusInput('0');
+    setDeductionInput('0');
+    setOverrides({});
+    setTemplateId('');
+    setTemplates(loadBatchTemplates());
     setSelected(
       new Set(
         eachDay(today, defaultEnd).filter((date) => {
@@ -88,13 +114,58 @@ export function BatchPlanSheet({
     ? eachDay(start, end).filter((date) => isCandidate(date))
     : [];
   const availableSet = new Set(available);
-  const outOfRange = [...selected].filter((date) => !availableSet.has(date));
+  const sorted = [...selected].sort();
+  const outOfRange = sorted.filter((date) => !availableSet.has(date));
   const allSelected =
     available.length > 0 && available.every((date) => selected.has(date));
-  const hours = Number(hoursInput);
-  const bonus = Number(bonusInput);
-  const validHours = Number.isFinite(hours) && hours > 0 && hours <= 24;
-  const validBonus = Number.isFinite(bonus) && bonus >= 0;
+
+  const baseHours = Number(hoursInput);
+  const baseBonus = Number(bonusInput);
+  const baseDeduction = Number(deductionInput);
+  const validBaseHours =
+    Number.isFinite(baseHours) && baseHours > 0 && baseHours <= 24;
+  const validBaseBonus = Number.isFinite(baseBonus) && baseBonus >= 0;
+  const validBaseDeduction =
+    Number.isFinite(baseDeduction) && baseDeduction >= 0;
+
+  const resolved = (date: string): PlannedEntryOptions => {
+    const override = overrides[date] ?? EMPTY_OVERRIDE;
+    return {
+      hours: override.hours.trim() ? Number(override.hours) : baseHours,
+      bonus: override.bonus.trim() ? Number(override.bonus) : baseBonus,
+      deduction: override.deduction.trim()
+        ? Number(override.deduction)
+        : baseDeduction,
+      note: note.trim() || undefined,
+    };
+  };
+
+  const validItem = (date: string) => {
+    const item = resolved(date);
+    return (
+      Number.isFinite(item.hours) &&
+      (item.hours ?? 0) > 0 &&
+      (item.hours ?? 0) <= 24 &&
+      Number.isFinite(item.bonus) &&
+      (item.bonus ?? 0) >= 0 &&
+      Number.isFinite(item.deduction) &&
+      (item.deduction ?? 0) >= 0
+    );
+  };
+
+  const items: PlanItem[] = sorted.map((date) => ({
+    date,
+    options: resolved(date),
+  }));
+  const totalHours = items.reduce(
+    (sum, item) => sum + (item.options.hours ?? 0),
+    0,
+  );
+  const validAll =
+    validBaseHours &&
+    validBaseBonus &&
+    validBaseDeduction &&
+    sorted.every((date) => validItem(date));
 
   const pruneSelected = () => {
     setSelected((prev) => new Set([...prev].filter((date) => isCandidate(date))));
@@ -127,7 +198,55 @@ export function BatchPlanSheet({
     });
   };
 
-  const sorted = [...selected].sort();
+  const updateOverride = (
+    date: string,
+    key: keyof DayOverride,
+    value: string,
+  ) => {
+    setOverrides((prev) => {
+      const current = { ...(prev[date] ?? EMPTY_OVERRIDE), [key]: value };
+      const copy = { ...prev };
+      if (!current.hours && !current.bonus && !current.deduction) {
+        delete copy[date];
+      } else {
+        copy[date] = current;
+      }
+      return copy;
+    });
+  };
+
+  const applyTemplate = (id: string) => {
+    const template = templates.find((item) => item.id === id);
+    setTemplateId(id);
+    if (!template) return;
+    setHoursInput(String(template.hours));
+    setBonusInput(String(template.bonus));
+    setDeductionInput(String(template.deduction));
+    setNote(template.note);
+  };
+
+  const saveTemplate = () => {
+    const name =
+      note.trim() ||
+      `${formatHours(baseHours)}h/天${baseBonus ? ` · 奖${baseBonus}` : ''}${
+        baseDeduction ? ` · 扣${baseDeduction}` : ''
+      }`;
+    const result = upsertBatchTemplate(templates, {
+      name,
+      hours: baseHours,
+      bonus: baseBonus,
+      deduction: baseDeduction,
+      note: note.trim(),
+    });
+    setTemplates(result.templates);
+    setTemplateId(result.saved.id);
+  };
+
+  const removeTemplate = () => {
+    if (!templateId) return;
+    setTemplates(deleteBatchTemplate(templates, templateId));
+    setTemplateId('');
+  };
 
   return (
     <Sheet
@@ -189,8 +308,7 @@ export function BatchPlanSheet({
             <span> 天</span>
           </div>
           <p>
-            {validHours ? `每天 ${formatHours(hours)}h` : '工时未填'} · 共{' '}
-            {formatHours(validHours ? sorted.length * hours : 0)}h
+            {validAll ? `共 ${formatHours(totalHours)}h` : '有无效工时，请检查'}
           </p>
         </div>
         <div className="batch-select-bar">
@@ -241,7 +359,10 @@ export function BatchPlanSheet({
               max={24}
               step={0.5}
               value={hoursInput}
-              onChange={(event) => setHoursInput(event.target.value)}
+              onChange={(event) => {
+                setHoursInput(event.target.value);
+                setTemplateId('');
+              }}
               aria-label="批量工时"
             />
           </label>
@@ -252,20 +373,72 @@ export function BatchPlanSheet({
               min={0}
               step={1}
               value={bonusInput}
-              onChange={(event) => setBonusInput(event.target.value)}
+              onChange={(event) => {
+                setBonusInput(event.target.value);
+                setTemplateId('');
+              }}
               aria-label="批量奖金"
             />
           </label>
+          <label>
+            <span>扣款 / 天</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={deductionInput}
+              onChange={(event) => {
+                setDeductionInput(event.target.value);
+                setTemplateId('');
+              }}
+              aria-label="批量扣款"
+            />
+          </label>
         </div>
-        {!validHours ? (
-          <p className="form-error">工时需要大于 0 且不超过 24 小时</p>
+        {!validAll ? (
+          <p className="form-error">工时需在 0–24 之间，奖金 / 扣款不能为负</p>
         ) : null}
+
+        <div className="batch-template-bar">
+          <select
+            value={templateId}
+            onChange={(event) => applyTemplate(event.target.value)}
+            aria-label="常用模板"
+          >
+            <option value="">常用模板</option>
+            {templates.map((template) => (
+              <option value={template.id} key={template.id}>
+                {template.name} · {formatHours(template.hours)}h
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="text-link"
+            onClick={saveTemplate}
+            disabled={!validBaseHours || !validBaseBonus || !validBaseDeduction}
+          >
+            保存模板
+          </button>
+          <button
+            type="button"
+            className="text-link"
+            onClick={removeTemplate}
+            disabled={!templateId}
+          >
+            删除
+          </button>
+        </div>
+
         <label className="batch-note-field">
           <span>统一备注</span>
           <input
             type="text"
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => {
+              setNote(event.target.value);
+              setTemplateId('');
+            }}
             placeholder="默认：排班补记"
             maxLength={40}
             aria-label="统一备注"
@@ -281,6 +454,7 @@ export function BatchPlanSheet({
           <div className="batch-plan-list">
             {available.map((date) => {
               const checked = selected.has(date);
+              const item = resolved(date);
               return (
                 <label
                   className={`batch-plan-row ${checked ? 'is-checked' : ''}`}
@@ -298,12 +472,76 @@ export function BatchPlanSheet({
                     {formatDateShort(date)}
                     <em>周{weekdayShort(date)}</em>
                   </span>
-                  <strong>{validHours ? `${formatHours(hours)}h` : '—'}</strong>
+                  <strong>
+                    {validItem(date) ? `${formatHours(item.hours ?? 0)}h` : '—'}
+                  </strong>
                 </label>
               );
             })}
           </div>
         )}
+
+        <details className="batch-overrides">
+          <summary>逐天微调（已选 {sorted.length} 天）</summary>
+          {sorted.length === 0 ? (
+            <p className="field-hint">先勾选日期，再逐天修改工时、奖金或扣款。</p>
+          ) : (
+            <div className="batch-override-list">
+              {sorted.map((date) => {
+                const override = overrides[date] ?? EMPTY_OVERRIDE;
+                return (
+                  <div className="batch-override-row" key={date}>
+                    <span>{formatDateShort(date)}</span>
+                    <label>
+                      <em>工</em>
+                      <input
+                        type="number"
+                        min={0.5}
+                        max={24}
+                        step={0.5}
+                        value={override.hours}
+                        placeholder={String(baseHours)}
+                        onChange={(event) =>
+                          updateOverride(date, 'hours', event.target.value)
+                        }
+                        aria-label={`${date} 工时`}
+                      />
+                    </label>
+                    <label>
+                      <em>奖</em>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={override.bonus}
+                        placeholder={String(baseBonus)}
+                        onChange={(event) =>
+                          updateOverride(date, 'bonus', event.target.value)
+                        }
+                        aria-label={`${date} 奖金`}
+                      />
+                    </label>
+                    <label>
+                      <em>扣</em>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={override.deduction}
+                        placeholder={String(baseDeduction)}
+                        onChange={(event) =>
+                          updateOverride(date, 'deduction', event.target.value)
+                        }
+                        aria-label={`${date} 扣款`}
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </details>
+
         <p className="field-hint">
           默认按班次生成；修改工时后，时薪岗位改用统一工时、不再拆分上下班时间。备注留空为「排班补记」。
         </p>
@@ -315,14 +553,8 @@ export function BatchPlanSheet({
         <button
           type="button"
           className="btn btn--primary"
-          onClick={() =>
-            onGenerate(sorted, {
-              hours,
-              bonus,
-              note: note.trim() || undefined,
-            })
-          }
-          disabled={sorted.length === 0 || !validHours || !validBonus}
+          onClick={() => onGenerate(items)}
+          disabled={sorted.length === 0 || !validAll}
         >
           补记 {sorted.length} 天
         </button>

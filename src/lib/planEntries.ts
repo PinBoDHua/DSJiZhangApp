@@ -7,6 +7,7 @@ import { autoOtHours } from './pay';
 export interface PlannedEntryOptions {
   hours?: number;
   bonus?: number;
+  deduction?: number;
   note?: string;
 }
 
@@ -40,7 +41,7 @@ export function makePlannedEntry(
     quantity: 0,
     otHours: hourly && job.rule.otEnabled ? autoOtHours(hours, job.rule) : 0,
     bonus: round2(Math.max(0, options.bonus ?? 0)),
-    deduction: 0,
+    deduction: round2(Math.max(0, options.deduction ?? 0)),
     holiday: false,
     note: options.note?.trim() || '排班补记',
     rule: { ...job.rule },
