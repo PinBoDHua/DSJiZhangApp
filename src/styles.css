@@ -4715,6 +4715,80 @@ html[data-theme="dark"] .longterm-template {
   background: var(--primary-soft);
 }
 
+.batch-range-tabs {
+  display: flex;
+  gap: 5px;
+  margin: 8px 0 0;
+}
+
+.batch-range-tabs button {
+  flex: 1;
+  padding: 7px 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.batch-range-tabs button.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 650;
+}
+
+.batch-select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.batch-select-bar > div {
+  display: flex;
+  gap: 10px;
+}
+
+.batch-select-bar .text-link:disabled {
+  color: var(--line-strong);
+  cursor: default;
+}
+
+.batch-note-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.batch-note-field > span {
+  flex: none;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.batch-note-field input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 10.5px;
+  outline: none;
+}
+
+.batch-note-field input::placeholder {
+  color: var(--muted);
+}
+
 .batch-plan-summary div {
   color: var(--primary);
 }

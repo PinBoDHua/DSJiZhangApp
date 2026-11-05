@@ -42,6 +42,11 @@ describe('按排班生成默认工记', () => {
     expect(input?.note).toBe('排班补记');
   });
 
+  it('批量补记可以覆盖统一备注', () => {
+    expect(makePlannedEntry(job(), '2026-11-06', '夜班补记')?.note).toBe('夜班补记');
+    expect(makePlannedEntry(job(), '2026-11-06', '   ')?.note).toBe('排班补记');
+  });
+
   it('日薪按班次净工时生成', () => {
     const daily = job({
       rule: rule({ payType: 'daily', rate: 320, standardHours: 8, otEnabled: true }),

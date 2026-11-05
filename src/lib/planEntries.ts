@@ -14,7 +14,11 @@ export function plannedEntryHours(job: Job): number {
   );
 }
 
-export function makePlannedEntry(job: Job, date: string): NewEntryInput | null {
+export function makePlannedEntry(
+  job: Job,
+  date: string,
+  note = '排班补记',
+): NewEntryInput | null {
   if (job.rule.payType === 'piece') return null;
   const hours = plannedEntryHours(job);
   if (hours <= 0) return null;
@@ -28,7 +32,7 @@ export function makePlannedEntry(job: Job, date: string): NewEntryInput | null {
     bonus: 0,
     deduction: 0,
     holiday: false,
-    note: '排班补记',
+    note: note.trim() || '排班补记',
     rule: { ...job.rule },
     breakMinutes: hourly ? job.shift.breakMinutes : 0,
     startTime: hourly ? job.shift.startTime : undefined,
