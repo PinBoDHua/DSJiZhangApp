@@ -30,6 +30,8 @@ export interface TrashRow {
   amount: number | null;
   hours: number | null;
   restDays: number | null;
+  /** 工记是否带考勤照片（照片本体仍在本机） */
+  hasPhoto?: boolean;
 }
 
 export function trashKindLabel(kind: TrashKind): string {
@@ -119,6 +121,7 @@ export function buildTrashRows(state: AppState, now = Date.now()): TrashRow[] {
       amount: payForEntry(entry).total,
       hours: round2(entry.hours || 0),
       restDays: null,
+      hasPhoto: Boolean(entry.photoId),
     });
   }
 
@@ -201,6 +204,19 @@ export function summarizeTrash(rows: TrashRow[]): {
   return { count: rows.length, amount: round2(amount), hours: round2(hours), restDays: round2(restDays) };
 }
 
+/** 类型 + 工作两个条件同时生效；'all' 表示不限制 */
+export function filterTrashRows(
+  rows: TrashRow[],
+  kind: 'all' | TrashKind,
+  jobId: 'all' | string,
+): TrashRow[] {
+  return rows.filter(
+    (row) =>
+      (kind === 'all' || row.kind === kind) &&
+      (jobId === 'all' || row.jobId === jobId),
+  );
+}
+
 /** 恢复前告诉用户为什么不行，避免只丢一句「恢复失败」 */
 export function trashRestoreBlockReason(row: TrashRow, state: AppState): string | null {
   if (row.kind === 'job') return null;
@@ -224,6 +240,9 @@ export function trashRestoreBlockReason(row: TrashRow, state: AppState): string 
 
   if (row.kind === 'entry') {
     if (state.entries.some((entry) => entry.id === row.id)) return null;
+    if (state.restDays.some((rest) => rest.jobId === jobId && rest.date === date)) {
+      return '这天已有休息，先取消休息再恢复';
+    }
     const sameDay = state.entries
       .filter((entry) => entry.date === date)
       .reduce((sum, entry) => sum + (entry.hours || 0), 0);

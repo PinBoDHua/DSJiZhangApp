@@ -1,7 +1,7 @@
-# 薪时 v0.9.0 · 上架材料与合规清单
+# 薪时 v1.0.0 · 上架材料与合规清单
 
 > 用途：提交 Google Play 与国内 Android 商店时直接取用。
-> 版本：0.9.0（versionCode 900）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-06
+> 版本：1.0.0（versionCode 1000）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-06
 >
 > 所有文案都按「不收集、不上传、无账号、无广告、无统计」的真实行为编写；
 > 改代码后若行为变化，必须同步改本文和隐私政策。
@@ -14,7 +14,7 @@
 | --- | --- |
 | 应用名 | 薪时 |
 | 包名 | `com.xinshi.app` |
-| 版本 | 0.9.0（versionCode 900） |
+| 版本 | 1.0.0（versionCode 1000） |
 | 分类 | 工具 / 效率（Google Play：Tools） |
 | 价格 | 免费，无广告，无内购 |
 | 登录 | 不需要，全部功能免登录 |
@@ -45,7 +45,8 @@
 > - 周 / 月 / 年统计：年度 12 个月图表和岗位分布；
 > - 结算锁定与撤销，历史金额不随调价变化；
 > - 本机时光机、加密搬家包、自动备份、账本体检，换手机不丢账；
-> - 工资条 PNG / 文字版 PDF / 二维码 / Excel，方便和老板对账。
+> - 考勤照片：记一笔可拍一张带日期 / 岗位水印的照片，只存本机、不上传；
+> - 工资条 PNG / 文字版 PDF（支持多页工记明细）/ 二维码 / Excel，方便和老板对账。
 >
 > 薪时不提供招聘、支付、社保代缴或法律意见；计算结果仅供参考，实际工资以约定为准。
 
@@ -69,6 +70,7 @@
 | 6 | 数据与安全 | `shots/v0.6/02-data-safety.png` | 换手机不丢账 |
 | 7 | 本机时光机 | `shots/v0.6/03-snapshots.png` | 删错了也能找回 |
 | 8 | 隐私政策 | `shots/v0.6/09-privacy-policy.png` | 不上传，数据只在本机 |
+| 9 | 考勤照片 | `shots/v1.0/01-entry-photo.png` | 记工顺手留一张现场照片 |
 
 - 手机截图 1080×1920 或 1242×2688；Google Play 至少 2 张、最多 8 张。
 - 图标 512×512 PNG；Feature graphic 1024×500。
@@ -91,6 +93,10 @@
 | Government app | No |
 | Financial features | 不提供贷款、支付、投资、保险或金融服务；只做个人工时与工资记录 |
 
+> **照片说明**：本版允许用户主动拍照 / 选图作为考勤照片。照片只存本机 IndexedDB，
+> 不上传、不共享、不读取相册其他内容，因此不计入「收集」或「共享」；删除工记或
+> 清空所有数据时一并删除。应用不申请 CAMERA，拍照由系统相机完成。
+
 ### 权限说明（商店「权限清单」）
 
 | 权限 | 类型 | 用途 | 用户可否拒绝 |
@@ -99,7 +105,7 @@
 | `RECEIVE_BOOT_COMPLETED` | 普通 | 重启后恢复本地提醒 | 随通知开关 |
 | `WAKE_LOCK` | 普通 | 本地通知按时触发 | 不单独申请 |
 | `INTERNET` | **未申请** | 应用没有网络请求 | — |
-| 存储 / 相机 / 定位 / 通讯录 / 电话 / 短信 | **未申请** | — | — |
+| 存储 / 相机 / 定位 / 通讯录 / 电话 / 短信 | **未申请** | 拍照 / 选图通过系统相机或文件选择器完成，应用不直接申请相机权限 | — |
 | `com.xinshi.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | 应用私有签名权限（AndroidX 自动生成） | 保护应用内部广播，不涉及用户数据 | — |
 
 > 构建后必须用 `aapt dump permissions` 复核，确保 release 包没有 INTERNET。
@@ -133,14 +139,14 @@ gradlew.bat bundleRelease
 - 产物：
   - `android/app/build/outputs/apk/release/app-release.apk`
   - `android/app/build/outputs/bundle/release/app-release.aab`
-- 复制并重命名到 `release/xinshi-v0.9.0.apk` / `release/xinshi-v0.9.0.aab`。
+- 复制并重命名到 `release/xinshi-v1.0.0.apk` / `release/xinshi-v1.0.0.aab`。
 - 校验：
 
 ```bash
-apksigner verify --print-certs release/xinshi-v0.9.0.apk
-jarsigner -verify -verbose -certs release/xinshi-v0.9.0.aab
-aapt dump badging release/xinshi-v0.9.0.apk | findstr "package versionCode targetSdkVersion"
-aapt dump permissions release/xinshi-v0.9.0.apk
+apksigner verify --print-certs release/xinshi-v1.0.0.apk
+jarsigner -verify -verbose -certs release/xinshi-v1.0.0.aab
+aapt dump badging release/xinshi-v1.0.0.apk | findstr "package versionCode targetSdkVersion"
+aapt dump permissions release/xinshi-v1.0.0.apk
 ```
 
 - keystore 必须离线备份两份；丢失后无法覆盖升级。
@@ -156,7 +162,7 @@ aapt dump permissions release/xinshi-v0.9.0.apk
 - [ ] Data safety 按第 3 节填写。
 - [ ] 内容分级问卷完成。
 - [ ] 目标受众与广告声明：无广告、非儿童向。
-- [ ] 上传签名 AAB；versionCode 900；targetSdk 36。
+- [ ] 上传签名 AAB；versionCode 1000；targetSdk 36。
 - [ ] 应用访问权限：无需登录，审核员可直接进入。
 - [ ] 提供审核说明：离线应用，无服务器，无账号；可用「先看看示例数据」体验。
 - [ ] 测试轨道先内测，确认安装、离线、导出、恢复。
@@ -225,7 +231,23 @@ VITE_PRIVACY_URL=https://your.site/privacy-policy.html
 
 ## 10. 发布记录（2026-11-06）
 
-### v0.9.0（当前）
+### v1.0.0（当前）
+
+| 项 | 内容 |
+| --- | --- |
+| 版本 | 1.0.0（1000） |
+| 构建时间 | 2026-11-06 21:27（Asia/Shanghai） |
+| APK | `release/xinshi-v1.0.0.apk`（3,324,009 B / 约 3.17MiB） |
+| AAB | `release/xinshi-v1.0.0.aab`（3,799,812 B / 约 3.62MiB） |
+| APK SHA-256 | `9B2432A394874B57FE7AE5CBE62413F5EEF282BA076EC915C06B858F6570D277` |
+| AAB SHA-256 | `D5EA6A1C07A2D25032E2CFCFD578D97D10C98BEDA3CF52C63BC51F4AD1519747` |
+| 签名证书 SHA-256 | `A5:B8:51:4A:16:5A:78:49:A4:07:3B:D0:0A:94:75:9F:CB:95:7A:A0:2F:83:97:00:12:EB:72:F2:51:85:D6:06` |
+| 权限 | `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`WAKE_LOCK`；无 INTERNET / CAMERA；另有 AndroidX 自动生成的应用私有签名权限 |
+| 验证 | `aapt` 校验 versionCode / versionName；`apksigner` 证书一致；浏览器 114 场景、15 分辨率 × 9 页面 + 子页面 16 组合全绿；深色低对比 0 |
+| 发布说明 | [RELEASE-NOTES-v1.0.0](RELEASE-NOTES-v1.0.0.md) |
+| 已知限制 | 见 README「已知限制」 |
+
+### v0.9.0（历史）
 
 | 项 | 内容 |
 | --- | --- |

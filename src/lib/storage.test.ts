@@ -435,4 +435,113 @@ describe('存储升级', () => {
       validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 })),
     ).toThrow('工记数据存在重复 ID');
   });
+
+  it('保留工记的可选照片 ID，旧备份缺省为空', () => {
+    const entry = {
+      id: 'entry-photo',
+      jobId: 'job-1',
+      date: '2026-11-05',
+      breakMinutes: 0,
+      hours: 8,
+      quantity: 0,
+      otHours: 0,
+      bonus: 0,
+      deduction: 0,
+      holiday: false,
+      rule,
+      photoId: ' photo-1 ',
+      createdAt: '2026-11-05T12:00:00.000Z',
+      updatedAt: '2026-11-05T12:00:00.000Z',
+    };
+    const v7 = { ...v1State, version: 7, entries: [entry] };
+    const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 }));
+    expect(imported.entries[0].photoId).toBe('photo-1');
+    expect(
+      validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v1State })).entries,
+    ).toEqual([]);
+  });
+
+  it('跳过坏掉的回收站工作，不拒绝整份备份', () => {
+    const goodTrash = { ...job, id: 'trash-good', name: '可恢复工作' };
+    const v7 = {
+      ...v1State,
+      version: 7,
+      trashedJobs: [
+        { job: { id: 'bad-trash', name: '' }, deletedAt: '2026-11-05T12:00:00.000Z' },
+        { job: goodTrash, deletedAt: '2026-11-05T12:00:00.000Z' },
+      ],
+    };
+    const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 }));
+    expect(imported.trashedJobs.map((item) => item.job.id)).toEqual(['trash-good']);
+  });
+
+  it('拒绝同一工作周期重叠的结算，避免重复发薪', () => {
+    const baseSettlement = {
+      jobId: 'job-1',
+      jobName: '旧账本工作',
+      cycle: 'weekly',
+      periodStart: '2026-11-02',
+      periodEnd: '2026-11-08',
+      base: 200,
+      otPay: 0,
+      bonus: 0,
+      deduction: 0,
+      advanceTotal: 0,
+      extraBonus: 0,
+      extraDeduction: 0,
+      net: 200,
+      hours: 8,
+      days: 1,
+      otHours: 0,
+      entryIds: [],
+      advanceIds: [],
+      createdAt: '2026-11-08T12:00:00.000Z',
+    };
+    const v7 = {
+      ...v1State,
+      version: 7,
+      settlements: [
+        { ...baseSettlement, id: 'settle-1' },
+        { ...baseSettlement, id: 'settle-2', periodStart: '2026-11-05', periodEnd: '2026-11-11' },
+      ],
+    };
+    expect(() =>
+      validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 })),
+    ).toThrow('同一工作的结算周期重叠');
+  });
+
+  it('导入时解锁指向不存在结算的工记 / 借支', () => {
+    const entry = {
+      id: 'entry-orphan',
+      jobId: 'job-1',
+      date: '2026-11-05',
+      breakMinutes: 0,
+      hours: 8,
+      quantity: 0,
+      otHours: 0,
+      bonus: 0,
+      deduction: 0,
+      holiday: false,
+      rule,
+      settlementId: 'missing-settlement',
+      createdAt: '2026-11-05T12:00:00.000Z',
+      updatedAt: '2026-11-05T12:00:00.000Z',
+    };
+    const advance = {
+      id: 'advance-orphan',
+      jobId: 'job-1',
+      date: '2026-11-01',
+      amount: 100,
+      settlementId: 'missing-settlement',
+      createdAt: '2026-11-01T12:00:00.000Z',
+    };
+    const v7 = { ...v1State, version: 7, entries: [entry], advances: [advance] };
+    const text = JSON.stringify({ app: 'xinshi', version: 7, data: v7 });
+    // 本机读取保留孤儿锁定，交给账本体检处理
+    expect(validateImport(text).entries[0].settlementId).toBe('missing-settlement');
+    // 主动导入备份时解锁，避免导入后永久无法编辑
+    const imported = validateImport(text, { unlockOrphans: true });
+    expect(imported.entries[0].settlementId).toBeUndefined();
+    expect(imported.advances[0].settlementId).toBeUndefined();
+  });
 });

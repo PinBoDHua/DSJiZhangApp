@@ -393,6 +393,10 @@ export function DataSafety({
           <ShieldCheck size={14} />
           本应用不登录、无广告、无统计 SDK；Android 版不申请网络权限。
         </p>
+        <p className="settings-note">
+          <ShieldCheck size={14} />
+          考勤照片只存本机，不上传，也不随备份 / 搬家包 / 本机快照迁移。
+        </p>
       </section>
 
       <section className="settings-group">
@@ -409,7 +413,7 @@ export function DataSafety({
             </span>
             <span className="settings-body">
               <strong>清空所有数据</strong>
-              <em>会删除工作、工记、休息、借支和结算；清空前自动拍快照</em>
+              <em>会删除工作、工记、休息、借支、结算和考勤照片；清空前自动拍快照</em>
             </span>
             <ArrowRight size={16} className="settings-chevron" />
           </button>
@@ -435,7 +439,7 @@ export function DataSafety({
       <ConfirmDialog
         open={clearOpen}
         title="清空所有数据？"
-        description="工作、工记、休息、借支和结算会全部删除。清空前会自动存一张本机快照，可在「本机时光机」恢复。"
+        description="工作、工记、休息、借支和结算会全部删除，考勤照片也会一起清理。清空前会自动存一张本机快照；快照不含照片。"
         confirmLabel="全部清空"
         danger
         onCancel={() => setClearOpen(false)}

@@ -350,6 +350,7 @@ export async function readSnapshotState(id: string): Promise<AppState> {
     const parsed = JSON.parse(text) as unknown;
     return validateImport(
       JSON.stringify({ app: 'xinshi', version: record.schema, data: parsed }),
+      { unlockOrphans: true },
     );
   } finally {
     db.close();

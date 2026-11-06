@@ -32,6 +32,8 @@ import {
 import { createDemoState } from './lib/seed';
 import { clearReminderMark } from './lib/reminder';
 import { buildSettlementDraft, makeSettlement } from './lib/settlement';
+import { findRestOnDay, findSettlementOverlap, wouldExceedDayLimit } from './lib/guards';
+import { clearPhotos, deletePhoto, deletePhotos, prunePhotos } from './lib/photos';
 import { PrivacyProvider } from './components/Money';
 import { Toast } from './components/Toast';
 
@@ -146,6 +148,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // 启动时清掉已经没有任何工记引用的照片，避免本机空间被孤儿照片占住。
+  useEffect(() => {
+    const current = stateRef.current;
+    const keep = new Set<string>();
+    for (const entry of current.entries) {
+      if (entry.photoId) keep.add(entry.photoId);
+    }
+    for (const item of current.trashedEntries) {
+      if (item.entry.photoId) keep.add(item.entry.photoId);
+    }
+    void prunePhotos(keep).catch(() => undefined);
+  }, []);
+
   const addJob = useCallback((input: NewJobInput) => {
     const job: Job = {
       ...input,
@@ -241,6 +256,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         input.date <= settlement.periodEnd,
     );
     if (settledPeriod) return null;
+    if (wouldExceedDayLimit(current.entries, input.date, input.hours)) return null;
     const timestamp = nowISO();
     const entry: Entry = {
       ...input,
@@ -248,13 +264,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    setState((prev) => ({
-      ...prev,
-      entries: [entry, ...prev.entries],
-      restDays: prev.restDays.filter(
-        (rest) => !(rest.jobId === entry.jobId && rest.date === entry.date),
-      ),
-    }));
+    setState((prev) => {
+      let trashedRests = prev.trashedRests;
+      for (const restDay of prev.restDays) {
+        if (restDay.jobId === entry.jobId && restDay.date === entry.date) {
+          trashedRests = pushTrash(
+            trashedRests,
+            { restDay, deletedAt: timestamp },
+            (item) => item.restDay.id,
+          );
+        }
+      }
+      return {
+        ...prev,
+        entries: [entry, ...prev.entries],
+        restDays: prev.restDays.filter(
+          (rest) => !(rest.jobId === entry.jobId && rest.date === entry.date),
+        ),
+        trashedRests,
+      };
+    });
     return entry;
   }, []);
 
@@ -272,15 +301,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         targetDate <= settlement.periodEnd,
     );
     if (targetSettled) return false;
-    setState((prev) => ({
-      ...prev,
-      entries: prev.entries.map((entry) =>
-        entry.id === entryId ? { ...entry, ...patch, updatedAt: nowISO() } : entry,
-      ),
-      restDays: prev.restDays.filter(
-        (rest) => !(rest.jobId === targetJobId && rest.date === targetDate),
-      ),
-    }));
+    const nextHours = patch.hours ?? existing.hours;
+    if (wouldExceedDayLimit(current.entries, targetDate, nextHours, entryId)) return false;
+    const timestamp = nowISO();
+    setState((prev) => {
+      let trashedRests = prev.trashedRests;
+      for (const restDay of prev.restDays) {
+        if (restDay.jobId === targetJobId && restDay.date === targetDate) {
+          trashedRests = pushTrash(
+            trashedRests,
+            { restDay, deletedAt: timestamp },
+            (item) => item.restDay.id,
+          );
+        }
+      }
+      return {
+        ...prev,
+        entries: prev.entries.map((entry) =>
+          entry.id === entryId ? { ...entry, ...patch, updatedAt: timestamp } : entry,
+        ),
+        restDays: prev.restDays.filter(
+          (rest) => !(rest.jobId === targetJobId && rest.date === targetDate),
+        ),
+        trashedRests,
+      };
+    });
     return true;
   }, []);
 
@@ -318,16 +363,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         entry.date <= settlement.periodEnd,
     );
     if (settled) return false;
-    const otherHours = current.entries
-      .filter((item) => item.date === entry.date)
-      .reduce((sum, item) => sum + (item.hours || 0), 0);
-    if (otherHours + entry.hours > 24) return false;
+    if (findRestOnDay(current.restDays, entry.jobId, entry.date)) return false;
+    if (wouldExceedDayLimit(current.entries, entry.date, entry.hours)) return false;
     setState((prev) => ({
       ...prev,
       entries: [entry, ...prev.entries],
-      restDays: prev.restDays.filter(
-        (rest) => !(rest.jobId === entry.jobId && rest.date === entry.date),
-      ),
       trashedEntries: prev.trashedEntries.filter((item) => item.entry.id !== entry.id),
     }));
     return true;
@@ -515,9 +555,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         entries: prev.entries.some((entry) => entry.id === id)
           ? prev.entries
           : [item.entry, ...prev.entries],
-        restDays: prev.restDays.filter(
-          (rest) => !(rest.jobId === item.entry.jobId && rest.date === item.entry.date),
-        ),
         trashedEntries: prev.trashedEntries.filter((value) => value.entry.id !== id),
       }));
       return { ok: true };
@@ -559,6 +596,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ? current.trashedRests.some((item) => item.restDay.id === id)
             : current.trashedAdvances.some((item) => item.advance.id === id);
     if (!exists) return false;
+    if (kind === 'job') {
+      const photoIds = current.trashedEntries
+        .filter((item) => item.entry.jobId === id)
+        .map((item) => item.entry.photoId)
+        .filter((value): value is string => Boolean(value));
+      if (photoIds.length > 0) void deletePhotos(photoIds).catch(() => undefined);
+    }
+    if (kind === 'entry') {
+      const photoId = current.trashedEntries.find((item) => item.entry.id === id)?.entry.photoId;
+      if (photoId) void deletePhoto(photoId).catch(() => undefined);
+    }
     setState((prev) => {
       if (kind === 'job') {
         return {
@@ -597,6 +645,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       current.trashedRests.length +
       current.trashedAdvances.length;
     if (count === 0) return 0;
+    const photoIds = current.trashedEntries
+      .map((item) => item.entry.photoId)
+      .filter((value): value is string => Boolean(value));
+    if (photoIds.length > 0) void deletePhotos(photoIds).catch(() => undefined);
     setState((prev) => ({
       ...prev,
       trashedJobs: [],
@@ -620,6 +672,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const current = stateRef.current;
       const job = current.jobs.find((item) => item.id === jobId);
       if (!job) return null;
+      if (findSettlementOverlap(current.settlements, jobId, period)) return null;
       const draft = buildSettlementDraft(
         job,
         current.entries,
@@ -734,6 +787,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const resetAll = useCallback(() => {
     clearStoredState();
     clearReminderMark();
+    void clearPhotos().catch(() => undefined);
     setState(createEmptyState());
   }, []);
 

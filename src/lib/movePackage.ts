@@ -269,6 +269,7 @@ export async function unlockMovePackage(
         version: header.schemaVersion,
         data: header.payload.plain,
       }),
+      { unlockOrphans: true },
     );
   } else {
     if (!password) throw new Error('这个搬家包需要密码');
@@ -281,6 +282,7 @@ export async function unlockMovePackage(
       const decoded = JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
       state = validateImport(
         JSON.stringify({ app: EXPORT_APP, version: header.schemaVersion, data: decoded }),
+        { unlockOrphans: true },
       );
     } catch (error) {
       if (error instanceof Error && error.message.includes('升级')) throw error;

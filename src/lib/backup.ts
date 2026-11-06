@@ -93,6 +93,7 @@ export async function decryptBackup(text: string, password: string): Promise<App
     const decoded = JSON.parse(new TextDecoder().decode(plaintext));
     return validateImport(
       JSON.stringify({ app: EXPORT_APP, version: SCHEMA_VERSION, data: decoded }),
+      { unlockOrphans: true },
     );
   } catch {
     throw new Error('密码错误，或备份文件已损坏');

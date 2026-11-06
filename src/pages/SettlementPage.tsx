@@ -35,6 +35,7 @@ import {
   weekdayCN,
 } from '../lib/date';
 import { formatHours, toAmount } from '../lib/money';
+import { findSettlementOverlap } from '../lib/guards';
 import { formatRestDays, restDayAmount } from '../lib/rest';
 import { CYCLE_LABEL, jobColor } from '../lib/meta';
 import { payForEntry } from '../lib/pay';
@@ -255,6 +256,11 @@ export function SettlementDraftPage({
   };
 
   const handleConfirm = () => {
+    if (findSettlementOverlap(state.settlements, job.id, period)) {
+      setConfirmOpen(false);
+      toast('这个周期已经结算过了，请先撤销原结算', 'error');
+      return;
+    }
     const settlement = settleJob(
       job.id,
       period,

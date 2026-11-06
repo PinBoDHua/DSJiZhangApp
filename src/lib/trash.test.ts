@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTrashRows,
+  filterTrashRows,
   limitTrash,
   purgeExpiredTrash,
   pushTrash,
@@ -94,6 +95,31 @@ describe('回收站列表', () => {
       restDays: 0.5,
     });
   });
+
+  it('按类型与工作组合筛选', () => {
+    const rows = buildTrashRows(state, NOW);
+    expect(filterTrashRows(rows, 'entry', 'all').map((row) => row.kind)).toEqual(['entry']);
+    expect(filterTrashRows(rows, 'all', 'job-1').map((row) => row.kind)).toEqual([
+      'entry',
+      'rest',
+      'advance',
+    ]);
+    expect(filterTrashRows(rows, 'job', 'all').map((row) => row.kind)).toEqual(['job']);
+    expect(filterTrashRows(rows, 'entry', 'job-2')).toEqual([]);
+  });
+
+  it('带考勤照片的工记行有标记', () => {
+    const photoRows = buildTrashRows(
+      makeState({
+        jobs: [job],
+        trashedEntries: [
+          { entry: makeEntry({ photoId: 'photo-1' }), deletedAt: daysAgo(1) },
+        ],
+      }),
+      NOW,
+    );
+    expect(photoRows[0].hasPhoto).toBe(true);
+  });
 });
 
 describe('恢复前的拦截理由', () => {
@@ -130,6 +156,15 @@ describe('恢复前的拦截理由', () => {
     expect(
       trashRestoreBlockReason(entryRow, makeState({ jobs: [job], entries: [other] })),
     ).toBe('这天合计会超过 24 小时');
+  });
+
+  it('同一天已有休息时不能恢复工记', () => {
+    expect(
+      trashRestoreBlockReason(
+        entryRow,
+        makeState({ jobs: [job], restDays: [makeRestDay({ date: '2026-11-02' })] }),
+      ),
+    ).toBe('这天已有休息，先取消休息再恢复');
   });
 
   it('休息和工记同一天只能留一个', () => {

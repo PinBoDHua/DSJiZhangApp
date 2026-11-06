@@ -10645,3 +10645,172 @@ html[data-theme='dark'] .heat-day.is-today {
 html[data-theme="dark"] .trash-kind {
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* ---------- v1.0 考勤照片 / 回收站工作筛选 ---------- */
+
+.photo-field {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.photo-badge {
+  color: var(--muted-2);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 550;
+}
+
+.photo-input {
+  display: none;
+}
+
+.photo-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 74px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.photo-add:active:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.photo-add:disabled {
+  opacity: 0.65;
+}
+
+.photo-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.photo-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-2);
+}
+
+.photo-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.photo-actions .btn {
+  min-height: 36px;
+  padding: 0 13px;
+  font-size: 11px;
+}
+
+.detail-photo {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+
+.detail-photo img {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  background: var(--surface-2);
+}
+
+.detail-photo span {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(10, 28, 20, 0.72);
+  color: #f8f2e5;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(14px + var(--safe-top)) var(--gutter) calc(14px + var(--safe-bottom));
+  background: rgba(8, 18, 13, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fade-in 0.16s ease both;
+}
+
+.photo-viewer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 720px;
+  max-height: 100%;
+}
+
+.photo-full {
+  display: block;
+  width: 100%;
+  max-height: calc(100dvh - 120px);
+  object-fit: contain;
+  border-radius: 18px;
+  background: #000;
+}
+
+.photo-viewer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.photo-viewer-actions .icon-button {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8f2e5;
+}
+
+.entry-photo {
+  flex: none;
+  color: var(--muted-2);
+}
+
+.trash-photo {
+  flex: none;
+  color: var(--muted-2);
+}
+
+.trash-job-filters {
+  margin-top: -6px;
+}
+
+html[data-theme="dark"] .photo-add {
+  border-color: var(--line-strong);
+}
+
+html[data-theme="dark"] .detail-photo span {
+  background: rgba(0, 0, 0, 0.68);
+}

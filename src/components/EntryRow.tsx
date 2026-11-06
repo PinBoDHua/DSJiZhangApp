@@ -1,4 +1,4 @@
-import { LockKeyhole } from 'lucide-react';
+import { Camera, LockKeyhole } from 'lucide-react';
 import type { Entry, Job } from '../types';
 import { formatDateShort, formatTimeRange, weekdayShort } from '../lib/date';
 import { formatHours } from '../lib/money';
@@ -46,6 +46,9 @@ export function EntryRow({ entry, job, onClick, showDate = false, showNote = fal
         <span className="entry-row-title">
           <JobDot color={job?.color ?? 'pine'} size={8} />
           <span>{job?.name ?? '未知工作'}</span>
+          {entry.photoId ? (
+            <Camera size={12} className="entry-photo" aria-label="有考勤照片" />
+          ) : null}
           {settled ? <LockKeyhole size={12} className="entry-lock" aria-label="已结算" /> : null}
         </span>
         <span className="entry-row-meta">

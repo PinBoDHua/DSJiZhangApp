@@ -5,6 +5,8 @@ export interface PayslipOptions {
   showOverRest: boolean;
   showAdvance: boolean;
   showRestDates: boolean;
+  /** 文字版 PDF 末尾附工记明细，长周期会自动分页 */
+  showEntryDetails: boolean;
   footerNote: string;
 }
 
@@ -17,6 +19,7 @@ export const DEFAULT_PAYSLIP_OPTIONS: PayslipOptions = {
   showOverRest: true,
   showAdvance: true,
   showRestDates: true,
+  showEntryDetails: true,
   footerNote: '',
 };
 
@@ -49,6 +52,7 @@ export const PAYSLIP_TEMPLATES: Array<{
       showOverRest: false,
       showAdvance: false,
       showRestDates: false,
+      showEntryDetails: false,
       footerNote: '仅金额对账',
     },
   },
@@ -72,6 +76,7 @@ export function matchPayslipTemplate(options: PayslipOptions): PayslipTemplateId
       item.options.showOverRest === options.showOverRest &&
       item.options.showAdvance === options.showAdvance &&
       item.options.showRestDates === options.showRestDates &&
+      item.options.showEntryDetails === options.showEntryDetails &&
       item.options.footerNote === options.footerNote,
   );
   return found?.id ?? 'custom';
@@ -92,6 +97,10 @@ export function normalizePayslipOptions(value: unknown): PayslipOptions {
     showOverRest: asBoolean(raw.showOverRest, DEFAULT_PAYSLIP_OPTIONS.showOverRest),
     showAdvance: asBoolean(raw.showAdvance, DEFAULT_PAYSLIP_OPTIONS.showAdvance),
     showRestDates: asBoolean(raw.showRestDates, DEFAULT_PAYSLIP_OPTIONS.showRestDates),
+    showEntryDetails: asBoolean(
+      raw.showEntryDetails,
+      DEFAULT_PAYSLIP_OPTIONS.showEntryDetails,
+    ),
     footerNote:
       typeof raw.footerNote === 'string' ? raw.footerNote.slice(0, 30) : '',
   };

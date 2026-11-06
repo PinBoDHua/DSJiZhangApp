@@ -156,7 +156,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
         setPendingHeader(null);
         setStep('password');
       } else {
-        const imported = validateImport(text);
+        const imported = validateImport(text, { unlockOrphans: true });
         acceptState(imported, {
           source: '普通备份',
           encrypted: false,

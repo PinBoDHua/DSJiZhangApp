@@ -1,8 +1,9 @@
-import type { Settlement } from '../types';
+import type { Entry, Settlement } from '../types';
 import { formatDateTime } from './date';
-import { formatMoney } from './money';
+import { formatHours, formatMoney } from './money';
 import { saveBlobFile } from './native';
 import { buildPayslipRows } from './payslip';
+import { buildPayslipDetailRows, chunkPayslipRows } from './payslipDetail';
 import { DEFAULT_PAYSLIP_OPTIONS, type PayslipOptions } from './payslipOptions';
 import { createSettlementQrFor } from './shareQr';
 import { settlementChecksum } from './checksum';
@@ -32,10 +33,11 @@ function pdfFileName(settlement: Settlement): string {
   return `薪时文字工资条-${safeJob}-${settlement.periodEnd}.pdf`;
 }
 
-/** 文字版 PDF：金额与文字可选、可搜索，内嵌 Noto Sans SC 子集。 */
+/** 文字版 PDF：金额与文字可选、可搜索；长周期自动分页并附工记明细。 */
 export async function downloadPayslipTextPdf(
   settlement: Settlement,
   options: PayslipOptions = DEFAULT_PAYSLIP_OPTIONS,
+  entries: Entry[] = [],
 ): Promise<'web' | 'native'> {
   const [{ jsPDF }, font] = await Promise.all([import('jspdf'), loadPdfFont()]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
@@ -111,29 +113,51 @@ export async function downloadPayslipTextPdf(
   });
   y += 16;
 
-  if (isMonthly && (settlement.restDates ?? []).length > 0 && options.showRestDates) {
+  const drawContinuationHeader = (title: string): number => {
+    doc.setFillColor(20, 86, 61);
+    doc.rect(0, 0, pageWidth, 18, 'F');
+    doc.setTextColor(248, 242, 229);
+    doc.setFontSize(10);
+    doc.text(title, margin, 11);
+    doc.setFontSize(8);
+    doc.text(settlement.jobName, pageWidth - margin, 11, { align: 'right' });
+    doc.setTextColor(52, 67, 58);
+    return 30;
+  };
+
+  let contentLimit = 232;
+  const drawWrapped = (text: string, lineHeight = 5): void => {
     doc.setTextColor(111, 123, 114);
     doc.setFontSize(9);
-    doc.text(
+    const lines = doc.splitTextToSize(text, contentWidth) as string[];
+    if (y + lines.length * lineHeight + 3 > contentLimit) {
+      doc.addPage();
+      contentLimit = 270;
+      y = drawContinuationHeader('工资条（续）');
+    }
+    for (const line of lines) {
+      doc.text(line, margin, y);
+      y += lineHeight;
+    }
+    y += 2;
+  };
+
+  if (isMonthly && (settlement.restDates ?? []).length > 0 && options.showRestDates) {
+    drawWrapped(
       `休息日：${(settlement.restDates ?? [])
         .map((date) => date.replace(/-/g, '.').slice(5))
         .join('、')}`,
-      margin,
-      y,
     );
-    y += 7;
   }
 
   if (settlement.note) {
-    doc.setTextColor(111, 123, 114);
-    doc.setFontSize(9);
-    const note = doc.splitTextToSize(`备注：${settlement.note}`, contentWidth - 38);
-    doc.text(note, margin, y);
-    y += note.length * 5 + 3;
+    drawWrapped(`备注：${settlement.note}`);
   }
 
+  // 二维码与页脚固定在结算摘要第一页
+  doc.setPage(1);
   const qr = createSettlementQrFor(settlement);
-  doc.addImage(qr.dataUrl, 'GIF', pageWidth - margin - 30, Math.max(y, 235), 30, 30);
+  doc.addImage(qr.dataUrl, 'GIF', pageWidth - margin - 30, 235, 30, 30);
   doc.setTextColor(111, 123, 114);
   doc.setFontSize(8);
   doc.text(`校验码：${settlementChecksum(settlement)}`, margin, 250);
@@ -148,6 +172,48 @@ export async function downloadPayslipTextPdf(
     { align: 'center' },
   );
   doc.text('薪时 XINSHI · 每一小时，都算数。', pageWidth / 2, 287, { align: 'center' });
+
+  if (options.showEntryDetails) {
+    const detailRows = buildPayslipDetailRows(settlement, entries);
+    if (detailRows.length > 0) {
+      const detailPages = chunkPayslipRows(detailRows);
+      detailPages.forEach((pageRows, index) => {
+        doc.addPage();
+        drawContinuationHeader('工记明细');
+        doc.setTextColor(111, 123, 114);
+        doc.setFontSize(8);
+        doc.text(index === 0 ? '日期' : '日期（续）', margin, 34);
+        doc.text('工时', pageWidth - 60, 34);
+        doc.text('本笔金额', pageWidth - margin, 34, { align: 'right' });
+        doc.setDrawColor(230, 224, 210);
+        doc.line(margin, 37, pageWidth - margin, 37);
+        let rowY = 46;
+        for (const row of pageRows) {
+          doc.setTextColor(52, 67, 58);
+          doc.setFontSize(9);
+          doc.text(row.label, margin, rowY);
+          doc.text(`${formatHours(row.hours)} 小时`, pageWidth - 60, rowY);
+          doc.text(formatMoney(row.amount, { symbol: true }), pageWidth - margin, rowY, {
+            align: 'right',
+          });
+          doc.setDrawColor(239, 234, 223);
+          doc.line(margin, rowY + 3, pageWidth - margin, rowY + 3);
+          rowY += 6.2;
+        }
+        doc.setTextColor(111, 123, 114);
+        doc.setFontSize(8);
+        doc.text(`本页 ${pageRows.length} 笔 · 共 ${detailRows.length} 笔`, margin, 286);
+      });
+    }
+  }
+
+  const totalPages = doc.getNumberOfPages();
+  for (let page = 1; page <= totalPages; page += 1) {
+    doc.setPage(page);
+    doc.setTextColor(111, 123, 114);
+    doc.setFontSize(7.5);
+    doc.text(`第 ${page} / ${totalPages} 页`, pageWidth - margin, 292, { align: 'right' });
+  }
 
   return saveBlobFile(doc.output('blob'), pdfFileName(settlement));
 }

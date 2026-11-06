@@ -26,6 +26,7 @@ export const STORAGE_KEY = 'xinshi.state.v7';
 export const LEGACY_STORAGE_KEYS = ['xinshi.state.v6', 'xinshi.state.v5', 'xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
 export const THEME_KEY = 'xinshi.theme';
 export const EXPORT_APP = 'xinshi';
+/** v1.0 起冻结在 v7；新增字段只允许可选，旧备份继续可导入 */
 export const SCHEMA_VERSION = 7;
 
 export function createEmptyState(name = ''): AppState {
@@ -306,6 +307,7 @@ function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): En
     deduction: Math.max(0, asNumber(raw.deduction)),
     holiday: asBoolean(raw.holiday),
     note: asString(raw.note) || undefined,
+    photoId: asString(raw.photoId).trim() || undefined,
     rule: normalizeRule(raw.rule, job.rule),
     settlementId: asString(raw.settlementId) || undefined,
     createdAt,
@@ -473,7 +475,15 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
   };
 }
 
-export function validateImport(text: string): AppState {
+export interface ValidateImportOptions {
+  /** 用户主动导入备份时解锁指向不存在结算的工记 / 借支；本机读取保留给账本体检处理 */
+  unlockOrphans?: boolean;
+}
+
+export function validateImport(
+  text: string,
+  options: ValidateImportOptions = {},
+): AppState {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -506,7 +516,13 @@ export function validateImport(text: string): AppState {
   const trashedIds = new Set<string>();
   const trashedJobs: TrashedJob[] = [];
   for (const item of Array.isArray(raw.trashedJobs) ? raw.trashedJobs : []) {
-    const trashed = normalizeTrashedJob(item, now);
+    let trashed: TrashedJob;
+    try {
+      trashed = normalizeTrashedJob(item, now);
+    } catch {
+      // 单条回收站工作坏掉就跳过，不拒绝整份备份
+      continue;
+    }
     if (jobMap.has(trashed.job.id) || trashedIds.has(trashed.job.id)) continue;
     trashedIds.add(trashed.job.id);
     trashedJobs.push(trashed);
@@ -547,13 +563,42 @@ export function validateImport(text: string): AppState {
   }
 
   const settlementIds = new Set<string>();
+  const settlementsByJob = new Map<string, Settlement[]>();
   const settlements: Settlement[] = [];
   for (const item of Array.isArray(settlementsRaw) ? settlementsRaw : []) {
     const settlement = normalizeSettlement(item, jobMap, now);
     if (settlementIds.has(settlement.id)) throw new Error('结算数据存在重复 ID');
+    const siblings = settlementsByJob.get(settlement.jobId) ?? [];
+    if (
+      siblings.some(
+        (existing) =>
+          existing.periodStart <= settlement.periodEnd &&
+          settlement.periodStart <= existing.periodEnd,
+      )
+    ) {
+      throw new Error('同一工作的结算周期重叠，无法导入');
+    }
+    siblings.push(settlement);
+    settlementsByJob.set(settlement.jobId, siblings);
     settlementIds.add(settlement.id);
     settlements.push(settlement);
   }
+
+  // 结算单被删掉后留下的锁定引用：主动导入时解锁，本机读取保留给账本体检处理
+  const repairedEntries = options.unlockOrphans
+    ? entries.map((entry) =>
+        entry.settlementId && !settlementIds.has(entry.settlementId)
+          ? { ...entry, settlementId: undefined }
+          : entry,
+      )
+    : entries;
+  const repairedAdvances = options.unlockOrphans
+    ? advances.map((advance) =>
+        advance.settlementId && !settlementIds.has(advance.settlementId)
+          ? { ...advance, settlementId: undefined }
+          : advance,
+      )
+    : advances;
 
   const trashedEntryIds = new Set<string>();
   const trashedEntries: TrashedEntry[] = [];
@@ -605,9 +650,9 @@ export function validateImport(text: string): AppState {
     trashedEntries: limitTrash(purgeExpiredTrash(trashedEntries)),
     trashedRests: limitTrash(purgeExpiredTrash(trashedRests)),
     trashedAdvances: limitTrash(purgeExpiredTrash(trashedAdvances)),
-    entries,
+    entries: repairedEntries,
     restDays,
-    advances,
+    advances: repairedAdvances,
     settlements,
     activeTimer,
     onboardingDone: asBoolean(raw.onboardingDone, jobs.length > 0),

@@ -112,6 +112,8 @@ export interface Entry {
   deduction: number;
   holiday: boolean;
   note?: string;
+  /** 考勤照片 ID；照片本体存本机 IndexedDB，不进备份 */
+  photoId?: string;
   /** 记录创建时的计薪快照，后续调价不影响历史 */
   rule: PayRule;
   settlementId?: string;

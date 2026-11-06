@@ -29,7 +29,8 @@ type PayslipBoolKey =
   | 'showDeduction'
   | 'showOverRest'
   | 'showAdvance'
-  | 'showRestDates';
+  | 'showRestDates'
+  | 'showEntryDetails';
 
 const PAYSLIP_TOGGLES: Array<{ key: PayslipBoolKey; label: string }> = [
   { key: 'showOvertime', label: '加班工资' },
@@ -38,10 +39,11 @@ const PAYSLIP_TOGGLES: Array<{ key: PayslipBoolKey; label: string }> = [
   { key: 'showOverRest', label: '超休扣款' },
   { key: 'showAdvance', label: '借支抵扣' },
   { key: 'showRestDates', label: '休息日期' },
+  { key: 'showEntryDetails', label: '工记明细' },
 ];
 
 export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps) {
-  const { toast } = useStore();
+  const { state, toast } = useStore();
   const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
@@ -147,7 +149,10 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
   const saveTextPdf = async () => {
     setTextBusy(true);
     try {
-      const result = await downloadPayslipTextPdf(settlement, options);
+      const entries = state.entries.filter((entry) =>
+        settlement.entryIds.includes(entry.id),
+      );
+      const result = await downloadPayslipTextPdf(settlement, options, entries);
       toast(
         result === 'native'
           ? '文字版 PDF 已保存到「下载/Xinshi」'
@@ -189,7 +194,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
               disabled={textBusy}
             >
               <FileText size={14} />
-              {textBusy ? '正在生成文字版…' : '文字版 PDF（可选中 / 可搜索）'}
+              {textBusy ? '正在生成文字版…' : '文字版 PDF（可选中 · 含工记明细）'}
             </button>
             <details className="payslip-options">
               <summary>

@@ -177,7 +177,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
         setImportError('');
         return;
       }
-      const imported = validateImport(text);
+      const imported = validateImport(text, { unlockOrphans: true });
       setPendingImport(imported);
     } catch (error) {
       const message = error instanceof Error ? error.message : '导入失败，请检查文件';

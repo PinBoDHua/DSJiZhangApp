@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Settlement } from '../types';
 import { buildPayslipRows } from './payslip';
-import { DEFAULT_PAYSLIP_OPTIONS, normalizePayslipOptions } from './payslipOptions';
+import {
+  DEFAULT_PAYSLIP_OPTIONS,
+  matchPayslipTemplate,
+  normalizePayslipOptions,
+  optionsForTemplate,
+} from './payslipOptions';
 
 const settlement = {
   id: 'settlement-1',
@@ -66,6 +71,13 @@ describe('工资条明细行', () => {
     });
     expect(options.showBonus).toBe(false);
     expect(options.showOvertime).toBe(true);
+    expect(options.showEntryDetails).toBe(true);
     expect(options.footerNote).toHaveLength(30);
+  });
+
+  it('只发金额模板不附工记明细，完整版默认附明细', () => {
+    expect(optionsForTemplate('amount').showEntryDetails).toBe(false);
+    expect(matchPayslipTemplate(optionsForTemplate('amount'))).toBe('amount');
+    expect(matchPayslipTemplate(optionsForTemplate('full'))).toBe('full');
   });
 });

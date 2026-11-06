@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   Banknote,
   Briefcase,
   CalendarDays,
+  Camera,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -25,6 +26,9 @@ import { round2, toAmount } from '../lib/money';
 import { autoOtHours, otHourlyRate, otMultiplierFor, payForEntry } from '../lib/pay';
 import type { TimerTimes } from '../lib/timer';
 import { DURATION_PRESETS, endTimeForDuration } from '../lib/timePreset';
+import { findRestOnDay } from '../lib/guards';
+import { createPhotoId, deletePhoto, getPhoto, putPhoto } from '../lib/photos';
+import { createWatermarkedPhoto } from '../lib/photoStamp';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
 import { Money } from '../components/Money';
@@ -122,7 +126,14 @@ export function EntryEditor({
   );
   const [error, setError] = useState('');
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [photoDraft, setPhotoDraft] = useState<string | null>(null);
+  const [photoTouched, setPhotoTouched] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   const jobPickerRef = useRef<HTMLDivElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const photoChangedRef = useRef(false);
+  const submittingRef = useRef(false);
   const dirtyRef = useRef(false);
 
   useEffect(() => {
@@ -140,6 +151,26 @@ export function EntryEditor({
     }, 140);
     return () => window.clearTimeout(timer);
   }, [jobId]);
+
+  useEffect(() => {
+    const photoId = existing?.photoId;
+    if (!photoId || photoChangedRef.current) return;
+    let active = true;
+    getPhoto(photoId)
+      .then((photo) => {
+        if (!active || photoChangedRef.current) return;
+        if (photo) setPhotoDraft(photo.dataUrl);
+        else setPhotoError('照片不在本机，可能来自另一台设备');
+      })
+      .catch(() => {
+        if (active && !photoChangedRef.current) {
+          setPhotoError('照片不在本机，可能来自另一台设备');
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [existing?.photoId]);
 
   const selectedJob: Job | undefined = selectableJobs.find((job) => job.id === jobId);
   const rule: PayRule | undefined =
@@ -209,6 +240,43 @@ export function EntryEditor({
     setError(message);
   };
 
+  const pickPhoto = () => {
+    photoInputRef.current?.click();
+  };
+
+  const handlePhotoFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    photoChangedRef.current = true;
+    setPhotoBusy(true);
+    setPhotoError('');
+    try {
+      const dataUrl = await createWatermarkedPhoto(file, {
+        jobName: selectedJob?.name ?? '未命名工作',
+        date,
+        hours,
+      });
+      setPhotoDraft(dataUrl);
+      setPhotoTouched(true);
+      dirtyRef.current = true;
+    } catch (photoFailure) {
+      setPhotoError(
+        photoFailure instanceof Error ? photoFailure.message : '照片处理失败，请重试',
+      );
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const removePhoto = () => {
+    photoChangedRef.current = true;
+    setPhotoDraft(null);
+    setPhotoTouched(true);
+    setPhotoError('');
+    dirtyRef.current = true;
+  };
+
   const chooseJob = (job: Job) => {
     dirtyRef.current = true;
     setJobId(job.id);
@@ -261,8 +329,9 @@ export function EntryEditor({
     onClose();
   };
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (submittingRef.current) return;
     if (!selectedJob || !rule) {
       showError('请先选择一份工作');
       return;
@@ -322,6 +391,12 @@ export function EntryEditor({
       return;
     }
 
+    const restMoved = Boolean(findRestOnDay(state.restDays, selectedJob.id, date));
+    const nextPhotoId = photoTouched
+      ? photoDraft
+        ? existing?.photoId ?? createPhotoId()
+        : undefined
+      : existing?.photoId;
     const base = {
       jobId: selectedJob.id,
       date,
@@ -332,6 +407,7 @@ export function EntryEditor({
       deduction: round2(Math.max(0, toAmount(deduction))),
       holiday: Boolean(overtimeEnabled && holiday),
       note: note.trim() || undefined,
+      photoId: nextPhotoId,
       rule,
       breakMinutes:
         isHourly && timeMode === 'range'
@@ -359,23 +435,41 @@ export function EntryEditor({
               : undefined,
     };
 
-    if (existing) {
-      const ok = updateEntry(existing.id, base);
-      if (!ok) {
-        showError('修改失败：这笔工记或目标日期所在的周期已经结算，请先撤销');
-        return;
+    submittingRef.current = true;
+    try {
+      if (existing) {
+        const ok = updateEntry(existing.id, base);
+        if (!ok) {
+          showError('修改失败：目标日期合计超过 24 小时，或周期已经结算，请先撤销');
+          return;
+        }
+        toast(restMoved ? '工记已更新，这天的休息已移到回收站' : '工记已更新');
+      } else {
+        const created = addEntry(base);
+        if (!created) {
+          showError('没有保存：这个周期已经结算过了，或当天合计超过 24 小时');
+          return;
+        }
+        toast(restMoved ? '已记上一笔，这天的休息已移到回收站' : '已记上一笔');
       }
-      toast('工记已更新');
-    } else {
-      const created = addEntry(base);
-      if (!created) {
-        showError('这个周期已经结算过了，请先在结算历史里撤销');
-        return;
+
+      if (photoTouched) {
+        if (photoDraft && nextPhotoId) {
+          try {
+            await putPhoto(nextPhotoId, photoDraft);
+          } catch {
+            toast('照片保存失败，工记已保存', 'error');
+          }
+        } else if (existing?.photoId) {
+          void deletePhoto(existing.photoId).catch(() => undefined);
+        }
       }
-      toast('已记上一笔');
+
+      dirtyRef.current = false;
+      onClose();
+    } finally {
+      submittingRef.current = false;
     }
-    dirtyRef.current = false;
-    onClose();
   };
 
   if (entryId && !existing) {
@@ -871,6 +965,60 @@ export function EntryEditor({
               </label>
             </div>
           ) : null}
+
+          <div className="photo-field">
+            <div className="field-head">
+              <span className="field-label">考勤照片（选填）</span>
+              <em className="photo-badge">只存本机</em>
+            </div>
+            <input
+              ref={photoInputRef}
+              className="photo-input"
+              type="file"
+              accept="image/*"
+              aria-label="选择考勤照片"
+              onChange={(event) => void handlePhotoFile(event)}
+            />
+            {photoDraft ? (
+              <div className="photo-preview">
+                <img src={photoDraft} alt="考勤照片预览" />
+                <div className="photo-actions">
+                  <button
+                    type="button"
+                    className="btn btn--soft"
+                    onClick={pickPhoto}
+                    disabled={photoBusy}
+                  >
+                    <Camera size={15} />
+                    更换
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={removePhoto}
+                    disabled={photoBusy}
+                  >
+                    <X size={15} />
+                    移除
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="photo-add"
+                onClick={pickPhoto}
+                disabled={photoBusy}
+              >
+                {photoBusy ? <span className="payslip-spinner" /> : <Camera size={19} />}
+                <span>{photoBusy ? '正在处理照片…' : '拍照或从相册选择'}</span>
+              </button>
+            )}
+            {photoError ? <p className="form-error">{photoError}</p> : null}
+            <p className="field-hint">
+              自动加岗位 / 日期 / 工时水印；照片不上传，也不随备份迁移。
+            </p>
+          </div>
         </div>
 
         <div className="entry-footer">
@@ -907,7 +1055,7 @@ export function EntryEditor({
             <button
               type="submit"
               className="btn btn--primary entry-save"
-              disabled={!selectedJob || !rule}
+              disabled={!selectedJob || !rule || photoBusy}
             >
               {existing ? '保存' : '记上'}
             </button>
