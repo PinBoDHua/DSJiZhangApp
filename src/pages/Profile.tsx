@@ -38,6 +38,7 @@ import {
   markBackedUp,
 } from '../lib/backupStatus';
 import { isNativeApp, saveTextFile } from '../lib/native';
+import { APP_VERSION } from '../lib/version';
 import {
   getNativeReminderPermission,
   requestNativeReminderPermission,
@@ -646,7 +647,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             </span>
             <span className="settings-body">
               <strong>关于薪时</strong>
-              <em>v0.7.2 · 每一小时，都算数</em>
+              <em>v{APP_VERSION} · 每一小时，都算数</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -654,7 +655,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
       </section>
 
       <p className="profile-footer">
-        薪时 XINSHI · v0.7.2
+        薪时 XINSHI · v{APP_VERSION}
         <br />
         个人记工工具，计算结果仅供参考
       </p>
@@ -700,7 +701,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
               <h3>薪时 XINSHI</h3>
               <p>每一小时，都算数。</p>
             </div>
-            <span className="about-version">v0.7.2</span>
+            <span className="about-version">v{APP_VERSION}</span>
           </div>
           <p className="about-copy">
             给小时工、日结工、周结工和月结工用的个人记工工具。记工时、算工钱、等发薪，

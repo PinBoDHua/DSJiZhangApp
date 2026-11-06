@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import type { Cycle, JobColor, PayType } from '../types';
 import { toAmount } from '../lib/money';
 import { PAY_TYPE_LABEL, PAY_TYPE_UNIT } from '../lib/meta';
+import { APP_VERSION } from '../lib/version';
 
 const COLORS: Record<PayType, JobColor> = {
   hourly: 'pine',
@@ -74,7 +75,7 @@ export function Onboarding({ onOpenSnapshots }: { onOpenSnapshots?: () => void }
             <Logo size={34} light />
             <Wordmark light />
           </div>
-          <span className="onboarding-badge">v0.7.2 · 全分辨率</span>
+          <span className="onboarding-badge">v{APP_VERSION} · 搜索与年报</span>
         </div>
         <div className="onboarding-copy">
           <p className="onboarding-eyebrow">工时 · 薪资 · 结算</p>

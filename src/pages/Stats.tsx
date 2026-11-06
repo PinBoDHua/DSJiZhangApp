@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../store';
+import type { Period, Totals } from '../types';
 import { BarChart } from '../components/BarChart';
 import { EmptyState } from '../components/EmptyState';
 import { Money } from '../components/Money';
@@ -21,8 +22,9 @@ import {
   sumEntries,
   sumEntriesCapped,
 } from '../lib/settlement';
+import { buildYearSummary, shiftYear, yearPeriod } from '../lib/yearStats';
 
-type Mode = 'week' | 'month';
+type Mode = 'week' | 'month' | 'year';
 
 interface StatsProps {
   onAddEntry: () => void;
@@ -33,26 +35,72 @@ export function Stats({ onAddEntry }: StatsProps) {
   const today = todayISO();
   const [mode, setMode] = useState<Mode>('week');
   const [anchor, setAnchor] = useState(today);
-  const cycle = mode === 'week' ? 'weekly' : 'monthly';
-  const period = periodOf(cycle, anchor, state.settings.weekStartsOn);
-  const entries = state.entries.filter(
-    (entry) => entry.date >= period.start && entry.date <= period.end,
+  const year = useMemo(() => yearPeriod(anchor), [anchor]);
+  const period: Period = useMemo(() => {
+    if (mode === 'year') {
+      return {
+        start: year.start,
+        end: year.end,
+        key: `yearly:${year.year}`,
+        label: year.label,
+        shortLabel: `${year.year}年`,
+      };
+    }
+    return periodOf(
+      mode === 'week' ? 'weekly' : 'monthly',
+      anchor,
+      state.settings.weekStartsOn,
+    );
+  }, [mode, anchor, year, state.settings.weekStartsOn]);
+  const entries = useMemo(
+    () =>
+      state.entries.filter(
+        (entry) => entry.date >= period.start && entry.date <= period.end,
+      ),
+    [state.entries, period.start, period.end],
   );
-  const restDays = state.restDays.filter(
-    (rest) => rest.date >= period.start && rest.date <= period.end,
+  const restDays = useMemo(
+    () =>
+      state.restDays.filter(
+        (rest) => rest.date >= period.start && rest.date <= period.end,
+      ),
+    [state.restDays, period.start, period.end],
   );
   const restTotal = totalRestDays(restDays);
-  const totals = mode === 'month' ? sumEntriesCapped(entries) : sumEntries(entries);
-  const series = dailySeries(entries, period.start, period.end).map((point) => ({
-    date: point.date,
-    label: mode === 'week' ? weekdayShort(point.date) : String(Number(point.date.slice(8))),
-    value: point.earnings,
-    highlight: point.date === today,
-  }));
-  const breakdown = jobBreakdown(entries, mode === 'month').map((item) => ({
-    ...item,
-    job: state.jobs.find((job) => job.id === item.jobId),
-  }));
+  const yearSummary = useMemo(
+    () => (mode === 'year' ? buildYearSummary(state.entries, year.year) : null),
+    [mode, state.entries, year.year],
+  );
+  const totals: Totals = useMemo(() => {
+    if (yearSummary) return yearSummary.totals;
+    return mode === 'month' ? sumEntriesCapped(entries) : sumEntries(entries);
+  }, [yearSummary, mode, entries]);
+  const series = useMemo(() => {
+    if (yearSummary) {
+      const currentMonth = today.slice(0, 7);
+      return yearSummary.months.map((month) => ({
+        date: month.date,
+        label: String(month.month),
+        value: month.earnings,
+        highlight: month.date.slice(0, 7) === currentMonth,
+      }));
+    }
+    return dailySeries(entries, period.start, period.end).map((point) => ({
+      date: point.date,
+      label: mode === 'week' ? weekdayShort(point.date) : String(Number(point.date.slice(8))),
+      value: point.earnings,
+      highlight: point.date === today,
+    }));
+  }, [yearSummary, entries, period.start, period.end, mode, today]);
+  const breakdown = useMemo(() => {
+    const rows = yearSummary
+      ? yearSummary.breakdown
+      : jobBreakdown(entries, mode === 'month');
+    return rows.map((item) => ({
+      ...item,
+      job: state.jobs.find((job) => job.id === item.jobId),
+    }));
+  }, [yearSummary, entries, mode, state.jobs]);
   const jobTotal = breakdown.reduce((sum, item) => sum + item.total, 0);
   const avgHourly = totals.hours > 0 ? totals.total / totals.hours : 0;
   const hasFixedMonthly = entries.some(
@@ -72,6 +120,24 @@ export function Stats({ onAddEntry }: StatsProps) {
     setAnchor(today);
   };
 
+  const goPrev = () => {
+    if (mode === 'year') {
+      setAnchor(shiftYear(year, -1).start);
+      return;
+    }
+    setAnchor(shiftPeriod(period, -1, state.settings.weekStartsOn).start);
+  };
+
+  const goNext = () => {
+    if (mode === 'year') {
+      setAnchor(shiftYear(year, 1).start);
+      return;
+    }
+    setAnchor(shiftPeriod(period, 1, state.settings.weekStartsOn).start);
+  };
+
+  const periodBadge = mode === 'week' ? '本周' : mode === 'month' ? '本月' : '本年';
+
   return (
     <div className="page stats-page">
       <header className="page-heading page-heading--row">
@@ -85,6 +151,7 @@ export function Stats({ onAddEntry }: StatsProps) {
           options={[
             { value: 'week', label: '本周' },
             { value: 'month', label: '本月' },
+            { value: 'year', label: '本年' },
           ]}
           size="sm"
           ariaLabel="统计周期"
@@ -95,8 +162,8 @@ export function Stats({ onAddEntry }: StatsProps) {
         <button
           type="button"
           className="icon-button"
-          onClick={() => setAnchor(shiftPeriod(period, -1, state.settings.weekStartsOn).start)}
-          aria-label="上一个周期"
+          onClick={goPrev}
+          aria-label={mode === 'year' ? '上一年' : '上一个周期'}
         >
           <ChevronLeft size={20} />
         </button>
@@ -104,17 +171,17 @@ export function Stats({ onAddEntry }: StatsProps) {
           type="button"
           className="month-switch-label"
           onClick={() => setAnchor(today)}
-          title="回到本期"
+          title={mode === 'year' ? '回到今年' : '回到本期'}
         >
           {period.label}
-          {isCurrent ? <span className="micro-badge">{mode === 'week' ? '本周' : '本月'}</span> : null}
+          {isCurrent ? <span className="micro-badge">{periodBadge}</span> : null}
         </button>
         <button
           type="button"
           className="icon-button"
-          onClick={() => setAnchor(shiftPeriod(period, 1, state.settings.weekStartsOn).start)}
+          onClick={goNext}
           disabled={!canGoNext}
-          aria-label="下一个周期"
+          aria-label={mode === 'year' ? '下一年' : '下一个周期'}
         >
           <ChevronRight size={20} />
         </button>
@@ -124,7 +191,11 @@ export function Stats({ onAddEntry }: StatsProps) {
         <div className="card empty-card">
           <EmptyState
             icon={BarChart3}
-            title="这段时间还没有工记"
+            title={
+              mode === 'year'
+                ? `${year.year} 年还没有工记`
+                : '这段时间还没有工记'
+            }
             description="记上工时，收入、加班和平均时薪会自动汇总。"
             actionLabel="记一笔"
             onAction={onAddEntry}
@@ -135,7 +206,7 @@ export function Stats({ onAddEntry }: StatsProps) {
           <section className="stats-hero">
             <div className="stats-hero-orb" aria-hidden="true" />
             <div className="stats-hero-top">
-              <span>本期收入</span>
+              <span>{mode === 'year' ? '本年收入' : '本期收入'}</span>
               <span className="stats-period">
                 {entries.length} 笔工记{restTotal > 0 ? ` · 休 ${formatRestDays(restTotal)} 天` : ''}
               </span>
@@ -213,25 +284,31 @@ export function Stats({ onAddEntry }: StatsProps) {
           <section className="card chart-card">
             <div className="section-head section-head--tight">
               <div>
-                <h2>每天的收入</h2>
+                <h2>{mode === 'year' ? '每月收入' : '每天的收入'}</h2>
                 <p>
-                  峰值{' '}
+                  {mode === 'year' ? '1–12 月 · 峰值 ' : '峰值 '}
                   <Money value={Math.max(...series.map((point) => point.value), 0)} />
-                  {hasFixedMonthly ? ' · 固定月薪按日折算' : ''}
+                  {hasFixedMonthly
+                    ? mode === 'year'
+                      ? ' · 固定月薪逐月封顶'
+                      : ' · 固定月薪按日折算'
+                    : ''}
                 </p>
               </div>
               <span className="chart-legend">
                 <i />
-                日收入
+                {mode === 'year' ? '月收入' : '日收入'}
               </span>
             </div>
             <BarChart
               data={series}
               height={178}
-              labelEvery={mode === 'week' ? 1 : 5}
+              labelEvery={mode === 'month' ? 5 : 1}
               showGrid
             />
-            {totals.capAdjustment > 0 ? (
+            {mode === 'year' ? (
+              <p className="calc-note">月薪工作逐月封顶；柱状图之和等于上方年度收入。</p>
+            ) : totals.capAdjustment > 0 ? (
               <p className="calc-note">月薪工作已按整月封顶，图表为单日折算展示。</p>
             ) : null}
           </section>
@@ -337,7 +414,8 @@ export function Stats({ onAddEntry }: StatsProps) {
           </section>
 
           <p className="stats-footnote">
-            平均时薪 = 本期收入 ÷ 本期工时；加班占比 = 加班工时 ÷ 总工时。
+            平均时薪 = 统计区间收入 ÷ 统计区间工时；加班占比 = 加班工时 ÷ 总工时。
+            {mode === 'year' ? '年度收入按每月实发口径累加，休息天数按记录的去重日期统计。' : ''}
           </p>
         </>
       )}

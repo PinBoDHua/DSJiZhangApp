@@ -37,6 +37,19 @@ async function step(name, fn) {
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: /先看看示例数据/ }).click();
 await page.waitForTimeout(700);
+const dates = await page.evaluate(() => {
+  const state = JSON.parse(localStorage.getItem('xinshi.state.v7'));
+  const entry = state.entries.find((item) => item.note === '水电验收');
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return {
+    entryDate: entry.date,
+    today: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+  };
+});
+const weekdayCN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][
+  new Date(`${dates.entryDate}T12:00:00`).getDay()
+];
 await page.getByRole('button', { name: '结算', exact: true }).click();
 await page.waitForTimeout(400);
 await page.getByRole('button', { name: /核对结算/ }).last().click();
@@ -94,13 +107,13 @@ await step('月度考勤可以导出 CSV', async () => {
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: '导出 CSV' }).click();
   const download = await downloadPromise;
-  assert.equal(download.suggestedFilename(), '薪时考勤-2026-11.csv');
+  assert.equal(download.suggestedFilename(), `薪时考勤-${dates.today.slice(0, 7)}.csv`);
   const path = `${OUT}/attendance.csv`;
   await download.saveAs(path);
   const csv = await readFile(path, 'utf8');
   assert.ok(csv.startsWith('\uFEFF'));
   assert.ok(csv.includes('日期,星期,城南工地,顺丰夜班分拣,老宅装修,礼盒包装,当日工时'));
-  assert.ok(csv.includes('2026-11-04,周三,未记,未记,班 6h,未记,6'));
+  assert.ok(csv.includes(`${dates.entryDate},${weekdayCN},未记,未记,班 6h,未记,6`));
   assert.ok(csv.includes('合计,'));
   await page.screenshot({ path: `${OUT}/attendance-csv.png` });
 });

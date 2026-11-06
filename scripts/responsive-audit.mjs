@@ -3,8 +3,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 
 const BASE = 'http://127.0.0.1:4173';
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
-const OUT = process.env.AUDIT_OUT || 'test-results-responsive';
 const SIMULATE_INSETS = process.argv.includes('--insets');
+const OUT =
+  process.env.AUDIT_OUT ||
+  (SIMULATE_INSETS ? 'test-results-responsive-insets' : 'test-results-responsive');
 // 真机 Redmi Note 13 Pro 5G：1220x2712 @480dpi -> 407x904 CSS；状态栏 122px、手势条 48px
 const INSETS = { top: 41, bottom: 16 };
 
@@ -64,6 +66,7 @@ function measure() {
   const fabRect = fab ? fab.getBoundingClientRect() : null;
   const mainEl = document.querySelector('.app-main');
   const brandEl = document.querySelector('.onboarding-top');
+  const subEl = document.querySelector('.subpage-head');
   return {
     vw,
     vh,
@@ -76,7 +79,13 @@ function measure() {
     navInsideViewport: navRect ? navRect.bottom <= vh + 1 && navRect.right <= vw + 1 : true,
     navBottomGap: navRect ? Math.round(vh - navRect.bottom) : null,
     mainTop: Math.round(
-      mainEl ? mainEl.getBoundingClientRect().top : brandEl ? brandEl.getBoundingClientRect().top : 0,
+      mainEl
+        ? mainEl.getBoundingClientRect().top
+        : brandEl
+          ? brandEl.getBoundingClientRect().top
+          : subEl
+            ? subEl.getBoundingClientRect().top
+            : 0,
     ),
   };
 }
@@ -140,6 +149,34 @@ for (const viewport of VIEWPORTS) {
     if (await close.count()) await close.first().click().catch(() => {});
     await page.waitForTimeout(300);
   }
+
+  // 记录 → 搜索
+  await page.getByRole('button', { name: '记录', exact: true }).click();
+  await page.waitForTimeout(500);
+  const search = page.getByRole('button', { name: '搜索工记' });
+  if (await search.count()) {
+    await search.first().click();
+    await page.waitForTimeout(500);
+    await page.locator('.search-input').fill('11');
+    await page.waitForTimeout(300);
+    const data = await page.evaluate(measure);
+    report.push({ viewport: viewport.name, page: '搜索', ...data });
+    await page.screenshot({ path: `${OUT}/${viewport.name}-搜索.png` });
+    await page.getByRole('button', { name: '返回' }).click();
+    await page.waitForTimeout(400);
+  }
+
+  // 统计 → 本年
+  await page.getByRole('button', { name: '统计', exact: true }).click();
+  await page.waitForTimeout(500);
+  const yearButton = page.getByRole('button', { name: '本年', exact: true });
+  if (await yearButton.count()) {
+    await yearButton.first().click();
+    await page.waitForTimeout(600);
+    const data = await page.evaluate(measure);
+    report.push({ viewport: viewport.name, page: '年度统计', ...data });
+    await page.screenshot({ path: `${OUT}/${viewport.name}-年度统计.png` });
+  }
   await context.close();
   console.log(`done ${viewport.name}`);
 }
@@ -161,7 +198,7 @@ await writeFile(
   [
     `# 分辨率矩阵审计 ${SIMULATE_INSETS ? '（含模拟刘海 / 手势条）' : '（基线）'}`,
     '',
-    `检查组合：${VIEWPORTS.length} 个分辨率 × ${TABS.length + 2} 个页面 = ${report.length} 次`,
+    `检查组合：${VIEWPORTS.length} 个分辨率 × ${TABS.length + 4} 个页面 = ${report.length} 次`,
     `发现问题组合：${bad.length}`,
     '',
     ...bad.map(

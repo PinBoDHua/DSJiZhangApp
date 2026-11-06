@@ -33,6 +33,17 @@ async function step(name, fn) {
   }
 }
 
+function addDays(iso, days) {
+  const date = new Date(`${iso}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function weekdayOf(iso) {
+  return new Date(`${iso}T12:00:00`).getDay();
+}
+
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: /先看看示例数据/ }).click();
 await page.waitForTimeout(500);
@@ -43,12 +54,25 @@ await page.evaluate(() => {
 });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(500);
+const today = await page.evaluate(() => {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+});
+// 任意连续 6 天恰好包含一个周日，正好有 5 个可补记的上班日。
+const rangeStart = addDays(today, 4);
+const rangeEnd = addDays(today, 9);
+const rangeDates = Array.from({ length: 6 }, (_, index) => addDays(rangeStart, index)).filter(
+  (date) => weekdayOf(date) !== 0,
+);
+const futureSevenEnd = addDays(today, 6);
+const outOfRangeDates = rangeDates.filter((date) => date > futureSevenEnd);
 await page.getByRole('button', { name: '批量补记' }).click();
 await page.waitForTimeout(500);
 
 await step('自定义起止日期并保留跨范围勾选', async () => {
-  await page.getByLabel('补记开始日期').fill('2026-11-10');
-  await page.getByLabel('补记结束日期').fill('2026-11-15');
+  await page.getByLabel('补记开始日期').fill(rangeStart);
+  await page.getByLabel('补记结束日期').fill(rangeEnd);
   await page.waitForTimeout(350);
   assert.equal(await page.locator('.batch-plan-row').count(), 5);
   await page.getByRole('button', { name: '清空' }).click();
@@ -60,7 +84,7 @@ await step('自定义起止日期并保留跨范围勾选', async () => {
   const summary = await page.locator('.batch-plan-summary').innerText();
   assert.ok(summary.includes('5'), summary);
   const out = await page.locator('.batch-out-range').innerText();
-  assert.ok(out.includes('范围外已选 3 天'), out);
+  assert.ok(out.includes(`范围外已选 ${outOfRangeDates.length} 天`), out);
 });
 
 await step('批量改工时 / 奖金 / 备注并生成', async () => {
@@ -76,16 +100,7 @@ await step('批量改工时 / 奖金 / 备注并生成', async () => {
     ),
   );
   assert.equal(entries.length, 5);
-  assert.deepEqual(
-    entries.map((entry) => entry.date).sort(),
-    [
-      '2026-11-10',
-      '2026-11-11',
-      '2026-11-12',
-      '2026-11-13',
-      '2026-11-14',
-    ],
-  );
+  assert.deepEqual(entries.map((entry) => entry.date).sort(), rangeDates);
   assert.ok(entries.every((entry) => entry.hours === 8));
   assert.ok(entries.every((entry) => entry.bonus === 50));
 });

@@ -1,7 +1,7 @@
-# 薪时 v0.7.0 · 上架材料与合规清单
+# 薪时 v0.8.0 · 上架材料与合规清单
 
 > 用途：提交 Google Play 与国内 Android 商店时直接取用。
-> 版本：0.7.0（versionCode 700）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-05
+> 版本：0.8.0（versionCode 800）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-06
 >
 > 所有文案都按「不收集、不上传、无账号、无广告、无统计」的真实行为编写；
 > 改代码后若行为变化，必须同步改本文和隐私政策。
@@ -14,7 +14,7 @@
 | --- | --- |
 | 应用名 | 薪时 |
 | 包名 | `com.xinshi.app` |
-| 版本 | 0.7.0（versionCode 700） |
+| 版本 | 0.8.0（versionCode 800） |
 | 分类 | 工具 / 效率（Google Play：Tools） |
 | 价格 | 免费，无广告，无内购 |
 | 登录 | 不需要，全部功能免登录 |
@@ -41,6 +41,8 @@
 > - 3 步记一笔：默认岗位 / 班次 / 今天，常用时长一键；
 > - 三种计薪方式 + 计件；周末 / 节假日加班倍率可改；
 > - 固定月薪、随机休息、月休额度、超休扣款；
+> - 记录搜索：按岗位 / 备注 / 日期 / 金额找回任意一笔；
+> - 周 / 月 / 年统计：年度 12 个月图表和岗位分布；
 > - 结算锁定与撤销，历史金额不随调价变化；
 > - 本机时光机、加密搬家包、自动备份、账本体检，换手机不丢账；
 > - 工资条 PNG / 文字版 PDF / 二维码 / Excel，方便和老板对账。
@@ -55,17 +57,17 @@
 
 ## 2. 商店截图建议
 
-截图目录：`shots/v0.7/` 与 `shots/v0.6/`（已生成）。
+截图目录：`shots/v0.8/`（v0.8 搜索 / 年度）与 `shots/v0.7/`、`shots/v0.6/`（既有）。
 
 | 顺序 | 页面 | 文件 | 建议标题文案 |
 | --- | --- | --- | --- |
-| 1 | 首页（有数据） | `shots/v0.7/02-home.png` | 约 3MB，轻小美 |
-| 2 | 记一笔 | `shots/v0.7/03-entry.png` | 3 步记下今天工时 |
-| 3 | 照上次班次 | `shots/v0.7/04-home-repeat.png` | 班次不用重复填 |
-| 4 | 12 周热力图 | `shots/v0.7/05-stats.png` | 辛苦看得见 |
-| 5 | 数据与安全 | `shots/v0.6/02-data-safety.png` | 换手机不丢账 |
-| 6 | 本机时光机 | `shots/v0.6/03-snapshots.png` | 删错了也能找回 |
-| 7 | 搬家包导入对比 | `shots/v0.6/06-move-import.png` | 导入前先看差异 |
+| 1 | 首页（有数据） | `shots/v0.8/02-home.png` | 约 3MB，轻小美 |
+| 2 | 记录搜索 | `shots/v0.8/05-search-result.png` | 一笔工记都能找回来 |
+| 3 | 年度统计 | `shots/v0.8/07-stats-year.png` | 这一年干了多少，一目了然 |
+| 4 | 记一笔 | `shots/v0.8/06-entry.png` | 3 步记下今天工时 |
+| 5 | 12 周热力图 | `shots/v0.7/05-stats.png` | 辛苦看得见 |
+| 6 | 数据与安全 | `shots/v0.6/02-data-safety.png` | 换手机不丢账 |
+| 7 | 本机时光机 | `shots/v0.6/03-snapshots.png` | 删错了也能找回 |
 | 8 | 隐私政策 | `shots/v0.6/09-privacy-policy.png` | 不上传，数据只在本机 |
 
 - 手机截图 1080×1920 或 1242×2688；Google Play 至少 2 张、最多 8 张。
@@ -131,14 +133,14 @@ gradlew.bat bundleRelease
 - 产物：
   - `android/app/build/outputs/apk/release/app-release.apk`
   - `android/app/build/outputs/bundle/release/app-release.aab`
-- 复制并重命名到 `release/xinshi-v0.7.0.apk` / `release/xinshi-v0.7.0.aab`。
+- 复制并重命名到 `release/xinshi-v0.8.0.apk` / `release/xinshi-v0.8.0.aab`。
 - 校验：
 
 ```bash
-apksigner verify --print-certs release/xinshi-v0.7.0.apk
-jarsigner -verify -verbose -certs release/xinshi-v0.7.0.aab
-aapt dump badging release/xinshi-v0.7.0.apk | findstr "package versionCode targetSdkVersion"
-aapt dump permissions release/xinshi-v0.7.0.apk
+apksigner verify --print-certs release/xinshi-v0.8.0.apk
+jarsigner -verify -verbose -certs release/xinshi-v0.8.0.aab
+aapt dump badging release/xinshi-v0.8.0.apk | findstr "package versionCode targetSdkVersion"
+aapt dump permissions release/xinshi-v0.8.0.apk
 ```
 
 - keystore 必须离线备份两份；丢失后无法覆盖升级。
@@ -154,7 +156,7 @@ aapt dump permissions release/xinshi-v0.7.0.apk
 - [ ] Data safety 按第 3 节填写。
 - [ ] 内容分级问卷完成。
 - [ ] 目标受众与广告声明：无广告、非儿童向。
-- [ ] 上传签名 AAB；versionCode 700；targetSdk 36。
+- [ ] 上传签名 AAB；versionCode 800；targetSdk 36。
 - [ ] 应用访问权限：无需登录，审核员可直接进入。
 - [ ] 提供审核说明：离线应用，无服务器，无账号；可用「先看看示例数据」体验。
 - [ ] 测试轨道先内测，确认安装、离线、导出、恢复。
@@ -176,7 +178,7 @@ aapt dump permissions release/xinshi-v0.7.0.apk
 | 第三方 SDK 清单 | 无广告 / 统计 / 推送 SDK | 已完成 |
 | 数据删除方式 | 应用内清空 + 卸载 | 已完成 |
 | 未成年人说明 | 不面向未成年人 | 已完成 |
-| 应用截图 / 图标 / 简介 | 见第 2 节 | 待生成 |
+| 应用截图 / 图标 / 简介 | 见第 2 节；v0.8 截图已生成 | 已完成 |
 | 64 位 | Capacitor WebView 壳，无自编译 32 位 so | 构建后复核 |
 | 签名一致 | 同一 keystore 覆盖升级 | 需备份 |
 
@@ -221,7 +223,25 @@ VITE_PRIVACY_URL=https://your.site/privacy-policy.html
 
 ---
 
-## 10. 发布记录（2026-11-05）
+## 10. 发布记录（2026-11-06）
+
+### v0.8.0（当前）
+
+| 项 | 内容 |
+| --- | --- |
+| 版本 | 0.8.0（800） |
+| 构建时间 | 2026-11-06 08:48（Asia/Shanghai） |
+| APK | `release/xinshi-v0.8.0.apk`（3,313,997 B / 约 3.16MiB） |
+| AAB | `release/xinshi-v0.8.0.aab`（3,789,833 B / 约 3.61MiB） |
+| APK SHA-256 | `F7E19DEEB40D25A577D07360A208D34F1365E1604E6C35C70BBC6F2A0F55C45F` |
+| AAB SHA-256 | `E83268589BFFEF9F9BDBA7F8499BBEDF115FB97448539222937BEB32F68F5D89` |
+| 签名证书 SHA-256 | `A5:B8:51:4A:16:5A:78:49:A4:07:3B:D0:0A:94:75:9F:CB:95:7A:A0:2F:83:97:00:12:EB:72:F2:51:85:D6:06` |
+| 权限 | `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`WAKE_LOCK`；无 INTERNET；另有 AndroidX 自动生成的应用私有签名权限 |
+| 测试设备 | Redmi Note 13 Pro 5G / Android 16 真机（407×904 CSS）；LDPlayer 14 / Android 14 |
+| 冷启动 | 稳定后 5 次 555–629ms，中位 583ms；安装后首次 1093ms |
+| 已知限制 | 见 README「已知限制」 |
+
+### v0.7.0（历史）
 
 | 项 | 内容 |
 | --- | --- |

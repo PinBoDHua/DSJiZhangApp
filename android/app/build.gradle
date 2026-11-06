@@ -6,14 +6,16 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
-// 诊断用开关：-Pxinshi.versionCode=701 覆盖版本号；-Pxinshi.noMinify 关闭 R8 以对比排查。
+// 诊断用开关：-Pxinshi.versionCode=801 覆盖版本号；-Pxinshi.noMinify 关闭 R8 以对比排查；
+// -Pxinshi.debuggable 让 release 包带 WebView 调试（仅本地排查用，发布包绝不能带）。
 def xinshiVersionCode = project.hasProperty('xinshi.versionCode')
     ? project.property('xinshi.versionCode').toString().toInteger()
-    : 700
+    : 800
 def xinshiVersionName = project.hasProperty('xinshi.versionName')
     ? project.property('xinshi.versionName').toString()
-    : "0.7.0"
+    : "0.8.0"
 def xinshiMinify = !project.hasProperty('xinshi.noMinify')
+def xinshiDebuggable = project.hasProperty('xinshi.debuggable')
 def xinshiDiag = project.hasProperty('xinshi.diag')
 
 android {
@@ -51,8 +53,11 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled xinshiMinify
-            shrinkResources xinshiMinify
+            minifyEnabled xinshiMinify && !xinshiDebuggable
+            shrinkResources xinshiMinify && !xinshiDebuggable
+            if (xinshiDebuggable) {
+                debuggable true
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

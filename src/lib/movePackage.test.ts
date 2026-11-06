@@ -9,6 +9,7 @@ import {
   unlockMovePackage,
 } from './movePackage';
 import { makeEntry, makeJob, makeState } from './testFixtures';
+import { APP_VERSION } from './version';
 import type { AppState } from '../types';
 
 const now = new Date('2026-11-05T12:30:00.000Z');
@@ -26,7 +27,7 @@ describe('搬家包', () => {
     const { text, header } = await buildMovePackage(state, { now, platform: 'android' });
     expect(isMovePackage(text)).toBe(true);
     expect(header.manifest.entries).toBe(1);
-    expect(header.source).toMatchObject({ appVersion: '0.6.0', platform: 'android' });
+    expect(header.source).toMatchObject({ appVersion: APP_VERSION, platform: 'android' });
 
     const result = await unlockMovePackage(text);
     expect(result.encrypted).toBe(false);

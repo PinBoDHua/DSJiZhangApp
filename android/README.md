@@ -4,9 +4,9 @@
 
 - 包名：`com.xinshi.app`
 - 应用名：`薪时`
-- versionCode / versionName：`705` / `0.7.2`（可用 `-Pxinshi.versionCode=706 -Pxinshi.versionName=0.7.3` 覆盖）
+- versionCode / versionName：`800` / `0.8.0`（可用 `-Pxinshi.versionCode=801 -Pxinshi.versionName=0.8.1` 覆盖）
 - minSdk 22 / compileSdk 36 / targetSdk 36；文件导出使用 MediaStore，建议 Android 10+（API 29+）。
-- release 开启 R8 + `shrinkResources`，APK 约 **3.15MB**；混淆 mapping 在 `app/build/outputs/mapping/release/mapping.txt`，发布时归档。
+- release 开启 R8 + `shrinkResources`，APK 约 **3.3MB**；混淆 mapping 在 `app/build/outputs/mapping/release/mapping.txt`，发布时归档。
 - 上架合规：
   - **不申请 INTERNET 权限**，应用内没有上传接口；
   - `allowBackup=false`，关闭系统云备份，备份由应用内完成；
@@ -76,16 +76,26 @@ gradlew.bat assembleRelease
 gradlew.bat bundleRelease
 ```
 
+本地排查时可以让 **release 签名包**带 WebView 调试（仅测试，不要发布）：
+
+```bash
+gradlew.bat assembleRelease "-Pxinshi.debuggable=true"
+```
+
+它会关闭 R8、打开 `debuggable`，但沿用 release keystore，因此可以直接覆盖 0.7.x 的正式包并保留账本数据；
+随后用 `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` 配合 `scripts/android-v080-check.mjs` 驱动。
+测试完再构建不带该参数的正式包覆盖安装即可。
+
 - APK：`app/build/outputs/apk/release/app-release.apk`
 - AAB：`app/build/outputs/bundle/release/app-release.aab`
-- 复制到 `release/xinshi-v0.7.2.apk` / `release/xinshi-v0.7.2.aab`。
+- 复制到 `release/xinshi-v0.8.0.apk` / `release/xinshi-v0.8.0.aab`。
 - 校验：
 
 ```bash
-apksigner verify --print-certs release/xinshi-v0.7.2.apk
-jarsigner -verify -verbose -certs release/xinshi-v0.7.2.aab
-aapt dump badging release/xinshi-v0.7.2.apk
-aapt dump permissions release/xinshi-v0.7.2.apk
+apksigner verify --print-certs release/xinshi-v0.8.0.apk
+jarsigner -verify -verbose -certs release/xinshi-v0.8.0.aab
+aapt dump badging release/xinshi-v0.8.0.apk
+aapt dump permissions release/xinshi-v0.8.0.apk
 ```
 
 - keystore 必须离线备份两份；商店资料见根目录 [docs/STORE-LISTING.md](../docs/STORE-LISTING.md)。
@@ -97,6 +107,7 @@ aapt dump permissions release/xinshi-v0.7.2.apk
 - v0.7.0：R8 release 启动正常；用 R8 压缩的 debug 包验证 `SaveFilePlugin` 写入 / 覆盖 / 轮转与 WebView 页面无崩溃；新图标 / 启动屏、悬浮底部导航、首页月进度、时长快选、热力图通过截图检查。
 - v0.7.1 真机：Redmi Note 13 Pro 5G（HyperOS 3 / Android 16，arm64）——v0.7.0 R8 包一开就闪退；`adb shell dumpsys dropbox --print` 取到 `Plugin.getPermissionStates` NPE 堆栈，补 `@CapacitorPlugin` / `@Permission` 的 `-keep` 与 `-keepattributes` 后，在 LDPlayer 14 上用 R8 包 + 示例数据复现 → 修复 → 回归通过。
 - v0.7.2 真机：同机 1220×2712 @480dpi（407×904 CSS），状态栏安全区 122px / 手势条 48px；安装后首页正常、内容不被状态栏压住、悬浮底栏距底 25pt；`--gutter` 统一后页面无 1–3px 横向溢出。
+- v0.8.0 真机：同机用 `-Pxinshi.debuggable=true` 的 release 签名包覆盖 0.7.2（4 笔账本完整保留），通过 CDP 验证记录搜索、年度统计、关于页 0.8.0、导出备份到 `Download/Xinshi`、深色模式；软键盘展开后底部抽屉跟随可视视口收缩，保存按钮在键盘上方。正式包安装后冷启动正常，权限仍只有通知 / 开机提醒 / WakeLock，无 INTERNET。
 - v0.5 回归：固定月薪、随机休息、月结页补标 / 取消休息、月度考勤总表 / 半天休 / 格子补记工、结算二维码显示与保存 / 校验码、工资条模板 / 文字版 PDF、考勤 CSV、超休扣款、收款状态、CSV 导出、工作回收站、批量排休、固定周排班、未来计划、多岗位切换、计划日补记、批量补记、排班岗位记忆、系统本地每日提醒 / 通知权限 / 测试通知 / 30 天续排、发薪通知调度、计件、PDF/PNG/加密备份保存、加密导入。
 - 导出文件实际路径：`/sdcard/Download/Xinshi/`；自动备份目录：`/sdcard/Download/Xinshi/自动备份/`，保留最新 14 份。
 - Debug 构建通过 CDP 驱动 WebView 验证：自动备份开关后写入 `薪时自动备份-20261105.json`，`SaveFile.prune` 保留最新文件，`overwrite` 只留一份。

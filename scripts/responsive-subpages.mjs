@@ -114,6 +114,20 @@ for (const viewport of VIEWPORTS) {
     await attendance.first().click();
     await page.waitForTimeout(800);
     await record('月度考勤');
+    await page.getByRole('button', { name: '返回' }).click();
+    await page.waitForTimeout(500);
+  }
+
+  // 记录 → 搜索
+  const search = page.getByRole('button', { name: '搜索工记' });
+  if (await search.count()) {
+    await search.first().click();
+    await page.waitForTimeout(500);
+    await page.locator('.search-input').fill('11');
+    await page.waitForTimeout(300);
+    await record('搜索');
+    await page.getByRole('button', { name: '返回' }).click();
+    await page.waitForTimeout(400);
   }
 
   await context.close();

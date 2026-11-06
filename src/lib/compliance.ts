@@ -3,7 +3,7 @@
  * 隐私政策更新时递增 PRIVACY_VERSION，旧同意会失效并重新弹窗。
  */
 
-export const APP_VERSION = '0.6.0';
+export { APP_VERSION } from './version';
 export const PRIVACY_VERSION = '2026-11-05';
 export const PRIVACY_CONSENT_KEY = 'xinshi.privacyConsent';
 

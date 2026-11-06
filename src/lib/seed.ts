@@ -106,7 +106,8 @@ export function createDemoState(): AppState {
     shift: { startTime: '09:00', endTime: '17:00', breakMinutes: 120 },
     cycle: 'monthly',
     archived: false,
-    payday: 5,
+    // 示例数据的发薪日跟着「今天」走，打开示例时总能演示发薪提醒。
+    payday: Number(addDays(todayISO(), 2).slice(8, 10)),
     createdAt,
   };
   const pieceRule = rule({

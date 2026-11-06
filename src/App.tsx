@@ -14,21 +14,29 @@ import type { TimerTimes } from './lib/timer';
 import { useTheme } from './hooks/useTheme';
 import { useReminder } from './hooks/useReminder';
 import { useAutoSnapshot } from './hooks/useAutoSnapshot';
+import { useVisualViewport } from './hooks/useVisualViewport';
 import { todayISO } from './lib/date';
 import { pushNativeBack } from './lib/nativeBack';
 import { schedulePaydayNotifications } from './lib/paydayNotifications';
 import { cancelDailyReminder, syncDailyReminder } from './lib/nativeReminders';
 import { isNativeApp } from './lib/native';
 
-const Records = lazy(() => import('./pages/Records').then((module) => ({ default: module.Records })));
+const loadRecords = () => import('./pages/Records');
+const loadSettlements = () => import('./pages/Settlements');
+const loadStats = () => import('./pages/Stats');
+const loadProfile = () => import('./pages/Profile');
+const loadJobs = () => import('./pages/Jobs');
+const loadSearch = () => import('./pages/Search');
+
+const Records = lazy(() => loadRecords().then((module) => ({ default: module.Records })));
 const Settlements = lazy(() =>
-  import('./pages/Settlements').then((module) => ({ default: module.Settlements })),
+  loadSettlements().then((module) => ({ default: module.Settlements })),
 );
-const Stats = lazy(() => import('./pages/Stats').then((module) => ({ default: module.Stats })));
+const Stats = lazy(() => loadStats().then((module) => ({ default: module.Stats })));
 const Profile = lazy(() =>
-  import('./pages/Profile').then((module) => ({ default: module.Profile })),
+  loadProfile().then((module) => ({ default: module.Profile })),
 );
-const Jobs = lazy(() => import('./pages/Jobs').then((module) => ({ default: module.Jobs })));
+const Jobs = lazy(() => loadJobs().then((module) => ({ default: module.Jobs })));
 const JobEditor = lazy(() =>
   import('./pages/JobEditor').then((module) => ({ default: module.JobEditor })),
 );
@@ -51,9 +59,49 @@ const Health = lazy(() => import('./pages/Health').then((module) => ({ default: 
 const Privacy = lazy(() =>
   import('./pages/Privacy').then((module) => ({ default: module.Privacy })),
 );
+const Search = lazy(() => loadSearch().then((module) => ({ default: module.Search })));
+
+/** 底部 Tab 与高频子页：首屏画完后空闲预取，切换时不再先出骨架。 */
+const PREFETCH_LOADERS = [
+  loadRecords,
+  loadSettlements,
+  loadStats,
+  loadProfile,
+  loadJobs,
+  loadSearch,
+];
+
+interface NetworkInformation {
+  saveData?: boolean;
+}
+
+function prefetchRouteChunks(): () => void {
+  const connection = (navigator as Navigator & { connection?: NetworkInformation }).connection;
+  if (connection?.saveData) return () => undefined;
+  let cancelled = false;
+  const run = () => {
+    if (cancelled) return;
+    for (const load of PREFETCH_LOADERS) {
+      void load().catch(() => undefined);
+    }
+  };
+  if (window.requestIdleCallback) {
+    const handle = window.requestIdleCallback(run, { timeout: 2500 });
+    return () => {
+      cancelled = true;
+      window.cancelIdleCallback?.(handle);
+    };
+  }
+  const timer = window.setTimeout(run, 1600);
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timer);
+  };
+}
 
 type Page =
   | { type: 'jobs' }
+  | { type: 'search' }
   | { type: 'jobEditor'; jobId?: string; template?: 'longterm' }
   | { type: 'settlementDraft'; jobId: string; periodStart: string }
   | { type: 'settlementRecord'; settlementId: string }
@@ -86,6 +134,7 @@ function AppContent() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [privacyOk, setPrivacyOk] = useState(() => hasPrivacyConsent());
   useTheme(state.settings.theme);
+  useVisualViewport();
   const todayEntryCount = state.entries.filter((entry) => entry.date === todayISO()).length;
   useReminder(state.settings.reminder, todayEntryCount);
   useAutoSnapshot(state, privacyOk);
@@ -125,6 +174,11 @@ function AppContent() {
     if (state.onboardingDone) return;
     setPage(null);
     setTab('home');
+  }, [state.onboardingDone]);
+
+  useEffect(() => {
+    if (!state.onboardingDone) return;
+    return prefetchRouteChunks();
   }, [state.onboardingDone]);
 
   if (!privacyOk) {
@@ -176,6 +230,7 @@ function AppContent() {
           onAddEntryAt={(jobId, date) => openEntryEditor(jobId, date)}
           onOpenEntry={openEntryDetail}
           onOpenJobs={openJobs}
+          onOpenSearch={() => setPage({ type: 'search' })}
           onOpenAttendance={(jobId) => setPage({ type: 'attendance', jobId })}
         />
       );
@@ -211,6 +266,9 @@ function AppContent() {
           onEdit={(jobId) => setPage({ type: 'jobEditor', jobId })}
         />
       );
+    }
+    if (page.type === 'search') {
+      return <Search onBack={() => setPage(null)} onOpenEntry={openEntryDetail} />;
     }
     if (page.type === 'jobEditor') {
       return (

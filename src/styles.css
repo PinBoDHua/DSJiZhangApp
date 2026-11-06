@@ -10174,3 +10174,392 @@ html[data-theme='dark'] .heat-day.is-today {
     max-height: 96dvh;
   }
 }
+/* =========================================================
+   v0.8.0 · 搜索 / 年报 / 打磨
+   ========================================================= */
+
+.page-heading h1 {
+  white-space: nowrap;
+}
+
+.records-head-actions {
+  flex-shrink: 0;
+}
+
+.records-head-actions .btn {
+  height: 38px;
+}
+
+.records-search-btn {
+  color: var(--muted);
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 50px;
+  margin: 3px 0 14px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.search-bar:focus-within {
+  border-color: rgba(20, 86, 61, 0.42);
+  box-shadow: 0 0 0 3px rgba(20, 86, 61, 0.08);
+}
+
+.search-bar-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.search-input {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.search-input::placeholder {
+  color: var(--muted-2);
+  font-weight: 450;
+}
+
+.search-clear {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.search-guide {
+  padding: 20px 17px;
+}
+
+.search-guide h2 {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.search-guide > p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.search-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.search-guide .filter-chip {
+  height: 34px;
+  font-size: 11px;
+}
+
+.search-tip {
+  margin-top: 13px !important;
+  padding-top: 11px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted-2) !important;
+  font-size: 10px !important;
+}
+
+.search-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 120% at 100% 0%, rgba(233, 161, 59, 0.12), transparent 58%),
+    linear-gradient(135deg, var(--primary-soft), var(--surface-2));
+}
+
+.search-summary > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search-summary > div:first-child strong {
+  color: var(--primary-ink);
+  font-family: var(--font-num);
+  font-size: 24px;
+  font-weight: 740;
+  line-height: 1.05;
+}
+
+.search-summary > div:first-child span,
+.search-summary > div:not(:first-child) span {
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+.search-summary > div:not(:first-child) {
+  margin-left: auto;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.search-summary > div:not(:first-child) .money,
+.search-summary > div:not(:first-child) strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+@media (max-width: 480px) {
+  .records-head-actions {
+    gap: 5px;
+  }
+
+  .records-head-actions .btn {
+    width: 38px;
+    height: 38px;
+    gap: 0;
+    padding: 0;
+    border-radius: 11px;
+    font-size: 0;
+  }
+
+  .records-head-actions .btn svg {
+    width: 17px;
+    height: 17px;
+  }
+}
+
+.entry-row-note {
+  display: block;
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-boundary {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px 18px calc(24px + var(--safe-bottom));
+}
+
+.error-boundary-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 24px 20px 18px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.error-boundary-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: 0.08em;
+}
+
+.error-boundary-card h1 {
+  margin-top: 20px;
+  font-size: 24px;
+  font-weight: 740;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+}
+
+.error-boundary-card > p {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.error-boundary-actions {
+  margin-top: 20px;
+}
+
+.error-boundary-detail {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.error-boundary-detail summary {
+  cursor: pointer;
+}
+
+.error-boundary-detail code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--danger);
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.error-boundary-foot {
+  margin-top: 16px !important;
+  color: var(--muted-2) !important;
+  font-size: 10px !important;
+  text-align: center;
+}
+
+/* 触控尺寸：主要图标按钮统一到 44px，开关扩大隐形点击区 */
+.icon-button {
+  width: 44px;
+  height: 44px;
+}
+
+.avatar-button {
+  width: 44px;
+  height: 44px;
+}
+
+.hero-eye {
+  width: 40px;
+  height: 40px;
+}
+
+.hero-pending {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.today-timer-btn,
+.today-rest-btn,
+.today-repeat-btn,
+.today-action {
+  height: 38px;
+  padding: 0 12px;
+}
+
+.toast-close {
+  width: 32px;
+  height: 32px;
+}
+
+.toast-action {
+  min-height: 30px;
+  padding: 5px 9px;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  inset: -9px -2px;
+}
+
+.filter-chip {
+  height: 34px;
+}
+
+.segmented--sm .segmented-item {
+  height: 36px;
+}
+
+@media (min-width: 360px) and (max-width: 480px) {
+  .records-head-actions .btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-width: 359px) {
+  .records-head-actions .btn {
+    width: 38px;
+    height: 38px;
+  }
+}
+
+.month-switch {
+  height: 52px;
+}
+
+.month-switch .icon-button {
+  width: 44px;
+  height: 44px;
+}
+
+.today-timer-btn,
+.today-rest-btn,
+.today-repeat-btn,
+.today-action {
+  height: 44px;
+}
+
+.hero-pending {
+  min-height: 36px;
+}
+
+.icon-button--small {
+  width: 36px;
+  height: 36px;
+}
+
+/* 软键盘：抽屉与确认框贴在可视视口底部，保存按钮不被键盘盖住 */
+.sheet-layer {
+  top: 0;
+  right: 0;
+  bottom: var(--keyboard-inset, 0px);
+  left: 0;
+}
+
+.dialog-layer {
+  bottom: var(--keyboard-inset, 0px);
+}
+
+.sheet {
+  max-height: min(92dvh, calc(var(--vvh, 100dvh) - 12px));
+}
+
+.entry-sheet {
+  height: min(916px, 93dvh, calc(var(--vvh, 100dvh) * 0.96));
+  max-height: min(94dvh, calc(var(--vvh, 100dvh) * 0.96));
+}
+
+/* 软键盘展开时，抽屉顶部仍要让开状态栏 / 刘海 */
+.sheet {
+  max-height: min(92dvh, calc(var(--vvh, 100dvh) - var(--safe-top) - 12px));
+}
+
+.entry-sheet {
+  height: min(916px, 93dvh, calc(var(--vvh, 100dvh) - var(--safe-top) - 16px));
+  max-height: min(94dvh, calc(var(--vvh, 100dvh) - var(--safe-top) - 16px));
+}

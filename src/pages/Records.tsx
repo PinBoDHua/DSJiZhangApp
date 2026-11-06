@@ -8,6 +8,7 @@ import {
   Coffee,
   List,
   Plus,
+  Search,
 } from 'lucide-react';
 import { useStore } from '../store';
 import type { Entry } from '../types';
@@ -37,6 +38,7 @@ interface RecordsProps {
   onAddEntryAt: (jobId: string | undefined, date: string) => void;
   onOpenEntry: (entryId: string) => void;
   onOpenJobs: () => void;
+  onOpenSearch: () => void;
   onOpenAttendance: (jobId?: string) => void;
 }
 
@@ -53,6 +55,7 @@ export function Records({
   onAddEntryAt,
   onOpenEntry,
   onOpenJobs,
+  onOpenSearch,
   onOpenAttendance,
 }: RecordsProps) {
   const { state } = useStore();
@@ -183,6 +186,16 @@ export function Records({
           <h1>工记</h1>
         </div>
         <div className="records-head-actions">
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm records-search-btn"
+            onClick={onOpenSearch}
+            aria-label="搜索工记"
+            title="搜索工记"
+          >
+            <Search size={15} />
+            搜索
+          </button>
           <button
             type="button"
             className="btn btn--ghost btn--sm records-view-btn"

@@ -25,9 +25,11 @@ interface EntryRowProps {
   job?: Job;
   onClick: () => void;
   showDate?: boolean;
+  /** 搜索 / 对账时显示备注，便于看清命中原因 */
+  showNote?: boolean;
 }
 
-export function EntryRow({ entry, job, onClick, showDate = false }: EntryRowProps) {
+export function EntryRow({ entry, job, onClick, showDate = false, showNote = false }: EntryRowProps) {
   const pay = payForEntry(entry);
   const settled = Boolean(entry.settlementId);
   const date = formatDateShort(entry.date);
@@ -54,6 +56,7 @@ export function EntryRow({ entry, job, onClick, showDate = false }: EntryRowProp
             </em>
           ) : null}
         </span>
+        {showNote && entry.note ? <span className="entry-row-note">{entry.note}</span> : null}
       </span>
       <span className="entry-row-amount">
         <Money value={pay.total} />

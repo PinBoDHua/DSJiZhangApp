@@ -61,11 +61,15 @@ await step('多个固定排班岗位可以切换', async () => {
 await step('点未来计划上班日会打开预填日期的工记', async () => {
   await page.locator('.plan-week-tabs button').filter({ hasText: '老宅装修' }).click();
   await page.waitForTimeout(250);
-  await page.getByRole('button', { name: /2026-11-06.*补记/ }).click();
+  const planDay = page.locator('.plan-week-day.is-work').first();
+  assert.ok(await planDay.count(), '7 天内没有可补记的上班日');
+  const planLabel = await planDay.getAttribute('aria-label');
+  const planDate = planLabel.split(' ')[0];
+  await planDay.click();
   await page.waitForTimeout(400);
   assert.equal(
     await page.getByLabel('选择日期', { exact: true }).inputValue(),
-    '2026-11-06',
+    planDate,
   );
   const activeJob = await page.locator('.entry-sheet .job-choice.is-active').innerText();
   assert.ok(activeJob.includes('老宅装修'), activeJob);
