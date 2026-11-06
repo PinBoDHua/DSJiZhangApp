@@ -208,6 +208,9 @@ export function createDemoState(): AppState {
     },
     jobs: [site, sorting, renovation, packing],
     trashedJobs: [],
+    trashedEntries: [],
+    trashedRests: [],
+    trashedAdvances: [],
     entries,
     restDays,
     advances: [

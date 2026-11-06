@@ -192,6 +192,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     !timerActive &&
     !state.entries.some((entry) => entry.jobId === jobId) &&
     !state.advances.some((advance) => advance.jobId === jobId) &&
+    !state.restDays.some((rest) => rest.jobId === jobId) &&
     !state.settlements.some((settlement) => settlement.jobId === jobId);
 
   const cycleOptions: Array<{ value: Cycle; label: string }> =
@@ -360,7 +361,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       });
       onBack();
     } else {
-      toast('这份工作已经有记录，只能归档', 'error');
+      toast('有工记、借支、休息或结算的工作只能归档', 'error');
     }
   };
 
@@ -1016,14 +1017,14 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
                   </span>
                   <span className="settings-body">
                     <strong>删除工作</strong>
-                    <em>没有任何记录，可以彻底删除</em>
+                    <em>没有工记、借支、休息或结算，可以彻底删除</em>
                   </span>
                 </button>
               ) : (
                 <p className="editor-delete-hint">
                   {timerActive
                     ? '这份工作正在计时，结束或放弃计时后才能归档 / 删除。'
-                    : '已有工记或结算记录，不能删除；如果不再使用，可以归档。'}
+                    : '已有工记、借支、休息或结算记录，不能删除；如果不再使用，可以归档。'}
                 </p>
               )}
             </div>

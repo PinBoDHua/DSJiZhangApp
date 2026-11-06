@@ -19,10 +19,16 @@ import type {
   Settings,
   ToastAction,
   ToastTone,
+  TrashKind,
 } from './types';
 import { nowISO, todayISO } from './lib/date';
 import { createId } from './lib/id';
 import { createEmptyState, loadState, saveState, clearStoredState } from './lib/storage';
+import {
+  buildTrashRows,
+  pushTrash,
+  trashRestoreBlockReason,
+} from './lib/trash';
 import { createDemoState } from './lib/seed';
 import { clearReminderMark } from './lib/reminder';
 import { buildSettlementDraft, makeSettlement } from './lib/settlement';
@@ -40,6 +46,11 @@ interface ToastState {
   action?: ToastAction;
 }
 
+export interface TrashActionResult {
+  ok: boolean;
+  reason?: string;
+}
+
 interface StoreValue {
   state: AppState;
   toast: (message: string, tone?: ToastTone, action?: ToastAction) => void;
@@ -48,7 +59,6 @@ interface StoreValue {
   setJobArchived: (jobId: string, archived: boolean) => boolean;
   deleteJob: (jobId: string) => boolean;
   restoreJob: (jobId: string) => boolean;
-  purgeJob: (jobId: string) => boolean;
   startTimer: (jobId: string) => boolean;
   clearTimer: () => void;
   addEntry: (input: NewEntryInput) => Entry | null;
@@ -61,6 +71,9 @@ interface StoreValue {
   addAdvance: (input: Omit<Advance, 'id' | 'createdAt'>) => Advance;
   deleteAdvance: (advanceId: string) => boolean;
   restoreAdvance: (advance: Advance) => boolean;
+  restoreTrashItem: (kind: TrashKind, id: string) => TrashActionResult;
+  purgeTrashItem: (kind: TrashKind, id: string) => boolean;
+  emptyTrash: () => number;
   settleJob: (
     jobId: string,
     period: Period,
@@ -167,18 +180,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const used =
       current.entries.some((entry) => entry.jobId === jobId) ||
       current.advances.some((advance) => advance.jobId === jobId) ||
-      current.settlements.some((settlement) => settlement.jobId === jobId);
+      current.settlements.some((settlement) => settlement.jobId === jobId) ||
+      current.restDays.some((rest) => rest.jobId === jobId);
     if (used) return false;
     const job = current.jobs.find((item) => item.id === jobId);
     if (!job) return false;
     setState((prev) => ({
       ...prev,
       jobs: prev.jobs.filter((item) => item.id !== jobId),
-      trashedJobs: [
+      trashedJobs: pushTrash(
+        prev.trashedJobs,
         { job, deletedAt: nowISO() },
-        ...prev.trashedJobs.filter((item) => item.job.id !== jobId),
-      ],
-      restDays: prev.restDays.filter((rest) => rest.jobId !== jobId),
+        (item) => item.job.id,
+      ),
     }));
     return true;
   }, []);
@@ -197,16 +211,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       jobs: [...prev.jobs, trashed.job],
-      trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== jobId),
-    }));
-    return true;
-  }, []);
-
-  const purgeJob = useCallback((jobId: string) => {
-    const current = stateRef.current;
-    if (!current.trashedJobs.some((item) => item.job.id === jobId)) return false;
-    setState((prev) => ({
-      ...prev,
       trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== jobId),
     }));
     return true;
@@ -286,13 +290,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       entries: prev.entries.filter((entry) => entry.id !== entryId),
+      trashedEntries: pushTrash(
+        prev.trashedEntries,
+        { entry: existing, deletedAt: nowISO() },
+        (item) => item.entry.id,
+      ),
     }));
     return true;
   }, []);
 
   const restoreEntry = useCallback((entry: Entry) => {
     const current = stateRef.current;
-    if (current.entries.some((item) => item.id === entry.id)) return true;
+    const dropTrash = (prev: AppState): AppState => ({
+      ...prev,
+      trashedEntries: prev.trashedEntries.filter((item) => item.entry.id !== entry.id),
+    });
+    if (current.entries.some((item) => item.id === entry.id)) {
+      setState(dropTrash);
+      return true;
+    }
     if (entry.settlementId) return false;
     if (!current.jobs.some((job) => job.id === entry.jobId)) return false;
     const settled = current.settlements.some(
@@ -312,6 +328,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       restDays: prev.restDays.filter(
         (rest) => !(rest.jobId === entry.jobId && rest.date === entry.date),
       ),
+      trashedEntries: prev.trashedEntries.filter((item) => item.entry.id !== entry.id),
     }));
     return true;
   }, []);
@@ -365,13 +382,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       restDays: prev.restDays.filter((rest) => rest.id !== restDayId),
+      trashedRests: pushTrash(
+        prev.trashedRests,
+        { restDay: existing, deletedAt: nowISO() },
+        (item) => item.restDay.id,
+      ),
     }));
     return true;
   }, []);
 
   const restoreRestDay = useCallback((restDay: RestDay) => {
     const current = stateRef.current;
-    if (current.restDays.some((rest) => rest.id === restDay.id)) return true;
+    if (current.restDays.some((rest) => rest.id === restDay.id)) {
+      setState((prev) => ({
+        ...prev,
+        trashedRests: prev.trashedRests.filter((item) => item.restDay.id !== restDay.id),
+      }));
+      return true;
+    }
     const job = current.jobs.find((item) => item.id === restDay.jobId);
     if (!job) return false;
     const settled = current.settlements.some(
@@ -395,7 +423,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ) {
       return false;
     }
-    setState((prev) => ({ ...prev, restDays: [restDay, ...prev.restDays] }));
+    setState((prev) => ({
+      ...prev,
+      restDays: [restDay, ...prev.restDays],
+      trashedRests: prev.trashedRests.filter((item) => item.restDay.id !== restDay.id),
+    }));
     return true;
   }, []);
 
@@ -415,13 +447,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       advances: prev.advances.filter((advance) => advance.id !== advanceId),
+      trashedAdvances: pushTrash(
+        prev.trashedAdvances,
+        { advance: existing, deletedAt: nowISO() },
+        (item) => item.advance.id,
+      ),
     }));
     return true;
   }, []);
 
   const restoreAdvance = useCallback((advance: Advance) => {
     const current = stateRef.current;
-    if (current.advances.some((item) => item.id === advance.id)) return true;
+    if (current.advances.some((item) => item.id === advance.id)) {
+      setState((prev) => ({
+        ...prev,
+        trashedAdvances: prev.trashedAdvances.filter((item) => item.advance.id !== advance.id),
+      }));
+      return true;
+    }
     if (advance.settlementId) return false;
     if (!current.jobs.some((job) => job.id === advance.jobId)) return false;
     const settled = current.settlements.some(
@@ -431,8 +474,137 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         advance.date <= settlement.periodEnd,
     );
     if (settled) return false;
-    setState((prev) => ({ ...prev, advances: [advance, ...prev.advances] }));
+    setState((prev) => ({
+      ...prev,
+      advances: [advance, ...prev.advances],
+      trashedAdvances: prev.trashedAdvances.filter((item) => item.advance.id !== advance.id),
+    }));
     return true;
+  }, []);
+
+  const restoreTrashItem = useCallback((kind: TrashKind, id: string): TrashActionResult => {
+    const current = stateRef.current;
+    if (kind === 'job') {
+      const item = current.trashedJobs.find((value) => value.job.id === id);
+      if (!item) {
+        return current.jobs.some((job) => job.id === id)
+          ? { ok: true }
+          : { ok: false, reason: '这条工作已经不在回收站里了' };
+      }
+      setState((prev) => ({
+        ...prev,
+        jobs: prev.jobs.some((job) => job.id === id) ? prev.jobs : [...prev.jobs, item.job],
+        trashedJobs: prev.trashedJobs.filter((value) => value.job.id !== id),
+      }));
+      return { ok: true };
+    }
+
+    const row = buildTrashRows(current).find((item) => item.kind === kind && item.id === id);
+    if (!row) return { ok: false, reason: '这条记录已经不在回收站里了' };
+    const reason = trashRestoreBlockReason(row, current);
+    if (reason) return { ok: false, reason };
+
+    if (kind === 'entry') {
+      const item = current.trashedEntries.find((value) => value.entry.id === id);
+      if (!item) return { ok: false, reason: '这条工记已经不在回收站里了' };
+      if (item.entry.settlementId) {
+        return { ok: false, reason: '这笔工记已结算，先撤销结算再恢复' };
+      }
+      setState((prev) => ({
+        ...prev,
+        entries: prev.entries.some((entry) => entry.id === id)
+          ? prev.entries
+          : [item.entry, ...prev.entries],
+        restDays: prev.restDays.filter(
+          (rest) => !(rest.jobId === item.entry.jobId && rest.date === item.entry.date),
+        ),
+        trashedEntries: prev.trashedEntries.filter((value) => value.entry.id !== id),
+      }));
+      return { ok: true };
+    }
+
+    if (kind === 'rest') {
+      const item = current.trashedRests.find((value) => value.restDay.id === id);
+      if (!item) return { ok: false, reason: '这条休息已经不在回收站里了' };
+      setState((prev) => ({
+        ...prev,
+        restDays: prev.restDays.some((rest) => rest.id === id)
+          ? prev.restDays
+          : [item.restDay, ...prev.restDays],
+        trashedRests: prev.trashedRests.filter((value) => value.restDay.id !== id),
+      }));
+      return { ok: true };
+    }
+
+    const item = current.trashedAdvances.find((value) => value.advance.id === id);
+    if (!item) return { ok: false, reason: '这条借支已经不在回收站里了' };
+    setState((prev) => ({
+      ...prev,
+      advances: prev.advances.some((advance) => advance.id === id)
+        ? prev.advances
+        : [item.advance, ...prev.advances],
+      trashedAdvances: prev.trashedAdvances.filter((value) => value.advance.id !== id),
+    }));
+    return { ok: true };
+  }, []);
+
+  const purgeTrashItem = useCallback((kind: TrashKind, id: string) => {
+    const current = stateRef.current;
+    const exists =
+      kind === 'job'
+        ? current.trashedJobs.some((item) => item.job.id === id)
+        : kind === 'entry'
+          ? current.trashedEntries.some((item) => item.entry.id === id)
+          : kind === 'rest'
+            ? current.trashedRests.some((item) => item.restDay.id === id)
+            : current.trashedAdvances.some((item) => item.advance.id === id);
+    if (!exists) return false;
+    setState((prev) => {
+      if (kind === 'job') {
+        return {
+          ...prev,
+          trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== id),
+          trashedEntries: prev.trashedEntries.filter((item) => item.entry.jobId !== id),
+          trashedRests: prev.trashedRests.filter((item) => item.restDay.jobId !== id),
+          trashedAdvances: prev.trashedAdvances.filter((item) => item.advance.jobId !== id),
+        };
+      }
+      if (kind === 'entry') {
+        return {
+          ...prev,
+          trashedEntries: prev.trashedEntries.filter((item) => item.entry.id !== id),
+        };
+      }
+      if (kind === 'rest') {
+        return {
+          ...prev,
+          trashedRests: prev.trashedRests.filter((item) => item.restDay.id !== id),
+        };
+      }
+      return {
+        ...prev,
+        trashedAdvances: prev.trashedAdvances.filter((item) => item.advance.id !== id),
+      };
+    });
+    return true;
+  }, []);
+
+  const emptyTrash = useCallback(() => {
+    const current = stateRef.current;
+    const count =
+      current.trashedJobs.length +
+      current.trashedEntries.length +
+      current.trashedRests.length +
+      current.trashedAdvances.length;
+    if (count === 0) return 0;
+    setState((prev) => ({
+      ...prev,
+      trashedJobs: [],
+      trashedEntries: [],
+      trashedRests: [],
+      trashedAdvances: [],
+    }));
+    return count;
   }, []);
 
   const settleJob = useCallback(
@@ -593,7 +765,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setJobArchived,
     deleteJob,
     restoreJob,
-    purgeJob,
     startTimer,
     clearTimer,
     addEntry,
@@ -606,6 +777,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addAdvance,
     deleteAdvance,
     restoreAdvance,
+    restoreTrashItem,
+    purgeTrashItem,
+    emptyTrash,
     settleJob,
     setSettlementPayment,
     undoSettlement,

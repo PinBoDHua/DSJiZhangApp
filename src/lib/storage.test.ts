@@ -322,4 +322,117 @@ describe('存储升级', () => {
       validateImport(JSON.stringify({ app: 'xinshi', version: 8, data: v1State })),
     ).toThrow('更新版本');
   });
+
+  it('导入 v0.9 回收站：保留工记 / 休息 / 借支，跳过失效与过期条目', () => {
+    const daysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const entry = {
+      id: 'trash-entry',
+      jobId: 'job-1',
+      date: '2026-11-05',
+      breakMinutes: 0,
+      hours: 8,
+      quantity: 0,
+      otHours: 0,
+      bonus: 0,
+      deduction: 0,
+      holiday: false,
+      rule,
+      createdAt: '2026-11-05T12:00:00.000Z',
+      updatedAt: '2026-11-05T12:00:00.000Z',
+    };
+    const v7 = {
+      ...v1State,
+      version: 7,
+      trashedEntries: [
+        { entry, deletedAt: daysAgo(2) },
+        { entry: { ...entry, id: 'trash-old' }, deletedAt: daysAgo(31) },
+        { entry: { ...entry, id: 'trash-ghost', jobId: 'missing' }, deletedAt: daysAgo(1) },
+      ],
+      trashedRests: [
+        {
+          restDay: {
+            id: 'trash-rest',
+            jobId: 'job-1',
+            date: '2026-11-03',
+            days: 0.5,
+            createdAt: '2026-11-03T12:00:00.000Z',
+          },
+          deletedAt: daysAgo(2),
+        },
+      ],
+      trashedAdvances: [
+        {
+          advance: {
+            id: 'trash-advance',
+            jobId: 'job-1',
+            date: '2026-11-01',
+            amount: 100,
+            note: '借支',
+            createdAt: '2026-11-01T12:00:00.000Z',
+          },
+          deletedAt: daysAgo(2),
+        },
+      ],
+    };
+    const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 }));
+    expect(imported.trashedEntries).toHaveLength(1);
+    expect(imported.trashedEntries[0].entry.id).toBe('trash-entry');
+    expect(imported.trashedRests[0].restDay.days).toBe(0.5);
+    expect(imported.trashedAdvances[0].advance.amount).toBe(100);
+  });
+
+  it('回收站记录可以指向仍在回收站里的工作', () => {
+    const trashedJob = { ...job, id: 'job-trash', name: '已删工作' };
+    const v7 = {
+      ...v1State,
+      version: 7,
+      jobs: [],
+      trashedJobs: [{ job: trashedJob, deletedAt: '2026-11-05T12:00:00.000Z' }],
+      trashedEntries: [
+        {
+          entry: {
+            id: 'trash-entry',
+            jobId: 'job-trash',
+            date: '2026-11-05',
+            breakMinutes: 0,
+            hours: 8,
+            quantity: 0,
+            otHours: 0,
+            bonus: 0,
+            deduction: 0,
+            holiday: false,
+            rule,
+            createdAt: '2026-11-05T12:00:00.000Z',
+            updatedAt: '2026-11-05T12:00:00.000Z',
+          },
+          deletedAt: '2026-11-05T12:00:00.000Z',
+        },
+      ],
+    };
+    const imported = validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 }));
+    expect(imported.trashedEntries).toHaveLength(1);
+  });
+
+  it('拒绝重复 ID 的工记，避免后续编辑删错记录', () => {
+    const entry = {
+      id: 'entry-duplicate',
+      jobId: 'job-1',
+      date: '2026-11-05',
+      breakMinutes: 0,
+      hours: 8,
+      quantity: 0,
+      otHours: 0,
+      bonus: 0,
+      deduction: 0,
+      holiday: false,
+      rule,
+      createdAt: '2026-11-05T12:00:00.000Z',
+      updatedAt: '2026-11-05T12:00:00.000Z',
+    };
+    const v7 = { ...v1State, version: 7, entries: [entry, { ...entry }] };
+    expect(() =>
+      validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: v7 })),
+    ).toThrow('工记数据存在重复 ID');
+  });
 });

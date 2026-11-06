@@ -68,6 +68,24 @@ export interface TrashedJob {
   deletedAt: string;
 }
 
+/** 回收站里的工记副本，超过保留期后自动清理 */
+export interface TrashedEntry {
+  entry: Entry;
+  deletedAt: string;
+}
+
+export interface TrashedRest {
+  restDay: RestDay;
+  deletedAt: string;
+}
+
+export interface TrashedAdvance {
+  advance: Advance;
+  deletedAt: string;
+}
+
+export type TrashKind = 'job' | 'entry' | 'rest' | 'advance';
+
 export interface RestDay {
   id: string;
   jobId: string;
@@ -175,6 +193,9 @@ export interface AppState {
   settings: Settings;
   jobs: Job[];
   trashedJobs: TrashedJob[];
+  trashedEntries: TrashedEntry[];
+  trashedRests: TrashedRest[];
+  trashedAdvances: TrashedAdvance[];
   entries: Entry[];
   restDays: RestDay[];
   advances: Advance[];

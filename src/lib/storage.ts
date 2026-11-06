@@ -12,12 +12,15 @@ import type {
   RestPolicy,
   Settlement,
   ThemeMode,
+  TrashedAdvance,
+  TrashedEntry,
   TrashedJob,
+  TrashedRest,
   WorkTimer,
 } from '../types';
 import { JOB_COLORS } from './meta';
 import { nowISO } from './date';
-import { purgeExpiredTrash } from './trash';
+import { limitTrash, purgeExpiredTrash } from './trash';
 
 export const STORAGE_KEY = 'xinshi.state.v7';
 export const LEGACY_STORAGE_KEYS = ['xinshi.state.v6', 'xinshi.state.v5', 'xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
@@ -36,6 +39,9 @@ export function createEmptyState(name = ''): AppState {
     },
     jobs: [],
     trashedJobs: [],
+    trashedEntries: [],
+    trashedRests: [],
+    trashedAdvances: [],
     entries: [],
     restDays: [],
     advances: [],
@@ -340,6 +346,64 @@ function normalizeRestDay(value: unknown, jobs: Map<string, Job>, now: string): 
   };
 }
 
+/* 回收站副本：坏掉的单条直接跳过，不因为一条旧记录拒绝整份备份 */
+function normalizeTrashedEntry(
+  value: unknown,
+  jobs: Map<string, Job>,
+  now: string,
+): TrashedEntry | null {
+  const raw = isRecord(value) ? value : null;
+  const entryRaw = raw && isRecord(raw.entry) ? raw.entry : null;
+  if (!raw || !entryRaw) return null;
+  if (!jobs.has(asString(entryRaw.jobId))) return null;
+  try {
+    return {
+      entry: normalizeEntry(entryRaw, jobs, now),
+      deletedAt: asString(raw.deletedAt, now),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTrashedRest(
+  value: unknown,
+  jobs: Map<string, Job>,
+  now: string,
+): TrashedRest | null {
+  const raw = isRecord(value) ? value : null;
+  const restRaw = raw && isRecord(raw.restDay) ? raw.restDay : null;
+  if (!raw || !restRaw) return null;
+  if (!jobs.has(asString(restRaw.jobId))) return null;
+  try {
+    return {
+      restDay: normalizeRestDay(restRaw, jobs, now),
+      deletedAt: asString(raw.deletedAt, now),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTrashedAdvance(
+  value: unknown,
+  jobs: Map<string, Job>,
+  now: string,
+): TrashedAdvance | null {
+  const raw = isRecord(value) ? value : null;
+  const advanceRaw = raw && isRecord(raw.advance) ? raw.advance : null;
+  if (!raw || !advanceRaw) return null;
+  if (!jobs.has(asString(advanceRaw.jobId))) return null;
+  try {
+    return {
+      advance: normalizeAdvance(advanceRaw, jobs, now),
+      deletedAt: asString(raw.deletedAt, now),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string): Settlement {
   const raw = requireObject(value, '结算数据');
   const id = asString(raw.id);
@@ -447,9 +511,21 @@ export function validateImport(text: string): AppState {
     trashedIds.add(trashed.job.id);
     trashedJobs.push(trashed);
   }
-  const activeTrash = purgeExpiredTrash(trashedJobs);
+  const activeTrash = limitTrash(purgeExpiredTrash(trashedJobs));
 
-  const entries = entriesRaw.map((item) => normalizeEntry(item, jobMap, now));
+  // 回收站里的工记 / 休息 / 借支可能指向已删除的工作，所以合并两份工作表校验。
+  const knownJobs = new Map(jobMap);
+  for (const item of activeTrash) knownJobs.set(item.job.id, item.job);
+
+  const entryIds = new Set<string>();
+  const entries: Entry[] = [];
+  for (const item of entriesRaw) {
+    const entry = normalizeEntry(item, jobMap, now);
+    if (entryIds.has(entry.id)) throw new Error('工记数据存在重复 ID');
+    entryIds.add(entry.id);
+    entries.push(entry);
+  }
+
   const restDaysRaw = raw.restDays;
   const restDayKeys = new Set<string>();
   const restDays: RestDay[] = [];
@@ -460,12 +536,55 @@ export function validateImport(text: string): AppState {
     restDayKeys.add(key);
     restDays.push(restDay);
   }
-  const advances = (Array.isArray(advancesRaw) ? advancesRaw : []).map((item) =>
-    normalizeAdvance(item, jobMap, now),
-  );
-  const settlements = (Array.isArray(settlementsRaw) ? settlementsRaw : []).map((item) =>
-    normalizeSettlement(item, jobMap, now),
-  );
+
+  const advanceIds = new Set<string>();
+  const advances: Advance[] = [];
+  for (const item of Array.isArray(advancesRaw) ? advancesRaw : []) {
+    const advance = normalizeAdvance(item, jobMap, now);
+    if (advanceIds.has(advance.id)) throw new Error('借支数据存在重复 ID');
+    advanceIds.add(advance.id);
+    advances.push(advance);
+  }
+
+  const settlementIds = new Set<string>();
+  const settlements: Settlement[] = [];
+  for (const item of Array.isArray(settlementsRaw) ? settlementsRaw : []) {
+    const settlement = normalizeSettlement(item, jobMap, now);
+    if (settlementIds.has(settlement.id)) throw new Error('结算数据存在重复 ID');
+    settlementIds.add(settlement.id);
+    settlements.push(settlement);
+  }
+
+  const trashedEntryIds = new Set<string>();
+  const trashedEntries: TrashedEntry[] = [];
+  for (const item of Array.isArray(raw.trashedEntries) ? raw.trashedEntries : []) {
+    const trashed = normalizeTrashedEntry(item, knownJobs, now);
+    if (!trashed || trashedEntryIds.has(trashed.entry.id)) continue;
+    trashedEntryIds.add(trashed.entry.id);
+    trashedEntries.push(trashed);
+  }
+
+  const trashedRestIds = new Set<string>();
+  const trashedRestKeys = new Set<string>();
+  const trashedRests: TrashedRest[] = [];
+  for (const item of Array.isArray(raw.trashedRests) ? raw.trashedRests : []) {
+    const trashed = normalizeTrashedRest(item, knownJobs, now);
+    if (!trashed) continue;
+    const key = `${trashed.restDay.jobId}|${trashed.restDay.date}`;
+    if (trashedRestIds.has(trashed.restDay.id) || trashedRestKeys.has(key)) continue;
+    trashedRestIds.add(trashed.restDay.id);
+    trashedRestKeys.add(key);
+    trashedRests.push(trashed);
+  }
+
+  const trashedAdvanceIds = new Set<string>();
+  const trashedAdvances: TrashedAdvance[] = [];
+  for (const item of Array.isArray(raw.trashedAdvances) ? raw.trashedAdvances : []) {
+    const trashed = normalizeTrashedAdvance(item, knownJobs, now);
+    if (!trashed || trashedAdvanceIds.has(trashed.advance.id)) continue;
+    trashedAdvanceIds.add(trashed.advance.id);
+    trashedAdvances.push(trashed);
+  }
 
   const profileRaw = isRecord(raw.profile) ? raw.profile : {};
   const settingsRaw = isRecord(raw.settings) ? raw.settings : {};
@@ -483,6 +602,9 @@ export function validateImport(text: string): AppState {
     settings: { weekStartsOn, theme, reminder },
     jobs,
     trashedJobs: activeTrash,
+    trashedEntries: limitTrash(purgeExpiredTrash(trashedEntries)),
+    trashedRests: limitTrash(purgeExpiredTrash(trashedRests)),
+    trashedAdvances: limitTrash(purgeExpiredTrash(trashedAdvances)),
     entries,
     restDays,
     advances,

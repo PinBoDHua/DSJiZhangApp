@@ -1,7 +1,7 @@
-# 薪时 v0.8.0 · 上架材料与合规清单
+# 薪时 v0.9.0 · 上架材料与合规清单
 
 > 用途：提交 Google Play 与国内 Android 商店时直接取用。
-> 版本：0.8.0（versionCode 800）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-06
+> 版本：0.9.0（versionCode 900）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-06
 >
 > 所有文案都按「不收集、不上传、无账号、无广告、无统计」的真实行为编写；
 > 改代码后若行为变化，必须同步改本文和隐私政策。
@@ -14,7 +14,7 @@
 | --- | --- |
 | 应用名 | 薪时 |
 | 包名 | `com.xinshi.app` |
-| 版本 | 0.8.0（versionCode 800） |
+| 版本 | 0.9.0（versionCode 900） |
 | 分类 | 工具 / 效率（Google Play：Tools） |
 | 价格 | 免费，无广告，无内购 |
 | 登录 | 不需要，全部功能免登录 |
@@ -133,14 +133,14 @@ gradlew.bat bundleRelease
 - 产物：
   - `android/app/build/outputs/apk/release/app-release.apk`
   - `android/app/build/outputs/bundle/release/app-release.aab`
-- 复制并重命名到 `release/xinshi-v0.8.0.apk` / `release/xinshi-v0.8.0.aab`。
+- 复制并重命名到 `release/xinshi-v0.9.0.apk` / `release/xinshi-v0.9.0.aab`。
 - 校验：
 
 ```bash
-apksigner verify --print-certs release/xinshi-v0.8.0.apk
-jarsigner -verify -verbose -certs release/xinshi-v0.8.0.aab
-aapt dump badging release/xinshi-v0.8.0.apk | findstr "package versionCode targetSdkVersion"
-aapt dump permissions release/xinshi-v0.8.0.apk
+apksigner verify --print-certs release/xinshi-v0.9.0.apk
+jarsigner -verify -verbose -certs release/xinshi-v0.9.0.aab
+aapt dump badging release/xinshi-v0.9.0.apk | findstr "package versionCode targetSdkVersion"
+aapt dump permissions release/xinshi-v0.9.0.apk
 ```
 
 - keystore 必须离线备份两份；丢失后无法覆盖升级。
@@ -156,7 +156,7 @@ aapt dump permissions release/xinshi-v0.8.0.apk
 - [ ] Data safety 按第 3 节填写。
 - [ ] 内容分级问卷完成。
 - [ ] 目标受众与广告声明：无广告、非儿童向。
-- [ ] 上传签名 AAB；versionCode 800；targetSdk 36。
+- [ ] 上传签名 AAB；versionCode 900；targetSdk 36。
 - [ ] 应用访问权限：无需登录，审核员可直接进入。
 - [ ] 提供审核说明：离线应用，无服务器，无账号；可用「先看看示例数据」体验。
 - [ ] 测试轨道先内测，确认安装、离线、导出、恢复。
@@ -225,7 +225,23 @@ VITE_PRIVACY_URL=https://your.site/privacy-policy.html
 
 ## 10. 发布记录（2026-11-06）
 
-### v0.8.0（当前）
+### v0.9.0（当前）
+
+| 项 | 内容 |
+| --- | --- |
+| 版本 | 0.9.0（900） |
+| 构建时间 | 2026-11-06 19:26（Asia/Shanghai） |
+| APK | `release/xinshi-v0.9.0.apk`（3,318,507 B / 约 3.17MiB） |
+| AAB | `release/xinshi-v0.9.0.aab`（3,794,343 B / 约 3.62MiB） |
+| APK SHA-256 | `A10AF798895880F10378B7CFB0C578B884C06270E05CD3C5460FF86DF149AC0C` |
+| AAB SHA-256 | `198F0274D50986847E66BFE130CA9FEB56B8384257A83F66DEB329C8319A1ACB` |
+| 签名证书 SHA-256 | `A5:B8:51:4A:16:5A:78:49:A4:07:3B:D0:0A:94:75:9F:CB:95:7A:A0:2F:83:97:00:12:EB:72:F2:51:85:D6:06` |
+| 权限 | `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`WAKE_LOCK`；无 INTERNET；另有 AndroidX 自动生成的应用私有签名权限 |
+| 验证 | `aapt` 校验 versionCode / versionName；`apksigner` 证书一致；浏览器 110 场景、15 分辨率 × 9 页面 + 子页面 16 组合全绿 |
+| 发布说明 | [RELEASE-NOTES-v0.9.0](RELEASE-NOTES-v0.9.0.md) |
+| 已知限制 | 见 README「已知限制」 |
+
+### v0.8.0（历史）
 
 | 项 | 内容 |
 | --- | --- |

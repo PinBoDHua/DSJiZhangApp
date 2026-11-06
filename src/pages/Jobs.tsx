@@ -24,6 +24,11 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
   const pendingByJob = new Map(overview.jobs.map((item) => [item.job.id, item.outstanding]));
   const active = state.jobs.filter((job) => !job.archived);
   const archived = state.jobs.filter((job) => job.archived);
+  const trashCount =
+    state.trashedJobs.length +
+    state.trashedEntries.length +
+    state.trashedRests.length +
+    state.trashedAdvances.length;
 
   const renderJob = (jobId: string) => {
     const job = state.jobs.find((item) => item.id === jobId);
@@ -126,7 +131,7 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
       <p className="jobs-footnote">
         修改单价只影响之后的新工记；历史记录会保留当时的单价和规则。
       </p>
-      {state.trashedJobs.length > 0 ? (
+      {trashCount > 0 ? (
         <button
           type="button"
           className="trash-entry"
@@ -134,7 +139,7 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
         >
           <Trash2 size={16} />
           回收站
-          <span>{state.trashedJobs.length}</span>
+          <span>{trashCount}</span>
           <ChevronRight size={15} />
         </button>
       ) : null}

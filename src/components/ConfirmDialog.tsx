@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TriangleAlert } from 'lucide-react';
 import { pushNativeBack } from '../lib/nativeBack';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -25,7 +26,9 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const cancelRef = useRef(onCancel);
+  const dialogRef = useRef<HTMLDivElement>(null);
   cancelRef.current = onCancel;
+  useModalFocus(open, dialogRef);
 
   useEffect(() => {
     if (!open) return;
@@ -37,12 +40,15 @@ export function ConfirmDialog({
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCancel();
+      if (event.key !== 'Escape') return;
+      // 确认框可能叠在抽屉上：只关闭最上面这一层。
+      event.stopImmediatePropagation();
+      onCancel();
     };
-    window.addEventListener('keydown', handleKey);
+    window.addEventListener('keydown', handleKey, true);
     return () => {
       document.body.style.overflow = previous;
-      window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('keydown', handleKey, true);
     };
   }, [open, onCancel]);
 
@@ -56,10 +62,12 @@ export function ConfirmDialog({
       }}
     >
       <div
+        ref={dialogRef}
         className="dialog"
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         {danger ? (
@@ -70,7 +78,7 @@ export function ConfirmDialog({
         <h2>{title}</h2>
         {description ? <div className="dialog-desc">{description}</div> : null}
         <div className="dialog-actions">
-          <button type="button" className="btn btn--ghost" onClick={onCancel}>
+          <button type="button" className="btn btn--ghost" data-initial-focus onClick={onCancel}>
             {cancelLabel}
           </button>
           <button

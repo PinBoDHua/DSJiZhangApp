@@ -10563,3 +10563,85 @@ html[data-theme='dark'] .heat-day.is-today {
   height: min(916px, 93dvh, calc(var(--vvh, 100dvh) - var(--safe-top) - 16px));
   max-height: min(94dvh, calc(var(--vvh, 100dvh) - var(--safe-top) - 16px));
 }
+
+/* ---------- v0.9 统一回收站 ---------- */
+
+.trash-filters {
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.trash-filters .filter-chip > span {
+  color: inherit;
+  opacity: 0.65;
+  font-size: 9.5px;
+}
+
+.trash-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.trash-summary .money {
+  color: var(--ink);
+  font-size: 10.5px;
+}
+
+.trash-title-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.trash-title-line strong {
+  flex: 1;
+  min-width: 0;
+}
+
+.trash-kind {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.trash-kind--job {
+  color: var(--ink-soft);
+}
+
+.trash-amount {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink);
+  font-size: 10.5px;
+}
+
+.trash-meta {
+  color: var(--muted-2);
+  font-size: 9.5px;
+}
+
+.trash-block {
+  color: var(--danger);
+  font-size: 9.5px;
+}
+
+.trash-row .icon-button:disabled {
+  opacity: 0.35;
+}
+
+.trash-clear {
+  margin-top: 14px;
+}
+
+html[data-theme="dark"] .trash-kind {
+  background: rgba(255, 255, 255, 0.08);
+}

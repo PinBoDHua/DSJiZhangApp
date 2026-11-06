@@ -1,0 +1,162 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildTrashRows,
+  limitTrash,
+  purgeExpiredTrash,
+  pushTrash,
+  summarizeTrash,
+  trashRemainingDays,
+  trashRestoreBlockReason,
+} from './trash';
+import { makeAdvance, makeEntry, makeJob, makeRestDay, makeSettlement, makeState } from './testFixtures';
+
+const NOW = new Date('2026-11-06T12:00:00.000Z').getTime();
+const daysAgo = (days: number) =>
+  new Date(NOW - days * 24 * 60 * 60 * 1000).toISOString();
+
+describe('回收站保留与容量', () => {
+  it('超过 30 天或时间无效的记录会被清理', () => {
+    const items = [
+      { id: 'old', deletedAt: daysAgo(31) },
+      { id: 'edge', deletedAt: daysAgo(29) },
+      { id: 'bad', deletedAt: 'not-a-date' },
+    ];
+    expect(purgeExpiredTrash(items, NOW).map((item) => item.id)).toEqual(['edge']);
+  });
+
+  it('剩余天数在删除当天是 30 天，之后逐日减少', () => {
+    expect(trashRemainingDays(daysAgo(0), NOW)).toBe(30);
+    expect(trashRemainingDays(daysAgo(10), NOW)).toBe(20);
+    expect(trashRemainingDays(daysAgo(40), NOW)).toBe(0);
+    expect(trashRemainingDays('bad-date', NOW)).toBe(0);
+  });
+
+  it('新删除的项目排在最前，同 ID 覆盖，超过上限时丢掉最旧的', () => {
+    const list = [
+      { id: 'a', deletedAt: daysAgo(1) },
+      { id: 'b', deletedAt: daysAgo(2) },
+    ];
+    expect(pushTrash(list, { id: 'c', deletedAt: daysAgo(0) }, (item) => item.id, 2)).toEqual([
+      { id: 'c', deletedAt: daysAgo(0) },
+      { id: 'a', deletedAt: daysAgo(1) },
+    ]);
+    expect(
+      pushTrash(list, { id: 'b', deletedAt: daysAgo(0) }, (item) => item.id, 2).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['b', 'a']);
+  });
+
+  it('limitTrash 按删除时间倒序裁剪', () => {
+    const items = [
+      { id: 'old', deletedAt: daysAgo(5) },
+      { id: 'new', deletedAt: daysAgo(1) },
+      { id: 'mid', deletedAt: daysAgo(3) },
+    ];
+    expect(limitTrash(items, 2).map((item) => item.id)).toEqual(['new', 'mid']);
+  });
+});
+
+describe('回收站列表', () => {
+  const job = makeJob();
+  const deletedJob = makeJob({ id: 'job-2', name: '已删工作' });
+  const state = makeState({
+    jobs: [job],
+    trashedJobs: [{ job: deletedJob, deletedAt: daysAgo(1) }],
+    trashedEntries: [{ entry: makeEntry({ hours: 8 }), deletedAt: daysAgo(2) }],
+    trashedRests: [
+      { restDay: makeRestDay({ days: 0.5, note: '调休' }), deletedAt: daysAgo(3) },
+    ],
+    trashedAdvances: [
+      { advance: makeAdvance({ amount: 500, note: '生活费' }), deletedAt: daysAgo(4) },
+    ],
+  });
+
+  it('四类记录都能生成可读的行，并按删除时间倒序', () => {
+    const rows = buildTrashRows(state, NOW);
+    expect(rows.map((row) => row.kind)).toEqual(['job', 'entry', 'rest', 'advance']);
+    expect(rows[0].title).toBe('已删工作');
+    expect(rows[1].title).toContain('11月2日');
+    expect(rows[1].subtitle).toContain('测试工作');
+    expect(rows[1].amount).toBe(200);
+    expect(rows[1].hours).toBe(8);
+    expect(rows[2].subtitle).toContain('半天休息');
+    expect(rows[2].restDays).toBe(0.5);
+    expect(rows[3].amount).toBe(500);
+    expect(rows.every((row) => row.remainingDays >= 0)).toBe(true);
+  });
+
+  it('汇总累计可恢复的金额、工时和休息天数', () => {
+    expect(summarizeTrash(buildTrashRows(state, NOW))).toEqual({
+      count: 4,
+      amount: 700,
+      hours: 8,
+      restDays: 0.5,
+    });
+  });
+});
+
+describe('恢复前的拦截理由', () => {
+  const job = makeJob();
+  const entryRow = buildTrashRows(
+    makeState({
+      jobs: [job],
+      trashedEntries: [{ entry: makeEntry({ hours: 8 }), deletedAt: daysAgo(1) }],
+    }),
+    NOW,
+  )[0];
+
+  it('原工作不存在时说明原因', () => {
+    expect(trashRestoreBlockReason(entryRow, makeState({ jobs: [] }))).toBe(
+      '原工作已彻底删除，无法恢复',
+    );
+    expect(
+      trashRestoreBlockReason(
+        entryRow,
+        makeState({ jobs: [], trashedJobs: [{ job, deletedAt: daysAgo(1) }] }),
+      ),
+    ).toBe('原工作还在回收站，先恢复工作');
+  });
+
+  it('已结算的时间段不能恢复', () => {
+    const settlement = makeSettlement({ periodStart: '2026-11-02', periodEnd: '2026-11-08' });
+    expect(
+      trashRestoreBlockReason(entryRow, makeState({ jobs: [job], settlements: [settlement] })),
+    ).toBe('这段时间已结算，先撤销结算再恢复');
+  });
+
+  it('同日合计超过 24 小时不能恢复', () => {
+    const other = makeEntry({ id: 'entry-2', hours: 20 });
+    expect(
+      trashRestoreBlockReason(entryRow, makeState({ jobs: [job], entries: [other] })),
+    ).toBe('这天合计会超过 24 小时');
+  });
+
+  it('休息和工记同一天只能留一个', () => {
+    const restRow = buildTrashRows(
+      makeState({
+        jobs: [job],
+        trashedRests: [{ restDay: makeRestDay(), deletedAt: daysAgo(1) }],
+      }),
+      NOW,
+    )[0];
+    expect(
+      trashRestoreBlockReason(
+        restRow,
+        makeState({ jobs: [job], entries: [makeEntry({ date: '2026-11-03' })] }),
+      ),
+    ).toBe('这天已有工记，休息和工记只能留一个');
+    expect(trashRestoreBlockReason(restRow, makeState({ jobs: [job], restDays: [makeRestDay()] }))).toBe(
+      null,
+    );
+  });
+
+  it('工作本身没有恢复限制', () => {
+    const jobRow = buildTrashRows(
+      makeState({ trashedJobs: [{ job, deletedAt: daysAgo(1) }] }),
+      NOW,
+    )[0];
+    expect(jobRow.kind).toBe('job');
+    expect(trashRestoreBlockReason(jobRow, makeState())).toBeNull();
+  });
+});

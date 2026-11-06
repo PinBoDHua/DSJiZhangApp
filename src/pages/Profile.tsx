@@ -19,6 +19,7 @@ import { Logo } from '../components/Logo';
 import { Money } from '../components/Money';
 import { Segmented } from '../components/Segmented';
 import { Sheet } from '../components/Sheet';
+import { TrashSheet } from '../components/TrashSheet';
 import { formatMonthTitle, todayISO } from '../lib/date';
 import { formatHours } from '../lib/money';
 import { sumEntriesCapped } from '../lib/settlement';
@@ -68,6 +69,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   const [nameDraft, setNameDraft] = useState(state.profile.name);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
   const [permission, setPermission] = useState<ReminderPermission>(() => {
     if (nativeApp) return 'prompt';
@@ -97,6 +99,11 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   }, [nativeApp]);
 
   const totals = sumEntriesCapped(state.entries);
+  const trashCount =
+    state.trashedJobs.length +
+    state.trashedEntries.length +
+    state.trashedRests.length +
+    state.trashedAdvances.length;
   const activeJobs = state.jobs.filter((job) => !job.archived);
   const name = state.profile.name.trim() || '工友';
   const initial = name.slice(0, 1);
@@ -608,6 +615,23 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
+          <button type="button" className="settings-row" onClick={() => setTrashOpen(true)}>
+            <span className="settings-icon">
+              <Trash2 size={18} />
+            </span>
+            <span className="settings-body">
+              <strong>
+                回收站
+                {trashCount > 0 ? <span className="micro-badge">{trashCount}</span> : null}
+              </strong>
+              <em>
+                {trashCount > 0
+                  ? `${trashCount} 条已删除记录，30 天内可恢复`
+                  : '删除的工记、休息、借支和工作会先放这里'}
+              </em>
+            </span>
+            <ChevronRight size={16} className="settings-chevron" />
+          </button>
           <button
             type="button"
             className="settings-row settings-row--danger"
@@ -845,6 +869,8 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
           </button>
         </div>
       </Sheet>
+
+      <TrashSheet open={trashOpen} onClose={() => setTrashOpen(false)} />
 
       <ConfirmDialog
         open={Boolean(pendingImport)}

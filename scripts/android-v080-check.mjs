@@ -1,6 +1,9 @@
 import { chromium } from 'playwright-core';
+import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+
+const APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
 
 const OUT = 'shots/android-v080';
 await mkdir(OUT, { recursive: true });
@@ -112,13 +115,13 @@ await step('年度统计', async () => {
   await page.waitForTimeout(300);
 });
 
-await step('关于页版本 0.8.0', async () => {
+await step(`关于页版本 ${APP_VERSION}`, async () => {
   await page.getByRole('button', { name: '我的', exact: true }).click();
   await page.waitForTimeout(500);
-  assert.ok((await page.locator('.profile-footer').innerText()).includes('v0.8.0'));
+  assert.ok((await page.locator('.profile-footer').innerText()).includes(`v${APP_VERSION}`));
   await page.getByRole('button', { name: /关于薪时/ }).click();
   await page.waitForTimeout(500);
-  assert.equal(await page.locator('.about-version').innerText(), 'v0.8.0');
+  assert.equal(await page.locator('.about-version').innerText(), `v${APP_VERSION}`);
   await page.screenshot({ path: `${OUT}/05-about.png` });
   await page.getByRole('button', { name: '知道了' }).click();
   await page.waitForTimeout(300);

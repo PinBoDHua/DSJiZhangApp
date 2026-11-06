@@ -1,7 +1,9 @@
 import { chromium } from 'playwright-core';
+import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
+const APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
 const BASE = 'http://127.0.0.1:4173';
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const OUT = 'test-results-v080';
@@ -163,13 +165,13 @@ await step('320px 下年度统计与搜索页无横向溢出', async () => {
   await page.waitForTimeout(300);
 });
 
-await step('关于页显示 0.8.0，版本号只有一处来源', async () => {
+await step(`关于页显示 ${APP_VERSION}，版本号只有一处来源`, async () => {
   await page.getByRole('button', { name: '我的', exact: true }).click();
   await page.waitForTimeout(500);
-  assert.ok((await page.locator('.profile-footer').innerText()).includes('v0.8.0'));
+  assert.ok((await page.locator('.profile-footer').innerText()).includes(`v${APP_VERSION}`));
   await page.getByRole('button', { name: /关于薪时/ }).click();
   await page.waitForTimeout(500);
-  assert.equal(await page.locator('.about-version').innerText(), 'v0.8.0');
+  assert.equal(await page.locator('.about-version').innerText(), `v${APP_VERSION}`);
   await page.screenshot({ path: `${OUT}/07-about.png` });
   await page.getByRole('button', { name: '知道了' }).click();
   await page.waitForTimeout(300);
@@ -196,7 +198,7 @@ await step('深色模式下搜索与年度统计可读', async () => {
   await page.screenshot({ path: `${OUT}/09-stats-year-dark.png` });
 });
 
-await step('新装首次打开显示 0.8.0 引导徽标', async () => {
+await step(`新装首次打开显示 ${APP_VERSION} 引导徽标`, async () => {
   const fresh = await browser.newContext({
     viewport: { width: 390, height: 844 },
     locale: 'zh-CN',
@@ -209,7 +211,7 @@ await step('新装首次打开显示 0.8.0 引导徽标', async () => {
   const freshPage = await fresh.newPage();
   await freshPage.goto(BASE, { waitUntil: 'networkidle' });
   await freshPage.waitForTimeout(500);
-  assert.ok((await freshPage.locator('.onboarding-badge').innerText()).includes('v0.8.0'));
+  assert.ok((await freshPage.locator('.onboarding-badge').innerText()).includes(`v${APP_VERSION}`));
   await freshPage.screenshot({ path: `${OUT}/10-onboarding.png` });
   await fresh.close();
 });

@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { pushNativeBack } from '../lib/nativeBack';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 interface SheetProps {
   open: boolean;
@@ -14,7 +15,9 @@ interface SheetProps {
 
 export function Sheet({ open, title, subtitle, onClose, children, className = '' }: SheetProps) {
   const closeRef = useRef(onClose);
+  const sheetRef = useRef<HTMLDivElement>(null);
   closeRef.current = onClose;
+  useModalFocus(open, sheetRef);
 
   useEffect(() => {
     if (!open) return;
@@ -45,10 +48,12 @@ export function Sheet({ open, title, subtitle, onClose, children, className = ''
       }}
     >
       <div
+        ref={sheetRef}
         className={`sheet ${className}`}
         role="dialog"
         aria-modal="true"
         aria-label={title || '编辑'}
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="sheet-grabber" aria-hidden="true" />
