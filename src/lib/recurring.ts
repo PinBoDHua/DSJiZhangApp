@@ -16,12 +16,22 @@ export interface RecurringMaterializeOptions {
   ruleId?: string;
   now?: string;
   createId?: () => string;
+  /** 首次补记最多回溯多少天，默认 120；规则开始日期更早时只补最近这段。 */
+  backfillDays?: number;
 }
+
+/**
+ * 首次补记回溯上限。没有游标的规则从「开始日期」和「今天往前 N 天」中较晚的一天开始，
+ * 避免把几个月甚至几年的规则日一次性补成几千条工记（真机会明显卡顿，也难核对）。
+ */
+export const RECURRING_BACKFILL_DAYS = 120;
 
 export interface RecurringMaterializeResult {
   state: AppState;
   added: number;
   skipped: number;
+  /** 规则开始日期早于回溯窗口，更早的规则日已放弃，不再补记。 */
+  truncated: boolean;
 }
 
 export function ruleMatchesDate(rule: RecurringRule, date: string): boolean {
@@ -105,11 +115,18 @@ export function materializeRecurring(
   const horizon = options.includeToday ? today : addDays(today, -1);
   const timestamp = options.now ?? nowISO();
   const idFactory = options.createId ?? (() => `entry-recur-${Date.now()}-${Math.random()}`);
+  const backfillDays = Math.max(
+    1,
+    Math.min(3700, Math.round(options.backfillDays ?? RECURRING_BACKFILL_DAYS)),
+  );
+  // 只允许补最近 backfillDays 天：游标更早（新规则或长时间没打开）时截断，避免一次生成上千条。
+  const earliest = addDays(horizon, -(backfillDays - 1));
   let entries = source.entries;
   let rules = source.recurringRules ?? [];
   let changed = false;
   let added = 0;
   let skipped = 0;
+  let truncated = false;
 
   for (const original of source.recurringRules ?? []) {
     if (!original.enabled || (options.automaticOnly && !original.auto)) continue;
@@ -120,9 +137,13 @@ export function materializeRecurring(
     let cursor = rule.lastProcessedDate
       ? addDays(rule.lastProcessedDate, 1)
       : rule.startDate;
+    if (cursor < earliest) {
+      cursor = earliest;
+      truncated = true;
+    }
     if (cursor < rule.startDate) cursor = rule.startDate;
     let guard = 0;
-    while (cursor <= horizon && guard < 3700) {
+    while (cursor <= horizon && guard <= backfillDays) {
       if (ruleMatchesDate(rule, cursor) && (!rule.lastProcessedDate || cursor > rule.lastProcessedDate)) {
         const duplicate = entries.some(
           (entry) =>
@@ -162,6 +183,6 @@ export function materializeRecurring(
     }
   }
 
-  if (!changed) return { state: source, added, skipped };
-  return { state: { ...source, entries, recurringRules: rules }, added, skipped };
+  if (!changed) return { state: source, added, skipped, truncated };
+  return { state: { ...source, entries, recurringRules: rules }, added, skipped, truncated };
 }

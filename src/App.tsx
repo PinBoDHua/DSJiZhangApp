@@ -138,9 +138,31 @@ function AppContent() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [privacyOk, setPrivacyOk] = useState(() => hasPrivacyConsent());
-  const autoRecurringRan = useRef(false);
-  const today = todayISO();
+  const [today, setToday] = useState(() => todayISO());
+  const autoRecurringDay = useRef('');
   const currentMonth = today.slice(0, 7);
+
+  // 跨天或从后台回来时刷新“今天”，否则自动补记、预算和今天卡片会停在前一天。
+  useEffect(() => {
+    const sync = () => {
+      setToday((current) => {
+        const next = todayISO();
+        return next === current ? current : next;
+      });
+    };
+    const timer = window.setInterval(sync, 60_000);
+    const onWake = () => {
+      if (document.visibilityState === 'visible') sync();
+    };
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
+  }, []);
+
   const budgetStatus = monthlyBudgetStatus(
     state.settings.budget,
     state.entries.filter((entry) => entry.date.startsWith(currentMonth)),
@@ -148,13 +170,15 @@ function AppContent() {
   );
   useTheme(state.settings.theme);
   useVisualViewport();
-  const todayEntryCount = state.entries.filter((entry) => entry.date === todayISO()).length;
+  const todayEntryCount = state.entries.filter((entry) => entry.date === today).length;
   useReminder(state.settings.reminder, todayEntryCount);
   useAutoSnapshot(state, privacyOk);
 
   useEffect(() => {
-    if (!privacyOk || !state.onboardingDone || autoRecurringRan.current) return;
-    autoRecurringRan.current = true;
+    if (!privacyOk || !state.onboardingDone) return;
+    // 每个自然日只自动补一次；App 挂在后台跨天后再回来也能补记新的一天。
+    if (autoRecurringDay.current === today) return;
+    autoRecurringDay.current = today;
     const result = generateRecurring({ automaticOnly: true, today });
     if (result.added > 0) {
       toast(`周期规则已补记 ${result.added} 笔${result.skipped > 0 ? `，跳过 ${result.skipped} 天` : ''}`);

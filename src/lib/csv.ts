@@ -10,7 +10,7 @@ function cell(value: string | number): string {
   let text = String(value ?? '');
   // CSV 会交给 Excel / WPS 打开，文本开头不能被执行成公式。
   if (typeof value === 'string' && /^\s*[=+\-@]/.test(text)) text = `'${text}`;
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function buildCsv(rows: Array<Array<string | number>>): string {

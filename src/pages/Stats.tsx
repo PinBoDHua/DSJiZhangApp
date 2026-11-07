@@ -263,7 +263,15 @@ export function Stats({ onAddEntry }: StatsProps) {
               {budget.incomeTarget > 0 ? (
                 <div className="budget-metric">
                   <div><span>收入目标</span><strong><Money value={budget.income} /> / <Money value={budget.incomeTarget} /></strong></div>
-                  <div className="budget-track" aria-label={`收入目标完成 ${Math.floor(budget.incomePercent)}%`}>
+                  <div
+                    className="budget-track"
+                    role="progressbar"
+                    aria-label="收入目标完成度"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.max(0, Math.min(100, Math.floor(budget.incomePercent)))}
+                    aria-valuetext={`已完成 ${Math.floor(budget.incomePercent)}%`}
+                  >
                     <span style={{ width: `${Math.min(100, Math.max(0, budget.incomePercent))}%` }} />
                   </div>
                   <em>{Math.floor(budget.incomePercent)}%</em>
@@ -272,7 +280,15 @@ export function Stats({ onAddEntry }: StatsProps) {
               {budget.hoursLimit > 0 ? (
                 <div className="budget-metric">
                   <div><span>工时上限</span><strong>{formatHours(budget.hours)}h / {formatHours(budget.hoursLimit)}h</strong></div>
-                  <div className="budget-track budget-track--hours" aria-label={`工时上限使用 ${Math.floor(budget.hoursPercent)}%`}>
+                  <div
+                    className="budget-track budget-track--hours"
+                    role="progressbar"
+                    aria-label="工时上限使用率"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.max(0, Math.min(100, Math.floor(budget.hoursPercent)))}
+                    aria-valuetext={`已使用 ${Math.floor(budget.hoursPercent)}%`}
+                  >
                     <span style={{ width: `${Math.min(100, Math.max(0, budget.hoursPercent))}%` }} />
                   </div>
                   <em>{Math.floor(budget.hoursPercent)}%</em>

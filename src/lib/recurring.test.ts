@@ -87,4 +87,50 @@ describe('周期记工', () => {
     expect(generate(state).added).toBe(0);
     expect(materializeRecurring(state, { today: '2026-11-04', includeToday: true }).added).toBe(1);
   });
+
+  it('开始日期很早时只补最近 120 天，不会一次生成上千条', () => {
+    const state = makeState({
+      jobs: [makeJob()],
+      recurringRules: [rule({ startDate: '2020-01-01' })],
+    });
+    const started = Date.now();
+    const result = generate(state, '2026-11-04');
+    expect(result.added).toBe(120);
+    expect(result.truncated).toBe(true);
+    expect(Date.now() - started).toBeLessThan(2000);
+    const dates = result.state.entries.map((entry) => entry.date).sort();
+    expect(dates[0]).toBe('2026-07-07');
+    expect(dates[dates.length - 1]).toBe('2026-11-03');
+    expect(result.state.recurringRules?.[0].lastProcessedDate).toBe('2026-11-03');
+  });
+
+  it('长时间没打开、游标太旧时同样只补最近 120 天', () => {
+    const state = makeState({
+      jobs: [makeJob()],
+      recurringRules: [
+        rule({ startDate: '2025-12-01', lastProcessedDate: '2025-12-31' }),
+      ],
+    });
+    const result = generate(state, '2026-11-04');
+    expect(result.added).toBe(120);
+    expect(result.truncated).toBe(true);
+    expect(result.state.recurringRules?.[0].lastProcessedDate).toBe('2026-11-03');
+  });
+
+  it('回溯窗口可通过参数收窄，正常规则不标记截断', () => {
+    const recent = makeState({
+      jobs: [makeJob()],
+      recurringRules: [rule({ startDate: '2026-10-25' })],
+    });
+    const result = generate(recent, '2026-11-04');
+    expect(result.added).toBe(10);
+    expect(result.truncated).toBe(false);
+
+    const narrow = materializeRecurring(
+      makeState({ jobs: [makeJob()], recurringRules: [rule({ startDate: '2026-10-25' })] }),
+      { today: '2026-11-04', backfillDays: 3, createId: (() => { let id = 0; return () => `gen-${++id}`; })() },
+    );
+    expect(narrow.added).toBe(3);
+    expect(narrow.truncated).toBe(true);
+  });
 });

@@ -107,6 +107,11 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
 
   const copyToToday = () => {
     const today = todayISO();
+    const job = state.jobs.find((item) => item.id === entry.jobId);
+    if (!job || job.archived) {
+      toast('这份工作已归档，不能复制到今天', 'error');
+      return;
+    }
     const todayHours = state.entries
       .filter((item) => item.date === today)
       .reduce((sum, item) => sum + (item.hours || 0), 0);

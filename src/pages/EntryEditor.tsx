@@ -460,9 +460,17 @@ export function EntryEditor({
           try {
             await putPhoto(nextPhotoId, photoDraft);
           } catch {
-            // 工记保留，但移除无法兑现的照片引用，避免详情页误报“照片损坏”。
-            if (savedNewEntry) updateEntry(savedNewEntry.id, { photoId: undefined });
-            toast('照片保存失败，工记已保存且未保留照片引用', 'error');
+            // 照片没写进去就撤掉引用，避免详情页把它误报成“照片损坏”；
+            // 编辑旧记录时保留原来那张照片，不能被这次失败连坐。
+            const hadPhoto = Boolean(existing?.photoId);
+            const targetId = savedNewEntry?.id ?? existing?.id;
+            if (targetId && !hadPhoto) updateEntry(targetId, { photoId: undefined });
+            toast(
+              hadPhoto
+                ? '新照片保存失败，已保留原照片'
+                : '照片保存失败，工记已保存且未保留照片引用',
+              'error',
+            );
           }
         } else if (existing?.photoId) {
           void deletePhoto(existing.photoId).catch(() => undefined);

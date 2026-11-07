@@ -3,10 +3,23 @@ import {
   DEFAULT_AUTO_BACKUP,
   autoBackupFileName,
   readAutoBackupSettings,
+  runAutoBackup,
   shouldRunAutoBackup,
   writeAutoBackupSettings,
 } from './autoBackup';
 import { makeEntry, makeJob, makeState } from './testFixtures';
+
+vi.mock('./native', () => ({
+  isNativeApp: () => true,
+  saveTextFile: vi.fn(async () => 'native' as const),
+}));
+
+vi.mock('./saveFile', () => ({
+  pruneDownloadFiles: vi.fn(async () => 2),
+}));
+
+const { saveTextFile } = await import('./native');
+const { pruneDownloadFiles } = await import('./saveFile');
 
 const store = new Map<string, string>();
 
@@ -65,5 +78,22 @@ describe('自动备份设置与调度', () => {
     expect(autoBackupFileName(new Date(2026, 10, 5, 20, 30, 40))).toBe(
       '薪时自动备份-20261105-203040.json',
     );
+  });
+
+  it('备份写入成功但清理旧文件失败时，仍算本次备份成功', async () => {
+    writeAutoBackupSettings({ enabled: true, keep: 14 });
+    vi.mocked(pruneDownloadFiles).mockRejectedValueOnce(new Error('媒体库繁忙'));
+    const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
+    const result = await runAutoBackup(state, {
+      native: true,
+      now: new Date(2026, 10, 5, 8, 9, 10),
+    });
+    expect(result.ran).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.warning).toBe('媒体库繁忙');
+    expect(vi.mocked(saveTextFile)).toHaveBeenCalledOnce();
+    const settings = readAutoBackupSettings();
+    expect(settings.lastRunAt).toBeTruthy();
+    expect(settings.lastError).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 import type { AppState } from '../types';
 import { round2 } from './money';
-import { sumEntries } from './settlement';
+import { sumEntriesCapped } from './settlement';
 import { fnv1aHex, sha256Hex } from './crypto';
 import { validateImport } from './storage';
 
@@ -77,7 +77,8 @@ const MANUAL_REASONS: SnapshotReason[] = [
 export function ledgerManifest(state: AppState): LedgerManifest {
   const dates = state.entries.map((entry) => entry.date).filter(Boolean).sort();
   const hours = round2(state.entries.reduce((sum, entry) => sum + (entry.hours || 0), 0));
-  const entryTotal = sumEntries(state.entries).total;
+  // 与首页 / 统计 / 结算使用同一口径（月薪封顶、同日日薪只计一次）。
+  const entryTotal = sumEntriesCapped(state.entries).total;
   return {
     jobs: state.jobs.length,
     entries: state.entries.length,

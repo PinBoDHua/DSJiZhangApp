@@ -8,7 +8,7 @@ import {
   shortChecksum,
   unlockMovePackage,
 } from './movePackage';
-import { makeEntry, makeJob, makeState } from './testFixtures';
+import { makeEntry, makeJob, makeState, baseRule } from './testFixtures';
 import { APP_VERSION } from './version';
 import type { AppState } from '../types';
 
@@ -94,6 +94,47 @@ describe('搬家包', () => {
     await expect(
       buildMovePackage(sampleState(), { now, password: '123' }),
     ).rejects.toThrow('至少 6 位');
+  });
+
+  it('全空白密码拒绝导出，不能静默降级成明文包', async () => {
+    await expect(
+      buildMovePackage(sampleState(), { now, password: '      ' }),
+    ).rejects.toThrow('不能全是空格');
+  });
+
+  it('密码首尾空格按同一口径加密和解密', async () => {
+    const { text } = await buildMovePackage(sampleState(), {
+      now,
+      password: '  right-password  ',
+    });
+    expect(text).not.toContain('测试工作');
+    const result = await unlockMovePackage(text, 'right-password');
+    expect(result.encrypted).toBe(true);
+    expect(result.state.entries).toHaveLength(1);
+  });
+
+  it('导入时会被规范化的账本仍能还原，清单按规范化结果计算', async () => {
+    const looseRule = {
+      ...baseRule,
+      payType: 'daily' as const,
+      rate: 300,
+      standardHours: 0.3,
+      otEnabled: true,
+    };
+    const state = makeState({
+      jobs: [makeJob({ rule: looseRule, cycle: 'daily' })],
+      entries: [
+        makeEntry({ id: 'ot-entry', date: '2026-11-02', hours: 8, otHours: 2, rule: looseRule }),
+      ],
+    });
+    const { text, header } = await buildMovePackage(state, { now });
+    // 清单按 standardHours=0.5 的规范化结果写入：300 日薪 + 2h×600×1.5 = 2100，不能沿用 0.3 的 3300。
+    expect(header.manifest.hours).toBe(8);
+    expect(header.manifest.entryTotal).toBe(2100);
+    const result = await unlockMovePackage(text);
+    expect(result.state.jobs[0].rule.standardHours).toBe(0.5);
+    expect(result.state.entries).toHaveLength(1);
+    expect(result.header.manifest.entryTotal).toBe(2100);
   });
 
   it('文件名和短校验码可读', () => {

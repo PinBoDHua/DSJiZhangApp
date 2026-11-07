@@ -212,15 +212,14 @@ public class XinshiApp extends Application {
     }
 
     private static byte[] readAll(File file) throws IOException {
-        try (FileInputStream stream = new FileInputStream(file)) {
-            byte[] buffer = new byte[(int) file.length()];
-            int read = stream.read(buffer);
-            if (read <= 0) {
-                return new byte[0];
+        try (FileInputStream stream = new FileInputStream(file);
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream((int) file.length())) {
+            byte[] chunk = new byte[8 * 1024];
+            int read;
+            while ((read = stream.read(chunk)) > 0) {
+                out.write(chunk, 0, read);
             }
-            byte[] result = new byte[read];
-            System.arraycopy(buffer, 0, result, 0, read);
-            return result;
+            return out.toByteArray();
         }
     }
 

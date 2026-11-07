@@ -1018,14 +1018,14 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
                   </span>
                   <span className="settings-body">
                     <strong>删除工作</strong>
-                    <em>没有工记、借支、休息或结算，可以彻底删除</em>
+                    <em>没有工记、借支、休息、结算或周期规则，可以彻底删除</em>
                   </span>
                 </button>
               ) : (
                 <p className="editor-delete-hint">
                   {timerActive
                     ? '这份工作正在计时，结束或放弃计时后才能归档 / 删除。'
-                    : '已有工记、借支、休息或结算记录，不能删除；如果不再使用，可以归档。'}
+                    : '已有工记、借支、休息、结算或周期规则，不能删除；如果不再使用，可以归档。'}
                 </p>
               )}
             </div>
@@ -1069,7 +1069,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       <ConfirmDialog
         open={deleteOpen}
         title="彻底删除这份工作？"
-        description="删除后先进入回收站，可在工作管理里恢复；只有没有任何工记、借支和结算的工作才能删除。"
+        description="删除后先进入回收站，可在工作管理里恢复；只有没有任何工记、借支、结算和周期规则的工作才能删除。"
         confirmLabel="删除"
         danger
         onCancel={() => setDeleteOpen(false)}

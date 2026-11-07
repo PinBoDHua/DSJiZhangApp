@@ -210,9 +210,20 @@ export async function buildMovePackage(
   state: AppState,
   options: MoveBuildOptions = {},
 ): Promise<{ text: string; header: MovePackageHeader }> {
-  const password = options.password?.trim() ?? '';
+  const rawPassword = options.password;
+  const password = rawPassword?.trim() ?? '';
+  // 传了密码却只有空格时不能静默导出明文包，否则界面会误报“已加密”。
+  if (rawPassword !== undefined && rawPassword.length > 0 && password.length === 0) {
+    throw new Error('搬家包密码不能全是空格；不设密码请留空');
+  }
   if (password && password.length < 6) throw new Error('搬家包密码至少 6 位');
-  const manifest = ledgerManifest(state);
+  // 清单必须按“导入时同一套规范化规则”重算：否则像 standardHours 被夹到 0.5 这类
+  // 规范化差异会让 App 自己导出的包在导入时被判成“清单与内容不一致”。
+  const canonical = validateImport(
+    JSON.stringify({ app: EXPORT_APP, version: SCHEMA_VERSION, data: state }),
+    { unlockOrphans: true },
+  );
+  const manifest = ledgerManifest(canonical);
   const schemaVersion = state.version ?? SCHEMA_VERSION;
   let payload: MovePayload;
   if (password) {

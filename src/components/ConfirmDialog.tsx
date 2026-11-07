@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TriangleAlert } from 'lucide-react';
 import { pushNativeBack } from '../lib/nativeBack';
+import { lockBodyScroll } from '../lib/scrollLock';
 import { useModalFocus } from '../hooks/useModalFocus';
 
 interface ConfirmDialogProps {
@@ -37,8 +38,7 @@ export function ConfirmDialog({
 
   useEffect(() => {
     if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseScroll = lockBodyScroll();
     const handleKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       // 确认框可能叠在抽屉上：只关闭最上面这一层。
@@ -47,7 +47,7 @@ export function ConfirmDialog({
     };
     window.addEventListener('keydown', handleKey, true);
     return () => {
-      document.body.style.overflow = previous;
+      releaseScroll();
       window.removeEventListener('keydown', handleKey, true);
     };
   }, [open, onCancel]);

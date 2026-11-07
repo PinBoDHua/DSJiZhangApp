@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { dailySeries, sumEntriesCapped } from './settlement';
+import { dailySeries, sumEntries, sumEntriesCapped } from './settlement';
 import { baseRule, makeEntry } from './testFixtures';
 import { periodOf } from './date';
+import { buildHeatmap } from './insights';
+import { round2 } from './money';
 
 const fixedRule = {
   ...baseRule,
@@ -45,5 +47,101 @@ describe('统计金额回归', () => {
     ];
     const series = dailySeries(entries, '2026-11-03', '2026-11-04');
     expect(series.reduce((sum, point) => sum + point.earnings, 0)).toBe(318.18);
+  });
+
+  it('月薪同一天多段也只计一次基础工资，周统计与热力图口径一致', () => {
+    const monthlyRule = {
+      ...baseRule,
+      payType: 'monthly' as const,
+      rate: 2200,
+      expectedDays: 22,
+      monthlyMode: 'prorated' as const,
+      otEnabled: false,
+    };
+    const entries = [
+      makeEntry({ id: 'm-a', date: '2026-11-03', hours: 4, rule: monthlyRule }),
+      makeEntry({
+        id: 'm-b',
+        date: '2026-11-03',
+        hours: 4,
+        createdAt: '2026-11-03T13:00:00.000Z',
+        rule: monthlyRule,
+      }),
+    ];
+    expect(sumEntries(entries).base).toBe(100);
+    expect(sumEntries(entries).hours).toBe(8);
+    expect(sumEntriesCapped(entries).base).toBe(100);
+    expect(buildHeatmap(entries, { today: '2026-11-10', weeks: 4 }).totalEarnings).toBe(100);
+    expect(
+      dailySeries(entries, '2026-11-03', '2026-11-03').reduce(
+        (sum, point) => sum + point.earnings,
+        0,
+      ),
+    ).toBe(100);
+  });
+
+  it('时薪同一天多段仍逐笔计薪，不受去重影响', () => {
+    const entries = [
+      makeEntry({ id: 'h-a', date: '2026-11-03', hours: 4, rule: baseRule }),
+      makeEntry({ id: 'h-b', date: '2026-11-03', hours: 4, rule: baseRule }),
+    ];
+    expect(sumEntries(entries).base).toBe(200);
+    expect(sumEntriesCapped(entries).base).toBe(200);
+  });
+
+  it('同月调价时固定月薪按每日快照折算，不再按整月发放', () => {
+    const before = { ...baseRule, payType: 'monthly' as const, rate: 3500, expectedDays: 22, monthlyMode: 'fixed' as const, otEnabled: false };
+    const after = { ...before, rate: 4000 };
+    const entries = [
+      ...Array.from({ length: 13 }, (_, index) =>
+        makeEntry({
+          id: `raise-old-${index}`,
+          date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+          rule: before,
+        }),
+      ),
+      ...Array.from({ length: 9 }, (_, index) =>
+        makeEntry({
+          id: `raise-new-${index}`,
+          date: `2026-11-${String(index + 14).padStart(2, '0')}`,
+          rule: after,
+        }),
+      ),
+    ];
+    // 按每日快照折算：13 天 × 3500/22 + 9 天 × 4000/22，整套规则的月薪封顶取最高月薪。
+    expect(sumEntriesCapped(entries).base).toBe(3704.55);
+    expect(sumEntriesCapped(entries).capAdjustment).toBe(0);
+  });
+
+  it('月薪整月图表之和精确等于合计，不因逐日舍入漂移', () => {
+    const highFixed = { ...fixedRule, rate: 10000 };
+    const entries = Array.from({ length: 22 }, (_, index) =>
+      makeEntry({
+        id: `full-${index}`,
+        date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+        rule: highFixed,
+      }),
+    );
+    const period = periodOf('monthly', '2026-11-10');
+    const chart = round2(
+      dailySeries(entries, period.start, period.end).reduce(
+        (sum, point) => sum + point.earnings,
+        0,
+      ),
+    );
+    const totals = sumEntriesCapped(entries);
+    expect(chart).toBe(10000);
+    expect(totals.total).toBe(10000);
+    expect(Math.abs(chart - totals.total)).toBeLessThan(0.001);
+
+    const prorated = { ...highFixed, monthlyMode: 'prorated' as const };
+    const proratedEntries = entries.map((entry) => ({ ...entry, rule: prorated }));
+    const proratedChart = round2(
+      dailySeries(proratedEntries, period.start, period.end).reduce(
+        (sum, point) => sum + point.earnings,
+        0,
+      ),
+    );
+    expect(proratedChart).toBe(sumEntriesCapped(proratedEntries).total);
   });
 });

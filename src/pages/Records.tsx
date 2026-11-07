@@ -235,10 +235,10 @@ export function Records({
         </button>
       </div>
 
-      <div className="records-tools" aria-label="工记工具">
+      <div className="records-tools" role="group" aria-label="工记工具">
         <button
           type="button"
-          className="records-tool is-active"
+          className="records-tool"
           onClick={switchView}
           aria-label={view === 'list' ? '切换到日历视图' : '切换到列表视图'}
           title={view === 'list' ? '日历视图' : '列表视图'}
@@ -326,7 +326,7 @@ export function Records({
       ) : null}
 
       {filterJobs.length > 0 ? (
-        <div className="filter-row" aria-label="按工作筛选">
+        <div className="filter-row" role="group" aria-label="按工作筛选">
           <button
             type="button"
             className={`filter-chip ${effectiveFilter === 'all' ? 'is-active' : ''}`}

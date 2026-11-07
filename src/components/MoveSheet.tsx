@@ -82,18 +82,24 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
 
   const doExport = async () => {
     setError('');
-    if (password && password.length < 6) {
+    // 与 buildMovePackage 的解密口径一致：首尾空格不参与密码，全空白密码直接拒绝。
+    const effectivePassword = password.trim();
+    if (password.length > 0 && effectivePassword.length === 0) {
+      setError('密码不能全是空格；不设密码请留空');
+      return;
+    }
+    if (effectivePassword.length > 0 && effectivePassword.length < 6) {
       setError('密码至少 6 位');
       return;
     }
-    if (password !== confirmPassword) {
+    if (effectivePassword !== confirmPassword.trim()) {
       setError('两次输入的密码不一致');
       return;
     }
     setBusy(true);
     try {
       const { text, header } = await buildMovePackage(state, {
-        password: password || undefined,
+        password: effectivePassword || undefined,
         passwordHint: passwordHint || undefined,
       });
       const filename = moveFileName();
@@ -248,7 +254,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
                 </div>
                 <div>
                   <dt>密码</dt>
-                  <dd>{password ? '已加密' : '未加密'}</dd>
+                  <dd>{password.trim() ? '已加密' : '未加密'}</dd>
                 </div>
               </dl>
               <p className="move-tip">

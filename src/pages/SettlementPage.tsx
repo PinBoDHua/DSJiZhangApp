@@ -26,11 +26,13 @@ import { ShareQrSheet } from '../components/ShareQrSheet';
 import { SubPage } from '../components/SubPage';
 import {
   eachDay,
+  endOfMonth,
   formatDateShort,
   formatDateWithWeekday,
   formatDateTime,
   periodContains,
   periodOf,
+  startOfMonth,
   todayISO,
   weekdayCN,
 } from '../lib/date';
@@ -88,6 +90,35 @@ function AmountRow({
 
 const WEEKDAYS_MONDAY = ['一', '二', '三', '四', '五', '六', '日'];
 const WEEKDAYS_SUNDAY = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** 月薪明细是否横跨了不同的计薪快照（同月调价 / 改计薪天数）。 */
+function monthlyTermsVary(entries: Entry[]): boolean {
+  const monthly = entries.filter((entry) => entry.rule.payType === 'monthly');
+  const first = monthly[0];
+  if (!first) return false;
+  return monthly.some(
+    (entry) =>
+      entry.rule.rate !== first.rule.rate ||
+      entry.rule.expectedDays !== first.rule.expectedDays ||
+      entry.rule.monthlyMode !== first.rule.monthlyMode,
+  );
+}
+
+/** 只有「整自然月 + 规则一致」时，固定月薪才是整月发放；否则按出勤折算。 */
+function isFixedFullMonth(
+  period: { start: string; end: string },
+  payType: string | undefined,
+  monthlyMode: string | undefined,
+  entries: Entry[],
+): boolean {
+  return (
+    payType === 'monthly' &&
+    monthlyMode === 'fixed' &&
+    period.start === startOfMonth(period.start) &&
+    period.end === endOfMonth(period.start) &&
+    !monthlyTermsVary(entries)
+  );
+}
 
 function weekdayOffset(date: string, weekStartsOn: 0 | 1): number {
   const day = new Date(`${date}T00:00:00`).getDay();
@@ -236,6 +267,8 @@ export function SettlementDraftPage({
   } as CSSProperties;
   const hasEntries = draft.entries.length > 0;
   const isFixedDraft = draft.payType === 'monthly' && draft.monthlyMode === 'fixed';
+  // 固定月薪只有整自然月才整月发放；周结 / 日结或同月调价时按出勤折算，文案不能再说“不扣减”。
+  const fixedFullMonth = isFixedFullMonth(period, draft.payType, draft.monthlyMode, draft.entries);
   const isFlexibleRest =
     isFixedDraft && (job.rule.restPolicy ?? 'quota') === 'flexible';
   const isMonthlyDraft = draft.payType === 'monthly';
@@ -539,7 +572,7 @@ export function SettlementDraftPage({
           </div>
           {draft.capAdjustment > 0 ? (
             <p className="calc-note">
-              月薪已按整月封顶，已剔除 <Money value={draft.capAdjustment} />。
+              月薪已按周期上限封顶，超出部分已剔除 <Money value={draft.capAdjustment} />。
             </p>
           ) : null}
         </section>
@@ -560,7 +593,7 @@ export function SettlementDraftPage({
           )}
           {job.rule.payType === 'monthly' && draft.entries.length > 0 ? (
             <p className="calc-note">
-              {draft.monthlyMode === 'fixed'
+              {fixedFullMonth
                 ? `固定月薪整月发放；上方单笔为日折算参考，实际不按出勤天数扣减。本期休息 ${
                     draft.restDays
                   } 天${
@@ -568,9 +601,13 @@ export function SettlementDraftPage({
                       ? `（${draft.restDates.map(formatDateShort).join('、')}）`
                       : ''
                   }。`
-                : `月薪明细为单日折算，结算已按整月封顶；休息日不计薪。本期休息 ${
-                    draft.restDays
-                  } 天。`}
+                : draft.monthlyMode === 'fixed'
+                  ? `固定月薪按本期实际出勤折算（月薪 ÷ 计薪天数 × 出勤天数，封顶为月薪）；上方单笔为日折算参考。本期休息 ${
+                      draft.restDays
+                    } 天。`
+                  : `月薪明细为单日折算，并按周期封顶；休息日不计薪。本期休息 ${
+                      draft.restDays
+                    } 天。`}
             </p>
           ) : null}
           {draft.payType === 'piece' && draft.entries.length > 0 ? (
@@ -803,6 +840,8 @@ interface RecordPageProps {
 export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) {
   const { state, undoSettlement, toast } = useStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const undoingRef = useRef(false);
   const [payslipOpen, setPayslipOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -838,6 +877,12 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
   const paymentStatus = paymentStatusOf(settlement);
   const paidAmount = paidAmountOf(settlement);
   const remainingAmount = remainingAmountOf(settlement);
+  const fixedFullMonth = isFixedFullMonth(
+    { start: settlement.periodStart, end: settlement.periodEnd },
+    settlement.payType,
+    settlement.monthlyMode,
+    entries,
+  );
 
   const handleCopy = async () => {
     const ok = await copyText(settlementCopyText(settlement));
@@ -845,25 +890,33 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
   };
 
   const handleUndo = async () => {
-    try {
-      await saveSnapshot(state, 'before-undo-settlement');
-    } catch (error) {
-      setConfirmOpen(false);
-      toast(
-        error instanceof Error
-          ? `撤销前快照失败，已保留结算：${error.message}`
-          : '撤销前快照失败，已保留结算',
-        'error',
-      );
-      return;
-    }
-    const ok = undoSettlement(settlement.id);
+    // 连点两次会各拍一张快照并撤销两次，第二次还会在页面卸载后弹“撤销失败”。
+    if (undoingRef.current) return;
+    undoingRef.current = true;
     setConfirmOpen(false);
-    if (ok) {
-      toast('已撤销结算，工记已解锁；撤销前已留快照', 'info');
-      onBack();
-    } else {
-      toast('撤销失败，请重试', 'error');
+    setUndoBusy(true);
+    try {
+      try {
+        await saveSnapshot(state, 'before-undo-settlement');
+      } catch (error) {
+        toast(
+          error instanceof Error
+            ? `撤销前快照失败，已保留结算：${error.message}`
+            : '撤销前快照失败，已保留结算',
+          'error',
+        );
+        return;
+      }
+      const ok = undoSettlement(settlement.id);
+      if (ok) {
+        toast('已撤销结算，工记已解锁；撤销前已留快照', 'info');
+        onBack();
+      } else {
+        toast('撤销失败，请重试', 'error');
+      }
+    } finally {
+      undoingRef.current = false;
+      setUndoBusy(false);
     }
   };
 
@@ -901,6 +954,7 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
               type="button"
               className="btn btn--ghost btn--danger-text"
               onClick={() => setConfirmOpen(true)}
+              disabled={undoBusy}
             >
               <Undo2 size={16} />
               撤销
@@ -1073,11 +1127,13 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
             </div>
             {entries.some((entry) => entry.rule.payType === 'monthly') ? (
               <p className="calc-note">
-                {settlement.payType === 'monthly' && settlement.monthlyMode === 'fixed'
+                {fixedFullMonth
                   ? `固定月薪整月发放；上方单笔为日折算参考。本期休息 ${
                       settlement.restDays ?? 0
                     } 天。`
-                  : '月薪明细为单日折算，结算已按整月封顶；休息日不计薪。'}
+                  : settlement.monthlyMode === 'fixed'
+                    ? '固定月薪按本期实际出勤折算；上方单笔为日折算参考。'
+                    : '月薪明细为单日折算，并按周期封顶；休息日不计薪。'}
               </p>
             ) : null}
           </section>

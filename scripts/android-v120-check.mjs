@@ -1,7 +1,9 @@
 import { chromium } from 'playwright-core';
+import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
+const APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
 const OUT = 'test-results-android-v120';
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
@@ -66,7 +68,7 @@ await page.getByRole('button', { name: '返回', exact: true }).click();
 console.log('PASS 周期记工入口与预览页');
 
 await page.getByRole('button', { name: '我的', exact: true }).click();
-assert.ok((await page.locator('.profile-footer').innerText()).includes('v1.2.0'));
+assert.ok((await page.locator('.profile-footer').innerText()).includes(`v${APP_VERSION}`));
 await page.getByRole('button', { name: /数据与安全/ }).click();
 await page.getByRole('button', { name: /完整工记 CSV/ }).click();
 await page.waitForTimeout(800);
@@ -106,4 +108,4 @@ assert.deepEqual(after, before, '只读真机验收不应改变账本');
 assert.deepEqual(errors, [], errors.join('\n'));
 await writeFile(`${OUT}/result.json`, JSON.stringify({ before, after, layout, exportToast, pluginResult, errors }, null, 2));
 await browser.close();
-console.log('ALL PASS Android v1.2.0；账本保持不变');
+console.log(`ALL PASS Android v${APP_VERSION}；账本保持不变`);

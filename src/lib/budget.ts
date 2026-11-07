@@ -43,7 +43,7 @@ export function monthlyBudgetStatus(
   } else if (incomeTarget > 0 && totals.total >= incomeTarget) {
     alert = {
       code: 'income-reached',
-      message: `本月收入目标已完成，当前已达 ${Math.floor(incomePercent)}%`,
+      message: `本月收入目标已达成，当前已计入 ${Math.floor(incomePercent)}%`,
       tone: 'success',
     };
   } else if (hoursLimit > 0 && totals.hours >= hoursLimit * 0.8) {
@@ -55,7 +55,7 @@ export function monthlyBudgetStatus(
   } else if (incomeTarget > 0 && totals.total >= incomeTarget * 0.8) {
     alert = {
       code: 'income-near',
-      message: `本月收入已完成 ${Math.floor(incomePercent)}%，接近目标了`,
+      message: `本月收入已计入 ${Math.floor(incomePercent)}%，接近目标了`,
       tone: 'info',
     };
   }

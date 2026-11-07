@@ -1,7 +1,9 @@
 import { chromium } from 'playwright-core';
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
+const APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
 const BASE = 'http://127.0.0.1:4173';
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const OUT = 'test-results-v120';
@@ -42,14 +44,14 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: /先看看示例数据/ }).click();
 await page.waitForTimeout(1600);
 
-await step('分类统计与 1.2.0 版本', async () => {
+await step(`分类统计与 ${APP_VERSION} 版本`, async () => {
   await openTab('统计');
   await page.getByRole('button', { name: '本月', exact: true }).click();
   await page.getByText('分类统计', { exact: true }).waitFor();
   assert.ok((await page.locator('.category-card').innerText()).includes('月薪'));
   await page.screenshot({ path: `${OUT}/01-category-stats.png`, fullPage: true });
   await openTab('我的');
-  assert.ok((await page.locator('body').innerText()).includes('v1.2.0'));
+  assert.ok((await page.locator('body').innerText()).includes(`v${APP_VERSION}`));
 });
 
 await step('预算设置、首页提醒和统计进度', async () => {
@@ -143,4 +145,4 @@ await step('损坏账本停止写入并可导出原文', async () => {
 });
 await brokenContext.close();
 await browser.close();
-console.log('ALL PASS v1.2.0');
+console.log(`ALL PASS v${APP_VERSION}`);

@@ -128,10 +128,12 @@ public class MainActivity extends BridgeActivity {
                 WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
             );
             float density = view.getResources().getDisplayMetrics().density;
-            safeAreaScript = "document.documentElement.style.setProperty('--safe-top','" + (insets.top / density) + "px');"
-                + "document.documentElement.style.setProperty('--safe-right','" + (insets.right / density) + "px');"
-                + "document.documentElement.style.setProperty('--safe-bottom','" + (insets.bottom / density) + "px');"
-                + "document.documentElement.style.setProperty('--safe-left','" + (insets.left / density) + "px');";
+            // onPageStarted 时新文档的 documentElement 可能还没建好，脚本要自己兜底，避免每次加载都抛异常。
+            safeAreaScript = "(function(){var d=document.documentElement;if(!d||!d.style){return;}"
+                + "d.style.setProperty('--safe-top','" + (insets.top / density) + "px');"
+                + "d.style.setProperty('--safe-right','" + (insets.right / density) + "px');"
+                + "d.style.setProperty('--safe-bottom','" + (insets.bottom / density) + "px');"
+                + "d.style.setProperty('--safe-left','" + (insets.left / density) + "px');})();";
             applySafeAreaScript(webView);
             return windowInsets;
         });

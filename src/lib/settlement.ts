@@ -47,7 +47,7 @@ const EMPTY_TOTALS: Totals = {
 /** 逐笔汇总（月薪按每日折算展示，不封顶） */
 export function sumEntries(entries: Entry[]): Totals {
   const days = new Set<string>();
-  const dailyBaseDays = new Set<string>();
+  const baseDays = new Set<string>();
   let base = 0;
   let otPay = 0;
   let bonus = 0;
@@ -57,9 +57,12 @@ export function sumEntries(entries: Entry[]): Totals {
 
   for (const entry of entries) {
     const pay = payForEntry(entry);
-    const dailyKey = `${entry.jobId}|${entry.date}`;
-    const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
-    if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
+    // 日薪 / 月薪同一天多段只计一次基础工资，与 sumEntriesCapped 的封顶口径保持一致。
+    const payType = entry.rule.payType;
+    const perDayBase = payType === 'daily' || payType === 'monthly';
+    const baseKey = `${payType}|${entry.jobId}|${entry.date}`;
+    const includeBase = !perDayBase || !baseDays.has(baseKey);
+    if (perDayBase) baseDays.add(baseKey);
     if (includeBase) base += pay.base;
     otPay += pay.otPay;
     bonus += pay.bonus;
@@ -537,11 +540,19 @@ export function dailySeries(entries: Entry[], start: string, end: string): Daily
       rawByDate.set(date, raw);
       rawTotal += raw;
     }
-    for (const [date, dayEntries] of byDate) {
+    // 逐日先舍入再累加会漂移 1–2 分；最后一天吃掉余数，保证图表之和精确等于合计。
+    const dates = Array.from(byDate.keys()).sort();
+    let allocated = 0;
+    dates.forEach((date, index) => {
+      const dayEntries = byDate.get(date) ?? [];
       const point = map.get(date);
-      if (!point) continue;
       const raw = rawByDate.get(date) ?? 0;
-      const base = rawTotal > 0 ? (targetBase * raw) / rawTotal : 0;
+      const isLast = index === dates.length - 1;
+      const base = isLast
+        ? round2(targetBase - allocated)
+        : round2(rawTotal > 0 ? (targetBase * raw) / rawTotal : 0);
+      allocated = round2(allocated + base);
+      if (!point) return;
       let additions = base;
       for (const entry of dayEntries) {
         const pay = payForEntry(entry);
@@ -549,7 +560,7 @@ export function dailySeries(entries: Entry[], start: string, end: string): Daily
         point.hours = round2(point.hours + (entry.hours || 0));
       }
       point.earnings = round2(point.earnings + additions);
-    }
+    });
   }
   return Array.from(map.values());
 }

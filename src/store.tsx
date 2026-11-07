@@ -55,9 +55,22 @@ export type NewJobInput = Omit<Job, 'id' | 'createdAt' | 'archived'> & { archive
 export type NewEntryInput = Omit<Entry, 'id' | 'createdAt' | 'updatedAt'>;
 export type EntryPatch = Partial<Omit<Entry, 'id' | 'createdAt' | 'settlementId'>>;
 
-function validRecurringInput(state: AppState, input: NewRecurringRuleInput): boolean {
-  const job = state.jobs.find((item) => item.id === input.jobId && !item.archived);
+function validRecurringInput(
+  state: AppState,
+  input: NewRecurringRuleInput,
+  options: { allowArchivedJob?: boolean } = {},
+): boolean {
+  const job = state.jobs.find(
+    (item) => item.id === input.jobId && (options.allowArchivedJob || !item.archived),
+  );
   if (!job || !isValidDate(input.startDate)) return false;
+  if (input.frequency !== 'daily' && input.frequency !== 'weekly' && input.frequency !== 'monthly') {
+    return false;
+  }
+  if (!Number.isInteger(input.dayOfMonth) || input.dayOfMonth < 1 || input.dayOfMonth > 31) {
+    return false;
+  }
+  if (!input.weekdays.every((day) => Number.isInteger(day) && day >= 0 && day <= 6)) return false;
   if (input.endDate && (!isValidDate(input.endDate) || input.endDate < input.startDate)) {
     return false;
   }
@@ -426,7 +439,7 @@ function StoreStateProvider({
       trashedEntries: prev.trashedEntries.filter((item) => item.entry.id !== entry.id),
     });
     if (current.entries.some((item) => item.id === entry.id)) {
-      setState(dropTrash);
+      commit(dropTrash);
       return true;
     }
     if (entry.settlementId) return false;
@@ -593,7 +606,10 @@ function StoreStateProvider({
   const updateRecurringRule = useCallback((rule: RecurringRule) => {
     const current = stateRef.current;
     const existing = current.recurringRules?.find((item) => item.id === rule.id);
-    if (!existing || !validRecurringInput(current, rule)) return false;
+    // 工作归档后仍允许关闭 / 修改规则，否则自动补记会变成关不掉的后台行为。
+    if (!existing || !validRecurringInput(current, rule, {
+      allowArchivedJob: rule.jobId === existing.jobId,
+    })) return false;
     const scheduleChanged =
       existing.jobId !== rule.jobId ||
       existing.frequency !== rule.frequency ||

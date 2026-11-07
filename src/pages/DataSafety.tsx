@@ -114,7 +114,11 @@ export function DataSafety({
       setAuto(readAutoBackupSettings());
       setBackupAt(getLastBackupAt());
       if (result.error) toast(`自动备份失败：${result.error}`, 'error');
-      else toast(`自动备份已开启${result.path ? `，已写入 ${result.path}` : ''}`, 'success');
+      else if (result.warning) {
+        toast(`自动备份已开启，但旧备份清理失败：${result.warning}`, 'info');
+      } else {
+        toast(`自动备份已开启${result.path ? `，已写入 ${result.path}` : ''}`, 'success');
+      }
     } finally {
       setBusy(false);
     }

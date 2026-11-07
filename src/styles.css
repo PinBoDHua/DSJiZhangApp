@@ -10413,6 +10413,18 @@ html[data-theme='dark'] .heat-day.is-today {
   margin-top: 20px;
 }
 
+.error-boundary-actions .btn + .btn {
+  margin-top: 9px;
+}
+
+.error-boundary-status {
+  margin-top: 11px;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .error-boundary-detail {
   margin-top: 16px;
   padding-top: 12px;
@@ -11722,6 +11734,10 @@ html[data-theme="dark"] .today-strip.is-done .today-icon {
   border-color: rgba(20, 107, 75, 0.3);
 }
 
+.budget-card.is-info {
+  border-color: rgba(68, 112, 140, 0.26);
+}
+
 .budget-metric {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
@@ -11795,6 +11811,16 @@ html[data-theme="dark"] .today-strip.is-done .today-icon {
 .budget-nudge.is-success .backup-nudge-icon {
   background: var(--primary-soft);
   color: var(--primary);
+}
+
+.budget-nudge.is-warning .backup-nudge-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.budget-nudge.is-info .backup-nudge-icon {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 
 .budget-enable-row {
@@ -11965,8 +11991,20 @@ html[data-theme="dark"] .today-strip.is-done .today-icon {
 html[data-theme="dark"] .recurring-summary,
 html[data-theme="dark"] .recurring-rule,
 html[data-theme="dark"] .budget-card {
-  border-color: var(--line);
   background: var(--surface);
+}
+
+/* 深色下 .card 的边框规则权重更高，预算卡的分档边框要单独提权才能显示。 */
+html[data-theme="dark"] .budget-card.is-warning {
+  border-color: rgba(214, 118, 98, 0.46);
+}
+
+html[data-theme="dark"] .budget-card.is-success {
+  border-color: rgba(92, 170, 128, 0.46);
+}
+
+html[data-theme="dark"] .budget-card.is-info {
+  border-color: rgba(112, 152, 182, 0.4);
 }
 
 html[data-theme="dark"] .recurring-weekdays button {

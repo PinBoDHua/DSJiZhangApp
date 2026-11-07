@@ -82,6 +82,8 @@ export interface AutoBackupResult {
   path?: string;
   pruned?: number;
   error?: string;
+  /** 备份已写入但旧文件清理失败；不影响本次备份成功。 */
+  warning?: string;
 }
 
 export async function runAutoBackup(
@@ -100,21 +102,29 @@ export async function runAutoBackup(
       const result = await saveTextFile(filename, buildExportPayload(state), undefined, {
         subdirectory: AUTO_BACKUP_SUBDIR,
       });
-      const pruned = await pruneDownloadFiles(
-        AUTO_BACKUP_PREFIX,
-        settings.keep,
-        AUTO_BACKUP_SUBDIR,
-      );
+      // 清理旧备份失败不能把这次备份算作失败：文件已经写进去了，下次再清理即可。
+      let pruned = 0;
+      let pruneError: string | undefined;
+      try {
+        pruned = await pruneDownloadFiles(
+          AUTO_BACKUP_PREFIX,
+          settings.keep,
+          AUTO_BACKUP_SUBDIR,
+        );
+      } catch (error) {
+        pruneError = error instanceof Error ? error.message : '旧自动备份清理失败';
+      }
       writeAutoBackupSettings({
         lastRunAt: now.toISOString(),
         lastFile:
           result === 'native'
             ? `下载/Xinshi/${AUTO_BACKUP_SUBDIR}/${filename}`
             : filename,
+        // 清理失败不是备份失败，不写进“上次失败”，只在下一次运行前继续尝试清理。
         lastError: undefined,
       });
       markBackedUp(now);
-      return { ran: true, path: filename, pruned };
+      return { ran: true, path: filename, pruned, warning: pruneError };
     } catch (error) {
       const message = error instanceof Error ? error.message : '自动备份失败';
       writeAutoBackupSettings({ lastError: message });

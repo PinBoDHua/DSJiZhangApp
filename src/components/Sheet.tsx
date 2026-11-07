@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { pushNativeBack } from '../lib/nativeBack';
+import { lockBodyScroll } from '../lib/scrollLock';
 import { useModalFocus } from '../hooks/useModalFocus';
 
 interface SheetProps {
@@ -26,14 +27,13 @@ export function Sheet({ open, title, subtitle, onClose, children, className = ''
 
   useEffect(() => {
     if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseScroll = lockBodyScroll();
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeRef.current();
     };
     window.addEventListener('keydown', handleKey);
     return () => {
-      document.body.style.overflow = previous;
+      releaseScroll();
       window.removeEventListener('keydown', handleKey);
     };
   }, [open]);

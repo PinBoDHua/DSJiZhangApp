@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Entry, Job, PayRule, Period, RestDay } from '../types';
-import { buildAttendanceCsv } from './csv';
+import { buildAttendanceCsv, buildCsv, buildEntryCsv } from './csv';
 
 const rule = {
   payType: 'monthly',
@@ -78,5 +78,28 @@ describe('月度考勤 CSV', () => {
     expect(csv).toContain('2026-11-02,周一,休 0.5,未记,0');
     expect(csv).toContain('2026-11-03,周二,未记,未记,0');
     expect(csv).toContain('合计,,1 班 / 0.5 休 / 6h,1 班 / 0 休 / 8h,14');
+  });
+});
+
+describe('CSV 转义', () => {
+  it('公式前缀、逗号、换行和回车都会转义', () => {
+    expect(buildCsv([['=1+1', '@cmd', '+86', '-1+2']])).toBe(
+      "'=1+1,'@cmd,'+86,'-1+2",
+    );
+    expect(buildCsv([['a,b', 'c"d', 'e\nf', 'g\rh']])).toBe('"a,b","c""d","e\nf","g\rh"');
+    // 数字不算文本，保持原样，不会误加撇号。
+    expect(buildCsv([[42, -1, 1.5]])).toBe('42,-1,1.5');
+  });
+
+  it('完整工记 CSV 的备注转义后列数不变', () => {
+    const messy = {
+      ...entry('j1', '2026-11-01', 6),
+      note: '=HYPERLINK("http://x"),\n第二行',
+    } as Entry;
+    const csv = buildEntryCsv([messy], [job('j1', '老宅装修')]);
+    const [header, row] = csv.replace(/^\uFEFF/, '').split('\r\n');
+    expect(header.split(',').length).toBeGreaterThan(30);
+    expect(row.startsWith('entry-j1-2026-11-01,')).toBe(true);
+    expect(row).toContain('"\'=HYPERLINK(""http://x""),\n第二行"');
   });
 });

@@ -66,7 +66,7 @@ public class SaveFilePlugin extends Plugin {
         values.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
         Uri uri = null;
-        boolean removedExisting = false;
+        boolean published = false;
         try {
             uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
@@ -80,26 +80,34 @@ public class SaveFilePlugin extends Plugin {
                 stream.write(bytes);
                 stream.flush();
             }
-            // 新文件完整写入后再替换同名旧文件；写失败时只删除临时文件，旧备份不动。
-            removeExistingFiles(resolver, relativePath, filename);
-            removedExisting = true;
+            // 先让新文件以最终名称可见，再清理同名旧文件：
+            // 发布失败时只删临时文件，旧备份不受影响；清理失败时最多多留一份。
             ContentValues done = new ContentValues();
             done.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
             done.put(MediaStore.MediaColumns.IS_PENDING, 0);
             if (resolver.update(uri, done, null, null) <= 0) {
                 throw new IllegalStateException("文件发布失败");
             }
-
-            resolveSaved(call, uri, subdir, filename);
+            published = true;
+            String finalName = displayNameOf(resolver, uri, filename);
+            try {
+                removeExistingFiles(resolver, relativePath, filename, uri);
+                if (!finalName.equals(filename)) {
+                    // 同名旧文件刚才还占着名字，系统把新文件改成了 “name (1)”；旧文件已清理，改名回去。
+                    ContentValues rename = new ContentValues();
+                    rename.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+                    if (resolver.update(uri, rename, null, null) > 0) {
+                        finalName = displayNameOf(resolver, uri, filename);
+                    }
+                }
+            } catch (Exception ignored) {
+                // 清理或改名失败时保留实际文件名，新备份已经落盘，不能因此报保存失败。
+            }
+            resolveSaved(call, uri, subdir, finalName);
         } catch (Exception error) {
-            if (uri != null && !removedExisting) {
-                resolver.delete(uri, null, null);
-            } else if (uri != null) {
-                // 旧文件已替换时保留新文件，宁可留下可恢复的临时文件也不双删。
+            if (uri != null && !published) {
                 try {
-                    ContentValues recover = new ContentValues();
-                    recover.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                    resolver.update(uri, recover, null, null);
+                    resolver.delete(uri, null, null);
                 } catch (Exception ignored) {
                     // 保留原始错误返回给前端。
                 }
@@ -108,18 +116,40 @@ public class SaveFilePlugin extends Plugin {
         }
     }
 
-    private void removeExistingFiles(ContentResolver resolver, String relativePath, String filename) {
+    /** 读取已发布文件的实际名称：同名冲突时系统可能自动改名。 */
+    private String displayNameOf(ContentResolver resolver, Uri uri, String fallback) {
+        try (Cursor cursor = resolver.query(
+                uri, new String[] { MediaStore.MediaColumns.DISPLAY_NAME }, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String name = cursor.getString(0);
+                if (name != null && !name.isEmpty()) return name;
+            }
+        } catch (Exception ignored) {
+            // 查询失败时按请求的文件名返回。
+        }
+        return fallback;
+    }
+
+    private void removeExistingFiles(
+            ContentResolver resolver, String relativePath, String filename, Uri keep) {
         String selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
                 + MediaStore.MediaColumns.RELATIVE_PATH + " = ? AND "
                 + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + " = ? AND "
                 + MediaStore.MediaColumns.IS_PENDING + " = 0";
         String[] args = new String[] { filename, relativePath, getContext().getPackageName() };
         String[] columns = new String[] { MediaStore.MediaColumns._ID };
+        long keepId = -1;
+        try {
+            keepId = ContentUris.parseId(keep);
+        } catch (Exception ignored) {
+            // 不是单行 Uri 时不排除任何行。
+        }
         try (Cursor cursor = resolver.query(
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI, columns, selection, args, null)) {
             if (cursor == null) throw new IllegalStateException("无法检查同名文件");
             while (cursor.moveToNext()) {
                 long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID));
+                if (id == keepId) continue;
                 Uri existing = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id);
                 resolver.delete(existing, null, null);
             }

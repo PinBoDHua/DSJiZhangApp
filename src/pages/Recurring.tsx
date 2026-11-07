@@ -58,10 +58,11 @@ export function Recurring({ onBack }: { onBack: () => void }) {
 
   const generate = () => {
     const result = generateRecurring({ today });
+    const extra = result.truncated ? '；更早的规则日超出 120 天回溯上限，未补记' : '';
     if (result.added > 0) {
-      toast(`已补记 ${result.added} 笔${result.skipped > 0 ? `，跳过 ${result.skipped} 天` : ''}`);
+      toast(`已补记 ${result.added} 笔${result.skipped > 0 ? `，跳过 ${result.skipped} 天` : ''}${extra}`);
     } else {
-      toast('没有可新增的工记；冲突日期已标记为处理过', 'info');
+      toast(`没有可新增的工记；冲突日期已标记为处理过${extra}`, 'info');
     }
   };
 
@@ -110,6 +111,11 @@ export function Recurring({ onBack }: { onBack: () => void }) {
           确认补记到期工记
         </button>
         {preview.skipped > 0 ? <p className="field-hint">另有 {preview.skipped} 天因已有记录或规则冲突而跳过。</p> : null}
+        {preview.truncated ? (
+          <p className="field-hint">
+            规则开始日期早于 120 天前，只补记最近 120 天；更早的日期不会自动生成。
+          </p>
+        ) : null}
       </section>
 
       <div className="section-head recurring-list-head">
@@ -199,9 +205,13 @@ export function Recurring({ onBack }: { onBack: () => void }) {
         danger
         onCancel={() => setDeleteId(null)}
         onConfirm={() => {
-          if (deleteId) deleteRecurringRule(deleteId);
+          if (!deleteId) return;
+          const ok = deleteRecurringRule(deleteId);
           setDeleteId(null);
-          toast('周期规则已删除，历史工记未改动', 'info');
+          toast(
+            ok ? '周期规则已删除，历史工记未改动' : '这条规则已经不存在了，请返回后重试',
+            ok ? 'info' : 'error',
+          );
         }}
       />
     </SubPage>
@@ -313,6 +323,7 @@ function RuleEditor({
             <label className="field"><span className="field-label">开始日期</span><input className="text-input" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
             <label className="field"><span className="field-label">结束日期（可选）</span><input className="text-input" type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></label>
           </div>
+          <p className="field-hint">开始日期早于 120 天前时，只补记最近 120 天，避免一次生成太多工记。</p>
           <div className="two-col">
             <label className="field"><span className="field-label">每次工时</span><input className="text-input" type="number" min={0} max={24} step={0.5} value={hours} onChange={(event) => setHours(event.target.value)} inputMode="decimal" /></label>
             {isPiece ? <label className="field"><span className="field-label">每次{job.rule.unitLabel || '件'}数</span><input className="text-input" type="number" min={0} step={0.01} value={quantity} onChange={(event) => setQuantity(event.target.value)} inputMode="decimal" /></label> : <span />}

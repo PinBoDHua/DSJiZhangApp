@@ -94,6 +94,13 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  // 解密是异步的：用户关掉密码框后，迟到的结果不能再弹出导入确认。
+  const decryptSeqRef = useRef(0);
+  const cancelEncryptedImport = () => {
+    decryptSeqRef.current += 1;
+    setEncryptedImportText(null);
+    setImportError('');
+  };
 
   useEffect(() => {
     if (!nativeApp) return;
@@ -215,11 +222,13 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
     try {
       const text = await file.text();
       if (isEncryptedBackup(text)) {
+        decryptSeqRef.current += 1;
         setEncryptedImportText(text);
         setImportPassword('');
         setImportError('');
         return;
       }
+      decryptSeqRef.current += 1;
       const imported = validateImport(text, { unlockOrphans: true });
       setPendingImport(imported);
     } catch (error) {
@@ -232,13 +241,18 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
 
   const decryptAndStage = async () => {
     if (!encryptedImportText) return;
+    const seq = decryptSeqRef.current + 1;
+    decryptSeqRef.current = seq;
     setImportBusy(true);
     setImportError('');
     try {
       const imported = await decryptBackup(encryptedImportText, importPassword);
+      // 用户在解密期间关掉密码框或换了文件时，丢弃这次结果。
+      if (seq !== decryptSeqRef.current) return;
       setEncryptedImportText(null);
       setPendingImport(imported);
     } catch (error) {
+      if (seq !== decryptSeqRef.current) return;
       setImportError(error instanceof Error ? error.message : '解密失败');
     } finally {
       setImportBusy(false);
@@ -247,11 +261,13 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
 
   const confirmImport = async () => {
     if (!pendingImport || importBusy) return;
+    const next = pendingImport;
+    // 先关确认框再等快照：等待期间不能再点“取消”，否则用户以为取消了，覆盖却继续执行。
+    setPendingImport(null);
     setImportBusy(true);
     try {
       await saveSnapshot(state, 'before-import');
-      replaceState(pendingImport);
-      setPendingImport(null);
+      replaceState(next);
       toast('备份已导入，覆盖前账本已留快照');
     } catch (error) {
       toast(
@@ -937,10 +953,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
         open={Boolean(encryptedImportText)}
         title="输入备份密码"
         subtitle="解密成功后再确认是否覆盖当前数据"
-        onClose={() => {
-          setEncryptedImportText(null);
-          setImportError('');
-        }}
+        onClose={cancelEncryptedImport}
       >
         <div className="sheet-body">
           <label className="field">
@@ -968,7 +981,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
           <button
             type="button"
             className="btn btn--soft"
-            onClick={() => setEncryptedImportText(null)}
+            onClick={cancelEncryptedImport}
           >
             取消
           </button>
