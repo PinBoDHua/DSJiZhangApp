@@ -107,12 +107,15 @@ v1.2.0 已发布且出过签名包，因此这次复审修复按补丁版 **1.2.
 | 产物 | 大小 | SHA-256 |
 | --- | --- | --- |
 | `release/xinshi-v1.2.1.apk` | 3,343,885 B | `1ED341D61D5B5217291770EA41E792EEA8628118F14A235C27E70EA71100BB24` |
+| `release/xinshi-v1.2.1.aab` | 3,822,043 B | `4522D119A0FEB143DE0C22B7471AB3D4476425190C426057C979EF40E0DB6EED` |
 
 - 包名：`com.xinshi.app`
 - versionCode / versionName：`1201` / `1.2.1`
 - minSdk 22 / targetSdk 36；权限仍只有通知 / 开机提醒 / WakeLock，无 INTERNET / CAMERA。
 - 签名证书 SHA-256 与 v1.0.0 起一致：`A5:B8:51:4A:16:5A:78:49:A4:07:3B:D0:0A:94:75:9F:CB:95:7A:A0:2F:83:97:00:12:EB:72:F2:51:85:D6:06`
-- 本版只出 APK；上架前用同一 keystore 补 `bundleRelease`。
+  （APK 与 AAB 均已用该证书签名，AAB 用 `keytool -printcert -jarfile` 复核）。
+- 构建命令：`cd android && gradlew.bat assembleRelease` / `gradlew.bat bundleRelease`（默认 `1201` / `1.2.1`，可用 `-Pxinshi.versionCode=… -Pxinshi.versionName=…` 覆盖）。
+- 上架 Google Play 直接用 `release/xinshi-v1.2.1.aab`；国内分发用 APK。
 
 ---
 
