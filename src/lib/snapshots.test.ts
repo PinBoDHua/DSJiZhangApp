@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SnapshotMeta } from './snapshots';
 import {
   compressPayload,
@@ -6,6 +6,7 @@ import {
   diffManifests,
   ledgerManifest,
   planSnapshotPrune,
+  saveSnapshot,
   stateHash,
 } from './snapshots';
 import { makeEntry, makeJob, makeSettlement, makeState } from './testFixtures';
@@ -38,6 +39,69 @@ function meta(
   };
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function createSnapshotIndexedDb() {
+  const putCalled = deferred();
+  const putSucceeded = deferred();
+  let writeTx: any = null;
+  const db = {
+    close: vi.fn(),
+    transaction: (_store: string, mode: IDBTransactionMode) => {
+      if (mode === 'readonly') {
+        return {
+          objectStore: () => ({
+            getAll: () => {
+              const request: any = { result: [], error: null };
+              queueMicrotask(() => request.onsuccess?.());
+              return request;
+            },
+          }),
+        };
+      }
+      writeTx = { error: null };
+      writeTx.objectStore = () => ({
+        put: () => {
+          const request: any = { result: undefined, error: null };
+          putCalled.resolve();
+          queueMicrotask(() => {
+            request.onsuccess?.();
+            putSucceeded.resolve();
+          });
+          return request;
+        },
+      });
+      return writeTx;
+    },
+  };
+  return {
+    factory: {
+      open: () => {
+        const request: any = { result: db, error: null };
+        queueMicrotask(() => request.onsuccess?.());
+        return request;
+      },
+    } as unknown as IDBFactory,
+    putCalled: putCalled.promise,
+    putSucceeded: putSucceeded.promise,
+    complete: () => writeTx?.oncomplete?.(),
+    fail: () => {
+      writeTx.error = new Error('模拟事务写入失败');
+      writeTx.onerror?.();
+    },
+    abort: () => {
+      writeTx.error = new Error('模拟事务中止');
+      writeTx.onabort?.();
+    },
+  };
+}
+
 describe('账本清单与差异', () => {
   it('统计工作、工记、工时与工记合计', () => {
     const entry = makeEntry();
@@ -54,6 +118,20 @@ describe('账本清单与差异', () => {
     expect(manifest.entryTotal).toBe(200);
     expect(manifest.firstDate).toBe('2026-11-02');
     expect(manifest.lastDate).toBe('2026-11-02');
+  });
+
+  it('快照清单中的同日日薪不重复计算', () => {
+    const rule = { ...makeJob().rule, payType: 'daily' as const, rate: 300, otEnabled: false };
+    const manifest = ledgerManifest(
+      makeState({
+        entries: [
+          makeEntry({ id: 'daily-a', hours: 4, rule }),
+          makeEntry({ id: 'daily-b', hours: 3, rule }),
+        ],
+      }),
+    );
+    expect(manifest.entryTotal).toBe(300);
+    expect(manifest.hours).toBe(7);
   });
 
   it('差异按条数与金额给出前后值', () => {
@@ -160,5 +238,50 @@ describe('快照保留策略', () => {
     const remove = planSnapshotPrune(metas, { maxCount: 1 });
     expect(remove).not.toContain('newest');
     expect(remove).toHaveLength(9);
+  });
+});
+
+describe('快照写入事务', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('put 成功后仍等待事务完成才返回', async () => {
+    const idb = createSnapshotIndexedDb();
+    vi.stubGlobal('indexedDB', idb.factory);
+    let settled = false;
+    const saving = saveSnapshot(makeState(), 'manual');
+    void saving.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await idb.putSucceeded;
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    idb.complete();
+    await expect(saving).resolves.toMatchObject({ pruned: 0 });
+  });
+
+  it('事务 error 会拒绝保存', async () => {
+    const idb = createSnapshotIndexedDb();
+    vi.stubGlobal('indexedDB', idb.factory);
+    const saving = saveSnapshot(makeState(), 'manual');
+    await idb.putCalled;
+    idb.fail();
+    await expect(saving).rejects.toThrow('模拟事务写入失败');
+  });
+
+  it('put 成功后事务中止仍会拒绝保存', async () => {
+    const idb = createSnapshotIndexedDb();
+    vi.stubGlobal('indexedDB', idb.factory);
+    const saving = saveSnapshot(makeState(), 'manual');
+    await idb.putSucceeded;
+    idb.abort();
+    await expect(saving).rejects.toThrow('模拟事务中止');
   });
 });

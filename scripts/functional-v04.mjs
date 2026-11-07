@@ -97,7 +97,7 @@ await step('新建工记自动带入 6h + 午休 2h 班次', async () => {
     .filter({ hasText: '工时（选填）' })
     .locator('input');
   assert.equal(await hoursInput.inputValue(), '6');
-  assert.ok((await page.locator('.entry-preview').innerText()).includes('固定月薪整月发放'));
+  assert.ok((await page.locator('.entry-preview').innerText()).includes('金额仅作参考'));
   await page.locator('.entry-save').click();
   await page.waitForTimeout(700);
 });

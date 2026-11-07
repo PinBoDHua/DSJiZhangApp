@@ -68,8 +68,8 @@ export function Settlements({
   return (
     <div className="page settlements-page">
       <header className="page-heading">
-        <p className="eyebrow">算清每一笔</p>
-        <h1>结算</h1>
+        <p className="eyebrow">应结、已收、待收，一笔不漏</p>
+        <h1>工资结算</h1>
       </header>
 
       <section className={`receipt ${clear ? 'receipt--clear' : ''}`}>

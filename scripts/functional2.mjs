@@ -12,6 +12,7 @@ const context = await browser.newContext({
   serviceWorkers: 'block',
 });
 const page = await context.newPage();
+await page.clock.install({ time: new Date('2026-11-06T09:00:00+08:00') });
 await page.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
 const errors = [];
 page.on('console', (message) => {
@@ -158,7 +159,7 @@ await step('清空数据回到引导', async () => {
   await page.locator('.dialog .btn--danger').click();
   await page.waitForTimeout(800);
   await page.locator('.onboarding').waitFor();
-  await expectText('.onboarding-copy h1', '每一小时');
+  await expectText('.onboarding-copy h1', '记工算薪');
 });
 
 console.log(errors.length ? `CONSOLE ERRORS:\n${errors.join('\n')}` : 'NO CONSOLE ERRORS');

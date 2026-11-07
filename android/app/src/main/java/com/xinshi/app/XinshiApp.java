@@ -136,12 +136,14 @@ public class XinshiApp extends Application {
 
     private static void writeToDownloads(Application app, byte[] bytes) {
         ContentResolver resolver = app.getContentResolver();
-        String relativePath = Environment.DIRECTORY_DOWNLOADS + "/" + EXPORT_DIR;
+        String relativePath = Environment.DIRECTORY_DOWNLOADS + "/" + EXPORT_DIR + "/";
         try (Cursor cursor = resolver.query(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
             new String[] { MediaStore.MediaColumns._ID },
-            MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?",
-            new String[] { "xinshi-diag%" },
+            MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
+                + MediaStore.MediaColumns.RELATIVE_PATH + " = ? AND "
+                + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + " = ?",
+            new String[] { EXPORT_NAME, relativePath, app.getPackageName() },
             null
         )) {
             if (cursor != null && cursor.moveToFirst()) {
@@ -165,17 +167,20 @@ public class XinshiApp extends Application {
             return;
         }
         try (OutputStream stream = resolver.openOutputStream(uri, "wt")) {
-            if (stream != null) {
-                stream.write(bytes);
-                stream.flush();
+            if (stream == null) {
+                throw new IOException("无法写入诊断文件");
             }
+            stream.write(bytes);
+            stream.flush();
         } catch (IOException error) {
             resolver.delete(uri, null, null);
             return;
         }
         ContentValues done = new ContentValues();
         done.put(MediaStore.MediaColumns.IS_PENDING, 0);
-        resolver.update(uri, done, null, null);
+        if (resolver.update(uri, done, null, null) <= 0) {
+            resolver.delete(uri, null, null);
+        }
     }
 
     private static void writeToAppExternal(Application app, byte[] bytes) {

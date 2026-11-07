@@ -1,6 +1,6 @@
 import type { AppState } from '../types';
-import { payForEntry } from './pay';
 import { round2 } from './money';
+import { sumEntries } from './settlement';
 import { fnv1aHex, sha256Hex } from './crypto';
 import { validateImport } from './storage';
 
@@ -75,9 +75,7 @@ const MANUAL_REASONS: SnapshotReason[] = [
 export function ledgerManifest(state: AppState): LedgerManifest {
   const dates = state.entries.map((entry) => entry.date).filter(Boolean).sort();
   const hours = round2(state.entries.reduce((sum, entry) => sum + (entry.hours || 0), 0));
-  const entryTotal = round2(
-    state.entries.reduce((sum, entry) => sum + payForEntry(entry).total, 0),
-  );
+  const entryTotal = sumEntries(state.entries).total;
   return {
     jobs: state.jobs.length,
     entries: state.entries.length,
@@ -319,9 +317,13 @@ export async function saveSnapshot(
 
   const db = await openDb();
   try {
-    await requestResult(
-      db.transaction(STORE, 'readwrite').objectStore(STORE).put(record),
-    );
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(record);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('保存快照失败'));
+      tx.onabort = () => reject(tx.error ?? new Error('保存快照事务已中止'));
+    });
     const after = [...existing, meta].sort((a, b) => b.at.localeCompare(a.at));
     const remove = planSnapshotPrune(after);
     if (remove.length > 0) {

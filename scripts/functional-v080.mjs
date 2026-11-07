@@ -49,7 +49,7 @@ await step('记录页主标题不换行，动作按钮都有名称', async () =>
   await page.getByRole('button', { name: '记录', exact: true }).click();
   await page.waitForTimeout(600);
   const heading = page.locator('.page-heading h1');
-  assert.equal(await heading.innerText(), '工记');
+  assert.equal(await heading.innerText(), '工记明细');
   const box = await heading.boundingBox();
   assert.ok(box && box.height < 40, `标题高度 ${box?.height}`);
   for (const name of ['搜索工记', '切换到日历视图', '月度考勤', '记休息']) {
@@ -109,7 +109,7 @@ await step('清空搜索回到指南，返回记录页', async () => {
   assert.ok((await page.locator('.search-guide').innerText()).includes('试试点什么'));
   await page.getByRole('button', { name: '返回' }).click();
   await page.waitForTimeout(500);
-  assert.equal(await page.locator('.page-heading h1').innerText(), '工记');
+  assert.equal(await page.locator('.page-heading h1').innerText(), '工记明细');
 });
 
 await step('统计新增本年：12 个月与年度合计一致', async () => {

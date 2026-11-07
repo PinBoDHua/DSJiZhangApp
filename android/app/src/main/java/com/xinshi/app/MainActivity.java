@@ -1,8 +1,11 @@
 package com.xinshi.app;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
 import android.widget.ScrollView;
@@ -14,7 +17,14 @@ import com.getcapacitor.WebViewListener;
 
 public class MainActivity extends BridgeActivity {
 
-    private int rendererCrashCount = 0;
+    private static final long RENDERER_STABLE_MS = 30_000L;
+    private static int rendererCrashCount = 0;
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable resetRendererCrashCount = () -> {
+        rendererCrashCount = 0;
+        XinshiApp.mark("webview:renderer crash count reset");
+    };
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -41,6 +51,8 @@ public class MainActivity extends BridgeActivity {
                     @Override
                     public void onPageLoaded(WebView view) {
                         XinshiApp.mark("webview:pageLoaded url=" + safeUrl(view));
+                        mainHandler.removeCallbacks(resetRendererCrashCount);
+                        mainHandler.postDelayed(resetRendererCrashCount, RENDERER_STABLE_MS);
                         if (BuildConfig.XINSHI_DIAG) {
                             XinshiApp.export();
                         }
@@ -51,20 +63,23 @@ public class MainActivity extends BridgeActivity {
                         XinshiApp.mark("webview:renderProcessGone didCrash=" + (detail != null && detail.didCrash()));
                         XinshiApp.export();
                         rendererCrashCount++;
+                        mainHandler.removeCallbacks(resetRendererCrashCount);
+                        try {
+                            destroyWebView(view);
+                        } catch (Throwable error) {
+                            showCrashScreen(error);
+                            return true;
+                        }
                         if (rendererCrashCount > 1) {
                             showCrashScreen(new IllegalStateException("WebView 渲染进程反复崩溃"));
                             return true;
                         }
-                        // 返回 true 表示自己处理，避免系统把整个 App 杀掉；随后重载页面
-                        if (view != null) {
-                            view.post(() -> {
-                                try {
-                                    view.reload();
-                                } catch (Throwable ignored) {
-                                    // 忽略
-                                }
-                            });
+                        try {
+                            recreate();
+                        } catch (Throwable error) {
+                            showCrashScreen(error);
                         }
+                        // 返回 true 表示自己处理，避免系统把整个 App 杀掉。
                         return true;
                     }
                 });
@@ -88,6 +103,21 @@ public class MainActivity extends BridgeActivity {
         if (BuildConfig.XINSHI_DIAG) {
             XinshiApp.export();
         }
+    }
+
+    @Override
+    public void onDestroy() {
+        mainHandler.removeCallbacks(resetRendererCrashCount);
+        super.onDestroy();
+    }
+
+    private static void destroyWebView(WebView view) {
+        if (view == null) return;
+        ViewParent parent = view.getParent();
+        if (parent instanceof ViewGroup) {
+            ((ViewGroup) parent).removeView(view);
+        }
+        view.destroy();
     }
 
     private static String safeUrl(WebView view) {

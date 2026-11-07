@@ -14,13 +14,13 @@ interface SaveFilePlugin {
     filename: string;
     mimeType: string;
     data: string;
-    overwrite?: boolean;
     subdir?: string;
   }): Promise<SaveFileResult>;
   prune(options: { prefix: string; keep: number; subdir?: string }): Promise<PruneResult>;
 }
 
 const SaveFile = registerPlugin<SaveFilePlugin>('SaveFile');
+const MAX_NATIVE_SAVE_BYTES = 32 * 1024 * 1024;
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -39,14 +39,16 @@ function blobToBase64(blob: Blob): Promise<string> {
 export async function saveFileToDownloads(
   blob: Blob,
   filename: string,
-  options: { overwrite?: boolean; subdirectory?: string } = {},
+  options: { subdirectory?: string } = {},
 ): Promise<string> {
+  if (blob.size > MAX_NATIVE_SAVE_BYTES) {
+    throw new Error('文件超过 32 MB，已停止直接保存以避免手机内存不足');
+  }
   const data = await blobToBase64(blob);
   const result = await SaveFile.save({
     filename,
     mimeType: blob.type || 'application/octet-stream',
     data,
-    overwrite: options.overwrite,
     subdir: options.subdirectory,
   });
   return result.path;

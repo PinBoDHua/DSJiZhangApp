@@ -46,10 +46,15 @@ export function buildHeatmap(
   const currentWeekStart = startOfWeek(today, weekStartsOn);
   const firstWeekStart = addDays(currentWeekStart, -(weeksCount - 1) * 7);
   const byDate = new Map<string, { hours: number; earnings: number }>();
+  const dailyBaseDays = new Set<string>();
   for (const entry of entries) {
     const current = byDate.get(entry.date) ?? { hours: 0, earnings: 0 };
+    const pay = payForEntry(entry);
+    const dailyKey = `${entry.jobId}|${entry.date}`;
+    const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
+    if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
     current.hours += entry.hours || 0;
-    current.earnings += payForEntry(entry).total;
+    current.earnings += pay.total - (includeBase ? 0 : pay.base);
     byDate.set(entry.date, current);
   }
 

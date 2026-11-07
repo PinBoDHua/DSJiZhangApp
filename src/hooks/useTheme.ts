@@ -9,7 +9,7 @@ function apply(mode: ThemeMode): void {
   root.dataset.theme = dark ? 'dark' : 'light';
   root.style.colorScheme = dark ? 'dark' : 'light';
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#0F1714' : '#14563D');
+  if (meta) meta.setAttribute('content', dark ? '#0F1714' : '#146B4B');
   try {
     localStorage.setItem(THEME_KEY, mode);
   } catch {

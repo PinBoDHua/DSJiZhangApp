@@ -11,17 +11,20 @@ import type {
 } from '../types';
 import {
   eachDay,
+  endOfMonth,
   formatDateShort,
   formatDateWithWeekday,
   monthKey,
   periodContains,
   periodOf,
+  startOfMonth,
   todayISO,
 } from './date';
 import { formatMoney, round2 } from './money';
 import { payForEntry } from './pay';
 import { restDayAmount } from './rest';
 import { settlementChecksum } from './checksum';
+import { findSettlementOverlap } from './guards';
 import {
   PAYMENT_STATUS_LABEL,
   paidAmountOf,
@@ -44,6 +47,7 @@ const EMPTY_TOTALS: Totals = {
 /** 逐笔汇总（月薪按每日折算展示，不封顶） */
 export function sumEntries(entries: Entry[]): Totals {
   const days = new Set<string>();
+  const dailyBaseDays = new Set<string>();
   let base = 0;
   let otPay = 0;
   let bonus = 0;
@@ -53,7 +57,10 @@ export function sumEntries(entries: Entry[]): Totals {
 
   for (const entry of entries) {
     const pay = payForEntry(entry);
-    base += pay.base;
+    const dailyKey = `${entry.jobId}|${entry.date}`;
+    const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
+    if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
+    if (includeBase) base += pay.base;
     otPay += pay.otPay;
     bonus += pay.bonus;
     deduction += pay.deduction;
@@ -82,10 +89,15 @@ export function sumEntries(entries: Entry[]): Totals {
 /**
  * 汇总并按「月薪整月封顶」校正。
  * 月薪工作按 (月薪 / 计薪天数 × 当月出勤天数) 计算基础工资，超过整月月薪时封顶。
+ * 传入非自然月结算周期时，固定月薪同样按实际出勤天数折算；未传周期保留月度汇总口径。
  */
-export function sumEntriesCapped(entries: Entry[]): Totals {
+export function sumEntriesCapped(entries: Entry[], period?: Period): Totals {
   const monthlyGroups = new Map<string, Entry[]>();
   const regular: Entry[] = [];
+  const dailyBaseDays = new Set<string>();
+  const isWholeCalendarMonth =
+    !period ||
+    (period.start === startOfMonth(period.start) && period.end === endOfMonth(period.start));
 
   for (const entry of entries) {
     if (entry.rule.payType === 'monthly') {
@@ -112,7 +124,12 @@ export function sumEntriesCapped(entries: Entry[]): Totals {
     allDays.add(entry.date);
   };
 
-  for (const entry of regular) consume(entry);
+  for (const entry of regular) {
+    const dailyKey = `${entry.jobId}|${entry.date}`;
+    const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
+    if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
+    consume(entry, includeBase);
+  }
 
   for (const group of monthlyGroups.values()) {
     const latest = group.reduce(
@@ -124,9 +141,10 @@ export function sumEntriesCapped(entries: Entry[]): Totals {
     const rate = Math.max(0, latest.rule.rate);
     const rawBase = (rate / expectedDays) * days;
     const fixed = latest.rule.monthlyMode === 'fixed';
-    const paidBase = fixed ? rate : Math.min(rawBase, rate);
+    const fullFixedMonth = fixed && isWholeCalendarMonth;
+    const paidBase = fullFixedMonth ? rate : Math.min(rawBase, rate);
     totals.base += round2(paidBase);
-    totals.capAdjustment += fixed ? 0 : Math.max(0, rawBase - rate);
+    totals.capAdjustment += fullFixedMonth ? 0 : Math.max(0, rawBase - rate);
     for (const entry of group) consume(entry, false);
   }
 
@@ -192,7 +210,7 @@ export function buildSettlementDraft(
     )
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const totals = sumEntriesCapped(jobEntries);
+  const totals = sumEntriesCapped(jobEntries, period);
   const advanceTotal = totalAdvanceAmount(includedAdvances);
   const safeBonus = round2(Math.max(0, extraBonus));
   const safeDeduction = round2(Math.max(0, extraDeduction));
@@ -223,6 +241,7 @@ export function buildSettlementDraft(
   );
   const isFixedMonthly = payType === 'monthly' && monthlyMode === 'fixed';
   const policy = job.rule;
+  const historicalPolicy = latestEntry?.rule ?? job.rule;
   const isFlexibleRest =
     isFixedMonthly && (policy.restPolicy ?? 'quota') === 'flexible';
   const overRestDays =
@@ -232,7 +251,7 @@ export function buildSettlementDraft(
   const dailyRate =
     policy.overRestDailyRate > 0
       ? policy.overRestDailyRate
-      : policy.rate / Math.max(1, policy.expectedDays);
+      : historicalPolicy.rate / Math.max(1, historicalPolicy.expectedDays);
   const autoOverRestDeduction = round2(overRestDays * dailyRate);
   const overRestDeduction =
     isFixedMonthly &&
@@ -395,6 +414,62 @@ export function makeSettlement(
   };
 }
 
+export interface SettlementCommitInput {
+  jobId: string;
+  period: Period;
+  extraBonus: number;
+  extraDeduction: number;
+  note?: string;
+  overRestEnabled?: boolean;
+  overRestAmount?: number;
+  settlementId: string;
+  createdAt: string;
+}
+
+/** 纯函数原子提交：校验、生成结算并同步绑定工记和借支，不修改输入状态。 */
+export function commitSettlement(
+  state: AppState,
+  input: SettlementCommitInput,
+): { state: AppState; settlement: Settlement } | null {
+  const job = state.jobs.find((item) => item.id === input.jobId);
+  if (!job || findSettlementOverlap(state.settlements, input.jobId, input.period)) return null;
+  const draft = buildSettlementDraft(
+    job,
+    state.entries,
+    state.advances,
+    input.period,
+    input.extraBonus,
+    input.extraDeduction,
+    state.restDays,
+    input.overRestEnabled,
+    input.overRestAmount,
+  );
+  if (draft.entries.length === 0) return null;
+  const settlement = makeSettlement(
+    draft,
+    input.settlementId,
+    input.createdAt,
+    input.note?.trim() || undefined,
+  );
+  const entryIds = new Set(draft.entryIds);
+  const advanceIds = new Set(draft.advanceIds);
+  return {
+    settlement,
+    state: {
+      ...state,
+      settlements: [settlement, ...state.settlements],
+      entries: state.entries.map((entry) =>
+        entryIds.has(entry.id)
+          ? { ...entry, settlementId: settlement.id, updatedAt: input.createdAt }
+          : entry,
+      ),
+      advances: state.advances.map((advance) =>
+        advanceIds.has(advance.id) ? { ...advance, settlementId: settlement.id } : advance,
+      ),
+    },
+  };
+}
+
 export interface DailyPoint {
   date: string;
   earnings: number;
@@ -403,6 +478,7 @@ export interface DailyPoint {
 
 export function dailySeries(entries: Entry[], start: string, end: string): DailyPoint[] {
   const map = new Map<string, DailyPoint>();
+  const dailyBaseDays = new Set<string>();
   for (const day of eachDay(start, end)) {
     map.set(day, { date: day, earnings: 0, hours: 0 });
   }
@@ -410,7 +486,10 @@ export function dailySeries(entries: Entry[], start: string, end: string): Daily
     const point = map.get(entry.date);
     if (!point) continue;
     const pay = payForEntry(entry);
-    point.earnings = round2(point.earnings + pay.total);
+    const dailyKey = `${entry.jobId}|${entry.date}`;
+    const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
+    if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
+    point.earnings = round2(point.earnings + pay.total - (includeBase ? 0 : pay.base));
     point.hours = round2(point.hours + (entry.hours || 0));
   }
   return Array.from(map.values());

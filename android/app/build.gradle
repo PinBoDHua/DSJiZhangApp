@@ -10,10 +10,10 @@ if (keystorePropertiesFile.exists()) {
 // -Pxinshi.debuggable 让 release 包带 WebView 调试（仅本地排查用，发布包绝不能带）。
 def xinshiVersionCode = project.hasProperty('xinshi.versionCode')
     ? project.property('xinshi.versionCode').toString().toInteger()
-    : 1000
+    : 1100
 def xinshiVersionName = project.hasProperty('xinshi.versionName')
     ? project.property('xinshi.versionName').toString()
-    : "1.0.0"
+    : "1.1.0"
 def xinshiMinify = !project.hasProperty('xinshi.noMinify')
 def xinshiDebuggable = project.hasProperty('xinshi.debuggable')
 def xinshiDiag = project.hasProperty('xinshi.diag')

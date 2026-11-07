@@ -28,7 +28,6 @@ public class SaveFilePlugin extends Plugin {
         String filename = call.getString("filename");
         String mimeType = call.getString("mimeType", "application/octet-stream");
         String data = call.getString("data");
-        boolean overwrite = Boolean.TRUE.equals(call.getBoolean("overwrite", false));
         String subdir = safeSubdir(call.getString("subdir", ""));
 
         if (filename == null || filename.isEmpty() || data == null) {
@@ -54,23 +53,6 @@ public class SaveFilePlugin extends Plugin {
 
         String relativePath = relativePath(subdir);
         ContentResolver resolver = getContext().getContentResolver();
-        Uri existing = overwrite ? findExisting(relativePath, filename) : null;
-
-        if (existing != null) {
-            try (OutputStream stream = resolver.openOutputStream(existing, "wt")) {
-                if (stream == null) {
-                    call.reject("无法写入文件");
-                    return;
-                }
-                stream.write(bytes);
-                stream.flush();
-            } catch (Exception error) {
-                call.reject(error.getMessage() == null ? "覆盖失败" : error.getMessage());
-                return;
-            }
-            resolveSaved(call, existing, subdir, filename);
-            return;
-        }
 
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
@@ -87,15 +69,16 @@ public class SaveFilePlugin extends Plugin {
             }
             try (OutputStream stream = resolver.openOutputStream(uri)) {
                 if (stream == null) {
-                    call.reject("无法写入文件");
-                    return;
+                    throw new IllegalStateException("无法写入文件");
                 }
                 stream.write(bytes);
                 stream.flush();
             }
             ContentValues done = new ContentValues();
             done.put(MediaStore.MediaColumns.IS_PENDING, 0);
-            resolver.update(uri, done, null, null);
+            if (resolver.update(uri, done, null, null) <= 0) {
+                throw new IllegalStateException("文件发布失败");
+            }
 
             resolveSaved(call, uri, subdir, filename);
         } catch (Exception error) {
@@ -128,8 +111,10 @@ public class SaveFilePlugin extends Plugin {
         String relativePath = relativePath(subdir);
         ContentResolver resolver = getContext().getContentResolver();
         String selection = MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? AND "
-                + MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?";
-        String[] args = new String[] { prefix + "%", relativePath + "%" };
+                + MediaStore.MediaColumns.RELATIVE_PATH + " = ? AND "
+                + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + " = ? AND "
+                + MediaStore.MediaColumns.IS_PENDING + " = 0";
+        String[] args = new String[] { prefix + "%", relativePath, getContext().getPackageName() };
         String[] columns = new String[] {
                 MediaStore.MediaColumns._ID,
                 MediaStore.MediaColumns.DISPLAY_NAME,
@@ -170,8 +155,8 @@ public class SaveFilePlugin extends Plugin {
     }
 
     private String relativePath(String subdir) {
-        if (subdir == null || subdir.isEmpty()) return BASE_PATH;
-        return BASE_PATH + "/" + subdir;
+        if (subdir == null || subdir.isEmpty()) return BASE_PATH + "/";
+        return BASE_PATH + "/" + subdir + "/";
     }
 
     /** 只允许中文、字母、数字、下划线和短横线，避免目录穿越。 */
@@ -180,27 +165,6 @@ public class SaveFilePlugin extends Plugin {
         String cleaned = value.replaceAll("[^\\p{L}\\p{N}_-]", "");
         if (cleaned.isEmpty() || cleaned.length() > 32) return null;
         return cleaned;
-    }
-
-    private Uri findExisting(String relativePath, String filename) {
-        ContentResolver resolver = getContext().getContentResolver();
-        String selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
-                + MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?";
-        String[] args = new String[] { filename, relativePath + "%" };
-        try (Cursor cursor = resolver.query(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                new String[] { MediaStore.MediaColumns._ID },
-                selection,
-                args,
-                null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID));
-                return ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id);
-            }
-        } catch (Exception ignored) {
-            return null;
-        }
-        return null;
     }
 
     private void resolveSaved(PluginCall call, Uri uri, String subdir, String filename) {

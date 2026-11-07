@@ -216,14 +216,13 @@ await step('记工覆盖同日休息时，休息进入回收站并可看到恢�
   await closeSheet();
 });
 
-await step('关于页显示 1.0.0，控制台无错误', async () => {
+await step(`关于页显示 ${APP_VERSION}，控制台无错误`, async () => {
   await page.getByRole('button', { name: '我的', exact: true }).click();
   await page.waitForTimeout(450);
   const profileText = await page.locator('body').innerText();
   assert.ok(profileText.includes(`v${APP_VERSION}`), `关于页没有显示 v${APP_VERSION}`);
-  assert.ok(APP_VERSION.startsWith('1.0.'), `package.json 版本不是 1.0.x：${APP_VERSION}`);
   assert.deepEqual(errors, [], `控制台有错误：${errors.join('\n')}`);
 });
 
 await browser.close();
-console.log('ALL PASS v1.0.0');
+console.log(`ALL PASS v${APP_VERSION}`);

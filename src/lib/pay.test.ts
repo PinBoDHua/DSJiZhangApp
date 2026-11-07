@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { Advance, AppState, Entry, Job, PayRule, RestDay } from '../types';
 import {
   buildSettlementDraft,
+  commitSettlement,
   computeOutstanding,
+  dailySeries,
   getSettlementOverview,
   makeSettlement,
   settlementCopyText,
+  sumEntries,
   sumEntriesCapped,
 } from './settlement';
 import { payForEntry } from './pay';
@@ -728,5 +731,195 @@ describe('结算汇总', () => {
     expect(overview.jobs[0].period.start).toBe('2026-11-02');
     expect(overview.jobs[0].otherPeriods).toBe(1);
     expect(overview.jobs[0].draft.net).toBe(200);
+  });
+});
+
+describe('工资与结算回归', () => {
+  it('日薪和月薪的加班时长都不能超过总工时', () => {
+    for (const payType of ['daily', 'monthly'] as const) {
+      const pay = payForEntry(
+        entry({
+          date: '2026-11-04',
+          hours: 2,
+          otHours: 9,
+          rule: rule({ payType, rate: 100 }),
+        }),
+      );
+      expect(pay.otHours).toBe(2);
+    }
+  });
+
+  it('总额严格由已舍入的分项相加', () => {
+    const pay = payForEntry(
+      entry({
+        date: '2026-11-04',
+        hours: 1,
+        otHours: 0.5,
+        rule: rule({ payType: 'hourly', rate: 0.01 }),
+      }),
+    );
+    expect(pay.base).toBe(0.01);
+    expect(pay.otPay).toBe(0.01);
+    expect(pay.total).toBe(0.02);
+  });
+
+  it('普通汇总和月薪封顶汇总都对同岗位同日日薪只计一次基础工资', () => {
+    const dailyRule = rule({ payType: 'daily', rate: 320 });
+    const entries = [
+      entry({
+        id: 'daily-a',
+        date: '2026-11-04',
+        hours: 4,
+        otHours: 1,
+        bonus: 10,
+        deduction: 5,
+        rule: dailyRule,
+      }),
+      entry({
+        id: 'daily-b',
+        date: '2026-11-04',
+        hours: 4,
+        otHours: 1,
+        bonus: 20,
+        rule: dailyRule,
+      }),
+    ];
+    for (const totals of [sumEntries(entries), sumEntriesCapped(entries)]) {
+      expect(totals.base).toBe(320);
+      expect(totals.hours).toBe(8);
+      expect(totals.otHours).toBe(2);
+      expect(totals.otPay).toBe(120);
+      expect(totals.bonus).toBe(30);
+      expect(totals.deduction).toBe(5);
+      expect(totals.total).toBe(465);
+      expect(totals.days).toBe(1);
+    }
+    const series = dailySeries(entries, '2026-11-04', '2026-11-04');
+    expect(series[0].earnings).toBe(465);
+    expect(series[0].hours).toBe(8);
+  });
+
+  it('固定月薪在周结和日结周期按去重出勤天数折算并封顶', () => {
+    const fixedRule = rule({
+      payType: 'monthly',
+      rate: 3500,
+      expectedDays: 22,
+      monthlyMode: 'fixed',
+      otEnabled: false,
+    });
+    const weeklyDraft = buildSettlementDraft(
+      job({ cycle: 'weekly', rule: fixedRule }),
+      [
+        entry({ id: 'fixed-a', date: '2026-11-03', rule: fixedRule }),
+        entry({ id: 'fixed-a-split', date: '2026-11-03', rule: fixedRule }),
+        entry({ id: 'fixed-b', date: '2026-11-04', rule: fixedRule }),
+      ],
+      [],
+      periodOf('weekly', '2026-11-04', 1),
+    );
+    expect(weeklyDraft.days).toBe(2);
+    expect(weeklyDraft.base).toBe(318.18);
+
+    const dailyDraft = buildSettlementDraft(
+      job({ cycle: 'daily', rule: fixedRule }),
+      [entry({ date: '2026-11-04', rule: fixedRule })],
+      [],
+      periodOf('daily', '2026-11-04', 1),
+    );
+    expect(dailyDraft.base).toBe(159.09);
+
+    const partialMonth = {
+      ...periodOf('monthly', '2026-11-04', 1),
+      end: '2026-11-25',
+    };
+    const cappedDraft = buildSettlementDraft(
+      job({ cycle: 'monthly', rule: fixedRule }),
+      Array.from({ length: 23 }, (_, index) =>
+        entry({
+          date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+          rule: fixedRule,
+        }),
+      ),
+      [],
+      partialMonth,
+    );
+    expect(cappedDraft.base).toBe(3500);
+    expect(cappedDraft.capAdjustment).toBeGreaterThan(0);
+  });
+
+  it('超休沿用当前开关，默认扣款日薪使用历史工记规则', () => {
+    const entryRule = rule({
+      payType: 'monthly',
+      rate: 2200,
+      expectedDays: 22,
+      monthlyMode: 'fixed',
+      restDaysPerMonth: 1,
+      overRestDeduct: true,
+      overRestDailyRate: 100,
+      otEnabled: false,
+    });
+    const currentRule = rule({
+      payType: 'monthly',
+      rate: 9999,
+      monthlyMode: 'fixed',
+      restDaysPerMonth: 1,
+      overRestDeduct: true,
+      overRestDailyRate: 0,
+      otEnabled: false,
+    });
+    const fixedJob = job({ cycle: 'monthly', rule: currentRule });
+    const restDays: RestDay[] = ['2026-11-01', '2026-11-02'].map((date, index) => ({
+      id: `policy-rest-${index}`,
+      jobId: fixedJob.id,
+      date,
+      createdAt: `${date}T12:00:00.000Z`,
+    }));
+    const draft = buildSettlementDraft(
+      fixedJob,
+      [entry({ date: '2026-11-03', rule: entryRule })],
+      [],
+      periodOf('monthly', '2026-11-03', 1),
+      0,
+      0,
+      restDays,
+    );
+    expect(draft.base).toBe(2200);
+    expect(draft.overRestDays).toBe(1);
+    expect(draft.overRestDeduction).toBe(100);
+    expect(draft.net).toBe(2100);
+  });
+
+  it('连续两次原子结算只生成一张结算并保持双向引用一致', () => {
+    const initial = state({
+      entries: [entry({ id: 'atomic-entry', date: '2026-11-03' })],
+      advances: [advance({ id: 'atomic-advance', date: '2026-11-02', amount: 50 })],
+    });
+    const input = {
+      jobId: 'job-1',
+      period: periodOf('weekly', '2026-11-03', 1),
+      extraBonus: 0,
+      extraDeduction: 0,
+      settlementId: 'settlement-atomic-1',
+      createdAt: '2026-11-08T12:00:00.000Z',
+    };
+    const first = commitSettlement(initial, input);
+    expect(first).not.toBeNull();
+    if (!first) return;
+
+    const second = commitSettlement(first.state, {
+      ...input,
+      settlementId: 'settlement-atomic-2',
+    });
+    expect(second).toBeNull();
+    expect(first.state.settlements).toHaveLength(1);
+
+    const settlement = first.state.settlements[0];
+    expect(settlement.id).toBe('settlement-atomic-1');
+    expect(settlement.entryIds).toEqual(['atomic-entry']);
+    expect(settlement.advanceIds).toEqual(['atomic-advance']);
+    expect(first.state.entries[0].settlementId).toBe(settlement.id);
+    expect(first.state.advances[0].settlementId).toBe(settlement.id);
+    expect(initial.entries[0].settlementId).toBeUndefined();
+    expect(initial.advances[0].settlementId).toBeUndefined();
   });
 });

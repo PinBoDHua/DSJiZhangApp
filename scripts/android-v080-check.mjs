@@ -86,7 +86,7 @@ await step('记录页与搜索', async () => {
   await page.getByRole('button', { name: '记录', exact: true }).click();
   await page.waitForTimeout(600);
   const heading = page.locator('.page-heading h1');
-  assert.equal(await heading.innerText(), '工记');
+  assert.equal(await heading.innerText(), '工记明细');
   const box = await heading.boundingBox();
   assert.ok(box && box.height < 50, `标题高度 ${box?.height}`);
   await page.screenshot({ path: `${OUT}/02-records.png` });

@@ -37,10 +37,7 @@ export function payForEntry(entry: Entry): EntryPay {
   const isPiece = rule.payType === 'piece';
 
   let otHours = rule.otEnabled && !isPiece ? Math.max(0, entry.otHours || 0) : 0;
-  if (rule.payType === 'hourly') {
-    otHours = clamp(otHours, 0, hours);
-  }
-  otHours = round2(otHours);
+  otHours = round2(clamp(otHours, 0, hours));
 
   let base = 0;
   if (rule.payType === 'hourly') {
@@ -60,16 +57,18 @@ export function payForEntry(entry: Entry): EntryPay {
       : 1;
   const otRate = otHourlyRate(rule);
   const otPay = otHours > 0 ? otHours * otRate * multiplier : 0;
+  const roundedBase = round2(base);
+  const roundedOtPay = round2(otPay);
 
   return {
-    base: round2(base),
-    otPay: round2(otPay),
+    base: roundedBase,
+    otPay: roundedOtPay,
     otHours,
     otRate: round2(otRate),
     multiplier,
     bonus,
     deduction,
-    total: round2(base + otPay + bonus - deduction),
+    total: round2(roundedBase + roundedOtPay + bonus - deduction),
   };
 }
 

@@ -75,17 +75,17 @@ export function Onboarding({ onOpenSnapshots }: { onOpenSnapshots?: () => void }
             <Logo size={34} light />
             <Wordmark light />
           </div>
-          <span className="onboarding-badge">v{APP_VERSION} · 搜索与年报</span>
+          <span className="onboarding-badge">v{APP_VERSION} · 离线记工账本</span>
         </div>
         <div className="onboarding-copy">
           <p className="onboarding-eyebrow">工时 · 薪资 · 结算</p>
           <h1>
-            每一小时，
+            记工算薪，
             <br />
-            <span>都算数。</span>
+            <span>一本清楚账。</span>
           </h1>
           <p className="onboarding-sub">
-            给打零工的你，一本清楚的账。记工时、算工钱、等发薪，不用再靠脑子记。
+            干完活记一笔，自动算工钱；到结算日，应得多少、已收多少，一看就明白。
           </p>
           <div className="onboarding-tags">
             <span>小时工</span>

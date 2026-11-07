@@ -182,8 +182,8 @@ export function Records({
     <div className="page records-page">
       <header className="page-heading page-heading--row">
         <div>
-          <p className="eyebrow">逐日对账</p>
-          <h1>工记</h1>
+          <p className="eyebrow">按月核对工时与收入</p>
+          <h1>工记明细</h1>
         </div>
         <div className="records-head-actions">
           <button
@@ -195,48 +195,6 @@ export function Records({
           >
             <Search size={15} />
             搜索
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm records-view-btn"
-            onClick={switchView}
-            aria-label={view === 'list' ? '切换到日历视图' : '切换到列表视图'}
-            title={view === 'list' ? '日历视图' : '列表视图'}
-          >
-            {view === 'list' ? <CalendarDays size={15} /> : <List size={15} />}
-            {view === 'list' ? '日历' : '列表'}
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm records-attendance-btn"
-            onClick={() => {
-              if (state.jobs.length === 0) {
-                onOpenJobs();
-                return;
-              }
-              onOpenAttendance(effectiveFilter === 'all' ? undefined : effectiveFilter);
-            }}
-            aria-label="月度考勤"
-            title="月度考勤"
-          >
-            <CalendarRange size={15} />
-            考勤
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm records-rest-btn"
-            onClick={() => {
-              if (state.jobs.length === 0) {
-                onOpenJobs();
-                return;
-              }
-              openRest(view === 'calendar' ? selectedDate : today);
-            }}
-            aria-label="记休息"
-            title="记休息"
-          >
-            <Coffee size={15} />
-            休息
           </button>
           <button type="button" className="btn btn--soft btn--sm records-add-btn" onClick={onAddEntry}>
             <Plus size={15} />
@@ -271,6 +229,51 @@ export function Records({
           aria-label="下个月"
         >
           <ChevronRight size={20} />
+        </button>
+      </div>
+
+      <div className="records-tools" aria-label="工记工具">
+        <button
+          type="button"
+          className="records-tool is-active"
+          onClick={switchView}
+          aria-label={view === 'list' ? '切换到日历视图' : '切换到列表视图'}
+          title={view === 'list' ? '日历视图' : '列表视图'}
+        >
+          {view === 'list' ? <CalendarDays size={17} /> : <List size={17} />}
+          {view === 'list' ? '日历视图' : '列表视图'}
+        </button>
+        <button
+          type="button"
+          className="records-tool"
+          onClick={() => {
+            if (state.jobs.length === 0) {
+              onOpenJobs();
+              return;
+            }
+            onOpenAttendance(effectiveFilter === 'all' ? undefined : effectiveFilter);
+          }}
+          aria-label="月度考勤"
+          title="月度考勤"
+        >
+          <CalendarRange size={17} />
+          月度考勤
+        </button>
+        <button
+          type="button"
+          className="records-tool"
+          onClick={() => {
+            if (state.jobs.length === 0) {
+              onOpenJobs();
+              return;
+            }
+            openRest(view === 'calendar' ? selectedDate : today);
+          }}
+          aria-label="记休息"
+          title="记休息"
+        >
+          <Coffee size={17} />
+          记休息
         </button>
       </div>
 

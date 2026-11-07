@@ -24,6 +24,19 @@ describe('工时热力图', () => {
     expect(days.find((day) => day.date === '2026-11-05')?.isToday).toBe(true);
   });
 
+  it('同岗位同日多段日薪只计一次基础工资', () => {
+    const rule = { ...makeJob().rule, payType: 'daily' as const, rate: 300, otEnabled: false };
+    const heatmap = buildHeatmap(
+      [
+        makeEntry({ id: 'daily-a', hours: 4, rule }),
+        makeEntry({ id: 'daily-b', hours: 3, rule }),
+      ],
+      { today: '2026-11-05', weekStartsOn: 1 },
+    );
+    expect(heatmap.totalEarnings).toBe(300);
+    expect(heatmap.totalHours).toBe(7);
+  });
+
   it('空账本返回全 0，且不产生 NaN', () => {
     const heatmap = buildHeatmap([], { today: '2026-11-05' });
     expect(heatmap.totalHours).toBe(0);

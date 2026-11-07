@@ -31,8 +31,8 @@ import {
 } from './lib/trash';
 import { createDemoState } from './lib/seed';
 import { clearReminderMark } from './lib/reminder';
-import { buildSettlementDraft, makeSettlement } from './lib/settlement';
-import { findRestOnDay, findSettlementOverlap, wouldExceedDayLimit } from './lib/guards';
+import { commitSettlement } from './lib/settlement';
+import { findRestOnDay, wouldExceedDayLimit } from './lib/guards';
 import { clearPhotos, deletePhoto, deletePhotos, prunePhotos } from './lib/photos';
 import { PrivacyProvider } from './components/Money';
 import { Toast } from './components/Toast';
@@ -669,38 +669,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       overRestEnabled = true,
       overRestAmount?: number,
     ) => {
-      const current = stateRef.current;
-      const job = current.jobs.find((item) => item.id === jobId);
-      if (!job) return null;
-      if (findSettlementOverlap(current.settlements, jobId, period)) return null;
-      const draft = buildSettlementDraft(
-        job,
-        current.entries,
-        current.advances,
+      const committed = commitSettlement(stateRef.current, {
+        jobId,
         period,
         extraBonus,
         extraDeduction,
-        current.restDays,
+        note,
         overRestEnabled,
         overRestAmount,
-      );
-      if (draft.entries.length === 0) return null;
-      const settlement = makeSettlement(draft, createId('settlement'), nowISO(), note?.trim() || undefined);
-      setState((prev) => ({
-        ...prev,
-        settlements: [settlement, ...prev.settlements],
-        entries: prev.entries.map((entry) =>
-          draft.entryIds.includes(entry.id)
-            ? { ...entry, settlementId: settlement.id, updatedAt: nowISO() }
-            : entry,
-        ),
-        advances: prev.advances.map((advance) =>
-          draft.advanceIds.includes(advance.id)
-            ? { ...advance, settlementId: settlement.id }
-            : advance,
-        ),
-      }));
-      return settlement;
+        settlementId: createId('settlement'),
+        createdAt: nowISO(),
+      });
+      if (!committed) return null;
+      // 同步推进 ref，避免同一渲染周期内第二次调用仍读取旧状态。
+      stateRef.current = committed.state;
+      setState(committed.state);
+      return committed.settlement;
     },
     [],
   );

@@ -35,7 +35,6 @@ import {
   daysInMonth,
   formatDateWithWeekday,
   formatMonthTitle,
-  greeting,
   pad2,
   periodContains,
   periodOf,
@@ -305,9 +304,7 @@ export function Home({
 
       <div className="welcome">
         <p className="eyebrow">{formatDateWithWeekday(today)}</p>
-        <h1>
-          {greeting()}，{name}
-        </h1>
+        <h1>{name}的记工账本</h1>
       </div>
 
       {backupDue ? (
@@ -347,15 +344,21 @@ export function Home({
         <div className="hero-deco hero-deco--one" aria-hidden="true" />
         <div className="hero-deco hero-deco--two" aria-hidden="true" />
         <div className="hero-head">
-          <span>本月预计到手</span>
-          <button
-            type="button"
-            className="hero-eye"
-            onClick={() => updateProfile({ hideAmounts: !state.profile.hideAmounts })}
-            aria-label={state.profile.hideAmounts ? '显示金额' : '隐藏金额'}
-          >
-            {state.profile.hideAmounts ? <EyeOff size={17} /> : <Eye size={17} />}
-          </button>
+          <span>本月预计收入</span>
+          <div className="hero-head-actions">
+            <button type="button" className="hero-detail-link" onClick={onGoRecords}>
+              明细
+              <ChevronRight size={15} />
+            </button>
+            <button
+              type="button"
+              className="hero-eye"
+              onClick={() => updateProfile({ hideAmounts: !state.profile.hideAmounts })}
+              aria-label={state.profile.hideAmounts ? '显示金额' : '隐藏金额'}
+            >
+              {state.profile.hideAmounts ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
         </div>
         <div className="hero-money-row">
           <Money value={summary.total} className="hero-money" />
@@ -532,6 +535,45 @@ export function Home({
         </section>
       )}
 
+      <section className="section-block recent-section">
+        <div className="section-head">
+          <div>
+            <h2>最近明细</h2>
+            <p>每一笔工时和工钱，都有据可查</p>
+          </div>
+          {recent.length > 0 ? (
+            <button type="button" className="text-link" onClick={onGoRecords}>
+              全部明细
+              <ChevronRight size={15} />
+            </button>
+          ) : null}
+        </div>
+        {recent.length > 0 ? (
+          <div className="card list-card">
+            {recent.map((entry) => (
+              <EntryRow
+                key={entry.id}
+                entry={entry}
+                job={state.jobs.find((job) => job.id === entry.jobId)}
+                onClick={() => onOpenEntry(entry.id)}
+                showDate
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="card">
+            <EmptyState
+              icon={ClipboardList}
+              title="还没有工记"
+              description="记下今天干了多久，App 会帮你算好工钱。"
+              actionLabel="记第一笔"
+              onAction={() => onAddEntry()}
+              compact
+            />
+          </div>
+        )}
+      </section>
+
       {planJob ? (
         <section className="plan-week-card">
           <div className="plan-week-head">
@@ -697,45 +739,6 @@ export function Home({
               description="建一份工作，设置好单价和结算周期。"
               actionLabel="新建工作"
               onAction={onOpenJobs}
-              compact
-            />
-          </div>
-        )}
-      </section>
-
-      <section className="section-block">
-        <div className="section-head">
-          <div>
-            <h2>最近工记</h2>
-            <p>每一笔都算数</p>
-          </div>
-          {recent.length > 0 ? (
-            <button type="button" className="text-link" onClick={onGoRecords}>
-              全部
-              <ChevronRight size={15} />
-            </button>
-          ) : null}
-        </div>
-        {recent.length > 0 ? (
-          <div className="card list-card">
-            {recent.map((entry) => (
-              <EntryRow
-                key={entry.id}
-                entry={entry}
-                job={state.jobs.find((job) => job.id === entry.jobId)}
-                onClick={() => onOpenEntry(entry.id)}
-                showDate
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="card">
-            <EmptyState
-              icon={ClipboardList}
-              title="还没有工记"
-              description="记下今天干了多久，App 会帮你算好工钱。"
-              actionLabel="记第一笔"
-              onAction={() => onAddEntry()}
               compact
             />
           </div>

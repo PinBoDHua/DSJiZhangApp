@@ -144,7 +144,7 @@ export async function cancelDailyReminder(): Promise<void> {
 /**
  * 在原生端重排未来 30 天的每日提醒。
  * - 当天已记工或提醒时间已过时，从明天开始；
- * - 先清掉旧的每日提醒，避免重复；
+ * - 新计划调度成功后再清理不在新 ID 集合中的旧提醒，失败时保留旧提醒；
  * - 不主动请求权限，权限由用户在「我的」里开启。
  */
 export async function syncDailyReminder(
@@ -158,11 +158,6 @@ export async function syncDailyReminder(
     const permission = await plugin.checkPermissions();
     if (permission.display !== 'granted') return 0;
     await ensureDailyChannel(plugin);
-    const ids = await pendingIds(plugin);
-    if (ids.length > 0) {
-      await plugin.cancel({ notifications: ids.map((id) => ({ id })) });
-    }
-
     const notifications: LocalNotificationSchema[] = buildDailyReminderPlan(
       reminder.time,
       includeToday,
@@ -174,8 +169,15 @@ export async function syncDailyReminder(
       schedule: { at: item.at, allowWhileIdle: true },
       extra: { kind: DAILY_KIND, date: item.date },
     }));
+    const ids = await pendingIds(plugin);
     if (notifications.length > 0) {
       await plugin.schedule({ notifications });
+    }
+
+    const nextIds = new Set(notifications.map((notification) => notification.id));
+    const staleIds = ids.filter((id) => !nextIds.has(id));
+    if (staleIds.length > 0) {
+      await plugin.cancel({ notifications: staleIds.map((id) => ({ id })) });
     }
     return notifications.length;
   } catch (error) {

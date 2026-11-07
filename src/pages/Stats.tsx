@@ -142,8 +142,8 @@ export function Stats({ onAddEntry }: StatsProps) {
     <div className="page stats-page">
       <header className="page-heading page-heading--row">
         <div>
-          <p className="eyebrow">钱去哪了</p>
-          <h1>统计</h1>
+          <p className="eyebrow">看清工时与收入</p>
+          <h1>工资统计</h1>
         </div>
         <Segmented
           value={mode}

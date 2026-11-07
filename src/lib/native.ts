@@ -4,7 +4,6 @@ import { saveFileToDownloads } from './saveFile';
 type SaveResult = 'web' | 'native';
 
 interface SaveOptions {
-  overwrite?: boolean;
   subdirectory?: string;
 }
 

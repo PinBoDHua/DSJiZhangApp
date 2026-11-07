@@ -77,15 +77,6 @@ export async function schedulePaydayNotifications(jobs: Job[]): Promise<number> 
       // 通道通常只在 Android 需要；失败时继续用默认通道。
     }
 
-    const pending = await LocalNotifications.getPending();
-    const stale = pending.notifications
-      .filter((item) => item.extra?.kind === PAYDAY_KIND)
-      .map((item) => ({ id: item.id }));
-    if (stale.length > 0) {
-      await LocalNotifications.cancel({ notifications: stale });
-    }
-    if (paydayJobs.length === 0) return 0;
-
     const notifications = paydayJobs.flatMap((job, jobIndex) =>
       nextOccurrences(job.payday as number).map((at, occurrence) => ({
         id: 7100 + jobIndex * 10 + occurrence,
@@ -96,8 +87,17 @@ export async function schedulePaydayNotifications(jobs: Job[]): Promise<number> 
         extra: { kind: PAYDAY_KIND, jobId: job.id, jobName: job.name },
       })),
     );
+    const pending = await LocalNotifications.getPending();
     if (notifications.length > 0) {
       await LocalNotifications.schedule({ notifications });
+    }
+
+    const nextIds = new Set(notifications.map((notification) => notification.id));
+    const stale = pending.notifications
+      .filter((item) => item.extra?.kind === PAYDAY_KIND && !nextIds.has(item.id))
+      .map((item) => ({ id: item.id }));
+    if (stale.length > 0) {
+      await LocalNotifications.cancel({ notifications: stale });
     }
     return notifications.length;
   } catch (error) {

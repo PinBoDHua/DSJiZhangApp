@@ -1029,7 +1029,7 @@ export function EntryEditor({
                 {isPiece
                   ? '本笔计件'
                   : isFixedMonthly
-                    ? '月薪内'
+                    ? '当日折算参考'
                     : isMonthly
                       ? '本笔折算'
                       : '本笔预计'}
@@ -1044,7 +1044,7 @@ export function EntryEditor({
                 {isPiece
                   ? `${formatHours(quantityValue)} ${rule?.unitLabel || '件'} × 单价`
                   : isFixedMonthly
-                    ? '固定月薪整月发放'
+                    ? '固定月薪，此处金额仅作参考'
                     : isMonthly
                       ? '整月结算时封顶'
                       : existing && existing.jobId === jobId

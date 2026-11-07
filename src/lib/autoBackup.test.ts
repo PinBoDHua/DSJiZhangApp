@@ -58,7 +58,12 @@ describe('自动备份设置与调度', () => {
     expect(shouldRunAutoBackup(settings, state, { now: nextDay, native: true })).toBe(true);
   });
 
-  it('文件名按日期生成', () => {
-    expect(autoBackupFileName(new Date(2026, 10, 5))).toBe('薪时自动备份-20261105.json');
+  it('文件名包含日期和时分秒，同一天的备份不会互相覆盖', () => {
+    expect(autoBackupFileName(new Date(2026, 10, 5, 8, 9, 10))).toBe(
+      '薪时自动备份-20261105-080910.json',
+    );
+    expect(autoBackupFileName(new Date(2026, 10, 5, 20, 30, 40))).toBe(
+      '薪时自动备份-20261105-203040.json',
+    );
   });
 });

@@ -47,9 +47,9 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: /先看看示例数据/ }).click();
 await page.waitForTimeout(1900);
 
-await step('首页是新版轻量视觉，底部导航悬浮', async () => {
-  await page.locator('.hero-progress').waitFor();
-  assert.ok((await page.locator('.hero-progress span').count()) === 1);
+await step('首页是清晰账本视觉，底部导航悬浮', async () => {
+  await page.locator('.hero-money').waitFor();
+  assert.ok(await page.locator('.recent-section').isVisible());
   const navBox = await page.locator('.bottom-nav-inner').boundingBox();
   assert.ok(navBox && navBox.width < 540, '底部导航不是悬浮胶囊');
   await page.screenshot({ path: `${OUT}/01-home.png` });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppState, Job } from '../types';
 import { buildExportPayload, createEmptyState, validateImport } from './storage';
+import { makeAdvance, makeEntry, makeSettlement } from './testFixtures';
 
 const rule = {
   payType: 'hourly' as const,
@@ -543,5 +544,107 @@ describe('存储升级', () => {
     const imported = validateImport(text, { unlockOrphans: true });
     expect(imported.entries[0].settlementId).toBeUndefined();
     expect(imported.advances[0].settlementId).toBeUndefined();
+  });
+
+  it('拒绝伪日期并接受合法闰日', () => {
+    const valid = {
+      ...v1State,
+      version: 7,
+      entries: [makeEntry({ date: '2028-02-29' })],
+    };
+    expect(validateImport(JSON.stringify(valid)).entries[0].date).toBe('2028-02-29');
+    for (const date of ['2026-02-31', '2026-02-29', '2026-04-31']) {
+      const invalid = { ...valid, entries: [makeEntry({ date })] };
+      expect(() => validateImport(JSON.stringify(invalid))).toThrow('存在无效日期');
+    }
+  });
+
+  it('拒绝开始日期晚于结束日期的结算周期', () => {
+    const invalid = {
+      ...v1State,
+      version: 7,
+      settlements: [
+        makeSettlement({ periodStart: '2026-11-09', periodEnd: '2026-11-02' }),
+      ],
+    };
+    expect(() => validateImport(JSON.stringify(invalid))).toThrow('结算开始日期不能晚于结束日期');
+  });
+});
+
+describe('结算引用完整性', () => {
+  function linkedState() {
+    const entry = makeEntry({ settlementId: 'settlement-1' });
+    const advance = makeAdvance({ date: '2026-11-03', settlementId: 'settlement-1' });
+    const settlement = makeSettlement({
+      entryIds: [entry.id],
+      advanceIds: [advance.id],
+    });
+    return {
+      ...v1State,
+      version: 7,
+      jobs: [...v1State.jobs],
+      entries: [entry],
+      advances: [advance],
+      settlements: [settlement],
+    };
+  }
+
+  function importLinked(state: ReturnType<typeof linkedState>) {
+    return validateImport(JSON.stringify(state), { unlockOrphans: true });
+  }
+
+  it('保留工记和借支均双向一致的合法结算', () => {
+    const imported = importLinked(linkedState());
+    expect(imported.entries[0].settlementId).toBe('settlement-1');
+    expect(imported.advances[0].settlementId).toBe('settlement-1');
+    expect(imported.settlements[0].entryIds).toEqual(['entry-1']);
+    expect(imported.settlements[0].advanceIds).toEqual(['advance-1']);
+  });
+
+  it('拒绝工记和借支的单向引用，即使主动导入也不静默修复', () => {
+    const entryMissingFromSettlement = linkedState();
+    entryMissingFromSettlement.settlements[0].entryIds = [];
+    expect(() => importLinked(entryMissingFromSettlement)).toThrow('结算单未列出已锁定的工记');
+
+    const settlementMissingFromEntry = linkedState();
+    settlementMissingFromEntry.entries[0].settlementId = undefined;
+    expect(() => importLinked(settlementMissingFromEntry)).toThrow('结算单与工记存在单向引用');
+
+    const advanceMissingFromSettlement = linkedState();
+    advanceMissingFromSettlement.settlements[0].advanceIds = [];
+    expect(() => importLinked(advanceMissingFromSettlement)).toThrow('结算单未列出已锁定的借支');
+
+    const settlementMissingFromAdvance = linkedState();
+    settlementMissingFromAdvance.advances[0].settlementId = undefined;
+    expect(() => importLinked(settlementMissingFromAdvance)).toThrow('结算单与借支存在单向引用');
+  });
+
+  it('拒绝工记和借支跨岗位引用结算', () => {
+    const otherJob = { ...job, id: 'job-2', name: '另一岗位' };
+    const crossJobEntry = linkedState();
+    crossJobEntry.jobs.push(otherJob);
+    crossJobEntry.entries[0].jobId = otherJob.id;
+    expect(() => importLinked(crossJobEntry)).toThrow('工记与结算单所属工作不一致');
+
+    const crossJobAdvance = linkedState();
+    crossJobAdvance.jobs.push(otherJob);
+    crossJobAdvance.advances[0].jobId = otherJob.id;
+    expect(() => importLinked(crossJobAdvance)).toThrow('借支与结算单所属工作不一致');
+  });
+
+  it('允许以前周期的借支结转到当前结算', () => {
+    const carriedAdvance = linkedState();
+    carriedAdvance.advances[0].date = '2026-10-15';
+    expect(importLinked(carriedAdvance).advances[0].settlementId).toBe('settlement-1');
+  });
+
+  it('拒绝工记超出结算周期和晚于结算期末的借支', () => {
+    const lateEntry = linkedState();
+    lateEntry.entries[0].date = '2026-11-09';
+    expect(() => importLinked(lateEntry)).toThrow('工记日期超出结算周期');
+
+    const lateAdvance = linkedState();
+    lateAdvance.advances[0].date = '2026-11-09';
+    expect(() => importLinked(lateAdvance)).toThrow('借支日期超出结算周期');
   });
 });

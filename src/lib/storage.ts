@@ -138,9 +138,22 @@ function asBoolean(value: unknown, fallback = false): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function isValidDate(value: unknown): value is string {
+  const text = asString(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day >= 1 && day <= daysInMonth[month - 1];
+}
+
 function asDate(value: unknown): string {
   const text = asString(value);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new Error('存在无效日期，无法导入');
+  if (!isValidDate(text)) throw new Error('存在无效日期，无法导入');
   return text;
 }
 
@@ -415,12 +428,15 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
   if (!job) throw new Error('结算引用了不存在的工作');
   const net = asNumber(raw.net);
   const paidAmount = Math.max(0, asNumber(raw.paidAmount));
+  const periodStart = asDate(raw.periodStart);
+  const periodEnd = asDate(raw.periodEnd);
+  if (periodStart > periodEnd) throw new Error('结算开始日期不能晚于结束日期，无法导入');
   const restDates = Array.isArray(raw.restDates)
     ? Array.from(
         new Set(
           raw.restDates
             .map((item) => asString(item))
-            .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item)),
+            .filter(isValidDate),
         ),
       ).sort()
     : undefined;
@@ -436,8 +452,8 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
     jobId,
     jobName: asString(raw.jobName, job.name),
     cycle: pick(raw.cycle, CYCLES, job.cycle),
-    periodStart: asDate(raw.periodStart),
-    periodEnd: asDate(raw.periodEnd),
+    periodStart,
+    periodEnd,
     payType: raw.payType ? pick(raw.payType, PAY_TYPES, job.rule.payType) : undefined,
     monthlyMode: raw.monthlyMode
       ? pick(raw.monthlyMode, MONTHLY_MODES, job.rule.monthlyMode)
@@ -582,6 +598,60 @@ export function validateImport(
     settlementsByJob.set(settlement.jobId, siblings);
     settlementIds.add(settlement.id);
     settlements.push(settlement);
+  }
+
+  const settlementMap = new Map(settlements.map((settlement) => [settlement.id, settlement]));
+  const entryMap = new Map(entries.map((entry) => [entry.id, entry]));
+  const advanceMap = new Map(advances.map((advance) => [advance.id, advance]));
+  const assertLinkedRecord = (
+    record: Entry | Advance,
+    settlement: Settlement,
+    label: '工记' | '借支',
+  ) => {
+    if (record.jobId !== settlement.jobId) {
+      throw new Error(`${label}与结算单所属工作不一致，无法导入`);
+    }
+    const outsidePeriod =
+      label === '借支'
+        ? record.date > settlement.periodEnd
+        : record.date < settlement.periodStart || record.date > settlement.periodEnd;
+    if (outsidePeriod) {
+      throw new Error(`${label}日期超出结算周期，无法导入`);
+    }
+    const referencedIds = label === '工记' ? settlement.entryIds : settlement.advanceIds;
+    if (!referencedIds.includes(record.id)) {
+      throw new Error(`结算单未列出已锁定的${label}，引用不一致，无法导入`);
+    }
+  };
+
+  // 已存在的结算必须与记录互相引用，且岗位、日期一致；只有不存在的结算才走孤儿修复。
+  for (const entry of entries) {
+    const settlement = entry.settlementId ? settlementMap.get(entry.settlementId) : undefined;
+    if (settlement) assertLinkedRecord(entry, settlement, '工记');
+  }
+  for (const advance of advances) {
+    const settlement = advance.settlementId
+      ? settlementMap.get(advance.settlementId)
+      : undefined;
+    if (settlement) assertLinkedRecord(advance, settlement, '借支');
+  }
+  for (const settlement of settlements) {
+    for (const id of settlement.entryIds) {
+      const entry = entryMap.get(id);
+      if (!entry) throw new Error('结算单引用了不存在的工记，无法导入');
+      if (entry.settlementId !== settlement.id) {
+        throw new Error('结算单与工记存在单向引用，无法导入');
+      }
+      assertLinkedRecord(entry, settlement, '工记');
+    }
+    for (const id of settlement.advanceIds) {
+      const advance = advanceMap.get(id);
+      if (!advance) throw new Error('结算单引用了不存在的借支，无法导入');
+      if (advance.settlementId !== settlement.id) {
+        throw new Error('结算单与借支存在单向引用，无法导入');
+      }
+      assertLinkedRecord(advance, settlement, '借支');
+    }
   }
 
   // 结算单被删掉后留下的锁定引用：主动导入时解锁，本机读取保留给账本体检处理

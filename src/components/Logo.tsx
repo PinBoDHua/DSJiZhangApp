@@ -1,6 +1,6 @@
 export function Logo({ size = 36, light = false }: { size?: number; light?: boolean }) {
-  const outer = light ? '#F4F1E8' : '#14563D';
-  const clock = light ? '#14563D' : '#F7F1E3';
+  const outer = light ? '#F4F6F5' : '#146B4B';
+  const clock = light ? '#146B4B' : '#FFFFFF';
   return (
     <svg
       width={size}
@@ -30,7 +30,7 @@ export function Wordmark({ light = false }: { light?: boolean }) {
   return (
     <span className={`wordmark ${light ? 'wordmark--light' : ''}`}>
       <strong>薪时</strong>
-      <em>XINSHI</em>
+      <em>记工账本</em>
     </span>
   );
 }

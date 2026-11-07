@@ -57,7 +57,7 @@ export function writeAutoBackupSettings(patch: Partial<AutoBackupSettings>): Aut
 
 export function autoBackupFileName(now = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${AUTO_BACKUP_PREFIX}${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}.json`;
+  return `${AUTO_BACKUP_PREFIX}${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
 }
 
 export function shouldRunAutoBackup(
@@ -98,7 +98,6 @@ export async function runAutoBackup(
     try {
       const filename = autoBackupFileName(now);
       const result = await saveTextFile(filename, buildExportPayload(state), undefined, {
-        overwrite: true,
         subdirectory: AUTO_BACKUP_SUBDIR,
       });
       const pruned = await pruneDownloadFiles(
