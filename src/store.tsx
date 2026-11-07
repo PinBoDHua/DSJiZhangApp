@@ -14,6 +14,7 @@ import type {
   Job,
   Period,
   Profile,
+  RecurringRule,
   RestDay,
   Settlement,
   Settings,
@@ -23,7 +24,19 @@ import type {
 } from './types';
 import { nowISO, todayISO } from './lib/date';
 import { createId } from './lib/id';
-import { createEmptyState, loadState, saveState, clearStoredState } from './lib/storage';
+import {
+  createEmptyState,
+  loadStateDetailed,
+  saveState,
+  clearStoredState,
+  isValidDate,
+} from './lib/storage';
+import {
+  materializeRecurring,
+  type NewRecurringRuleInput,
+  type RecurringMaterializeOptions,
+  type RecurringMaterializeResult,
+} from './lib/recurring';
 import {
   buildTrashRows,
   pushTrash,
@@ -36,10 +49,29 @@ import { findRestOnDay, wouldExceedDayLimit } from './lib/guards';
 import { clearPhotos, deletePhoto, deletePhotos, prunePhotos } from './lib/photos';
 import { PrivacyProvider } from './components/Money';
 import { Toast } from './components/Toast';
+import { StorageRecovery } from './components/StorageRecovery';
 
 export type NewJobInput = Omit<Job, 'id' | 'createdAt' | 'archived'> & { archived?: boolean };
 export type NewEntryInput = Omit<Entry, 'id' | 'createdAt' | 'updatedAt'>;
 export type EntryPatch = Partial<Omit<Entry, 'id' | 'createdAt' | 'settlementId'>>;
+
+function validRecurringInput(state: AppState, input: NewRecurringRuleInput): boolean {
+  const job = state.jobs.find((item) => item.id === input.jobId && !item.archived);
+  if (!job || !isValidDate(input.startDate)) return false;
+  if (input.endDate && (!isValidDate(input.endDate) || input.endDate < input.startDate)) {
+    return false;
+  }
+  if (input.frequency === 'weekly' && input.weekdays.length === 0) return false;
+  if (!Number.isFinite(input.hours) || input.hours < 0 || input.hours > 24) return false;
+  if (job.rule.payType === 'hourly' && input.hours <= 0) return false;
+  if (!Number.isFinite(input.quantity) || input.quantity < 0 || input.quantity > 1_000_000) {
+    return false;
+  }
+  if (job.rule.payType === 'piece' && input.quantity <= 0) return false;
+  return [input.bonus, input.deduction].every(
+    (value) => Number.isFinite(value) && value >= 0 && value <= 1_000_000,
+  );
+}
 
 interface ToastState {
   id: number;
@@ -70,8 +102,12 @@ interface StoreValue {
   addRestDay: (input: Omit<RestDay, 'id' | 'createdAt'>) => RestDay | null;
   removeRestDay: (restDayId: string) => boolean;
   restoreRestDay: (restDay: RestDay) => boolean;
-  addAdvance: (input: Omit<Advance, 'id' | 'createdAt'>) => Advance;
+  addAdvance: (input: Omit<Advance, 'id' | 'createdAt'>) => Advance | null;
   deleteAdvance: (advanceId: string) => boolean;
+  addRecurringRule: (input: NewRecurringRuleInput) => RecurringRule | null;
+  updateRecurringRule: (rule: RecurringRule) => boolean;
+  deleteRecurringRule: (ruleId: string) => boolean;
+  generateRecurring: (options?: RecurringMaterializeOptions) => RecurringMaterializeResult;
   restoreAdvance: (advance: Advance) => boolean;
   restoreTrashItem: (kind: TrashKind, id: string) => TrashActionResult;
   purgeTrashItem: (kind: TrashKind, id: string) => boolean;
@@ -106,7 +142,19 @@ interface StoreValue {
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(() => loadState() ?? createEmptyState());
+  const [initial] = useState(loadStateDetailed);
+  if (initial.failure) return <StorageRecovery failure={initial.failure} />;
+  return <StoreStateProvider initialState={initial.state}>{children}</StoreStateProvider>;
+}
+
+function StoreStateProvider({
+  children,
+  initialState,
+}: {
+  children: ReactNode;
+  initialState: AppState | null;
+}) {
+  const [state, setState] = useState<AppState>(() => initialState ?? createEmptyState());
   const [toastState, setToastState] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
   const stateRef = useRef(state);
@@ -161,6 +209,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void prunePhotos(keep).catch(() => undefined);
   }, []);
 
+  // 所有写操作共用同步 ref，避免同一事件循环内连续操作读取到旧账本。
+  const commit = useCallback((updater: (previous: AppState) => AppState) => {
+    const next = updater(stateRef.current);
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
   const addJob = useCallback((input: NewJobInput) => {
     const job: Job = {
       ...input,
@@ -168,12 +223,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       archived: input.archived ?? false,
       createdAt: nowISO(),
     };
-    setState((prev) => ({ ...prev, jobs: [...prev.jobs, job] }));
+    commit((prev) => ({ ...prev, jobs: [...prev.jobs, job] }));
     return job;
   }, []);
 
   const updateJob = useCallback((job: Job) => {
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       jobs: prev.jobs.map((item) => (item.id === job.id ? job : item)),
     }));
@@ -182,7 +237,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setJobArchived = useCallback((jobId: string, archived: boolean) => {
     const current = stateRef.current;
     if (archived && current.activeTimer?.jobId === jobId) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       jobs: prev.jobs.map((job) => (job.id === jobId ? { ...job, archived } : job)),
     }));
@@ -196,11 +251,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       current.entries.some((entry) => entry.jobId === jobId) ||
       current.advances.some((advance) => advance.jobId === jobId) ||
       current.settlements.some((settlement) => settlement.jobId === jobId) ||
-      current.restDays.some((rest) => rest.jobId === jobId);
+      current.restDays.some((rest) => rest.jobId === jobId) ||
+      Boolean(current.recurringRules?.some((rule) => rule.jobId === jobId));
     if (used) return false;
     const job = current.jobs.find((item) => item.id === jobId);
     if (!job) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       jobs: prev.jobs.filter((item) => item.id !== jobId),
       trashedJobs: pushTrash(
@@ -217,13 +273,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const trashed = current.trashedJobs.find((item) => item.job.id === jobId);
     if (!trashed) return false;
     if (current.jobs.some((job) => job.id === jobId)) {
-      setState((prev) => ({
+      commit((prev) => ({
         ...prev,
         trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== jobId),
       }));
       return true;
     }
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       jobs: [...prev.jobs, trashed.job],
       trashedJobs: prev.trashedJobs.filter((item) => item.job.id !== jobId),
@@ -236,7 +292,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (current.activeTimer) return false;
     const job = current.jobs.find((item) => item.id === jobId);
     if (!job || job.archived || job.rule.payType === 'piece') return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       activeTimer: { jobId, startedAt: nowISO() },
     }));
@@ -244,11 +300,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearTimer = useCallback(() => {
-    setState((prev) => ({ ...prev, activeTimer: null }));
+    commit((prev) => ({ ...prev, activeTimer: null }));
   }, []);
 
   const addEntry = useCallback((input: NewEntryInput) => {
     const current = stateRef.current;
+    const job = current.jobs.find((item) => item.id === input.jobId);
+    if (!job || job.archived || !isValidDate(input.date)) return null;
+    if (
+      ![input.hours, input.quantity, input.otHours, input.bonus, input.deduction].every(
+        (value) => Number.isFinite(value) && value >= 0,
+      )
+    ) {
+      return null;
+    }
     const settledPeriod = current.settlements.find(
       (settlement) =>
         settlement.jobId === input.jobId &&
@@ -264,7 +329,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    setState((prev) => {
+    commit((prev) => {
       let trashedRests = prev.trashedRests;
       for (const restDay of prev.restDays) {
         if (restDay.jobId === entry.jobId && restDay.date === entry.date) {
@@ -294,6 +359,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (existing.settlementId) return false;
     const targetJobId = patch.jobId ?? existing.jobId;
     const targetDate = patch.date ?? existing.date;
+    const targetJob = current.jobs.find((job) => job.id === targetJobId);
+    if (!targetJob || !isValidDate(targetDate)) return false;
+    if (targetJob.archived && targetJobId !== existing.jobId) return false;
+    if (
+      [patch.hours, patch.quantity, patch.otHours, patch.bonus, patch.deduction].some(
+        (value) => value !== undefined && (!Number.isFinite(value) || value < 0),
+      )
+    ) {
+      return false;
+    }
     const targetSettled = current.settlements.some(
       (settlement) =>
         settlement.jobId === targetJobId &&
@@ -304,7 +379,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const nextHours = patch.hours ?? existing.hours;
     if (wouldExceedDayLimit(current.entries, targetDate, nextHours, entryId)) return false;
     const timestamp = nowISO();
-    setState((prev) => {
+    commit((prev) => {
       let trashedRests = prev.trashedRests;
       for (const restDay of prev.restDays) {
         if (restDay.jobId === targetJobId && restDay.date === targetDate) {
@@ -332,7 +407,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const deleteEntry = useCallback((entryId: string) => {
     const existing = stateRef.current.entries.find((entry) => entry.id === entryId);
     if (!existing || existing.settlementId) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       entries: prev.entries.filter((entry) => entry.id !== entryId),
       trashedEntries: pushTrash(
@@ -365,7 +440,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (settled) return false;
     if (findRestOnDay(current.restDays, entry.jobId, entry.date)) return false;
     if (wouldExceedDayLimit(current.entries, entry.date, entry.hours)) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       entries: [entry, ...prev.entries],
       trashedEntries: prev.trashedEntries.filter((item) => item.entry.id !== entry.id),
@@ -376,7 +451,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addRestDay = useCallback((input: Omit<RestDay, 'id' | 'createdAt'>) => {
     const current = stateRef.current;
     const job = current.jobs.find((item) => item.id === input.jobId);
-    if (!job || job.archived) return null;
+    if (!job || job.archived || !isValidDate(input.date)) return null;
     const settledPeriod = current.settlements.find(
       (settlement) =>
         settlement.jobId === input.jobId &&
@@ -404,7 +479,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       id: createId('rest'),
       createdAt: nowISO(),
     };
-    setState((prev) => ({ ...prev, restDays: [restDay, ...prev.restDays] }));
+    commit((prev) => ({ ...prev, restDays: [restDay, ...prev.restDays] }));
     return restDay;
   }, []);
 
@@ -419,7 +494,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         existing.date <= settlement.periodEnd,
     );
     if (settled) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       restDays: prev.restDays.filter((rest) => rest.id !== restDayId),
       trashedRests: pushTrash(
@@ -434,7 +509,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const restoreRestDay = useCallback((restDay: RestDay) => {
     const current = stateRef.current;
     if (current.restDays.some((rest) => rest.id === restDay.id)) {
-      setState((prev) => ({
+      commit((prev) => ({
         ...prev,
         trashedRests: prev.trashedRests.filter((item) => item.restDay.id !== restDay.id),
       }));
@@ -463,7 +538,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ) {
       return false;
     }
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       restDays: [restDay, ...prev.restDays],
       trashedRests: prev.trashedRests.filter((item) => item.restDay.id !== restDay.id),
@@ -472,19 +547,104 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addAdvance = useCallback((input: Omit<Advance, 'id' | 'createdAt'>) => {
+    const current = stateRef.current;
+    const job = current.jobs.find((item) => item.id === input.jobId && !item.archived);
+    if (!job || !isValidDate(input.date)) return null;
+    if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > 1_000_000) {
+      return null;
+    }
+    const alreadySettled = current.settlements.some(
+      (settlement) =>
+        settlement.jobId === input.jobId &&
+        input.date >= settlement.periodStart &&
+        input.date <= settlement.periodEnd,
+    );
+    if (alreadySettled) return null;
     const advance: Advance = {
       ...input,
+      amount: Math.round(input.amount * 100) / 100,
+      note: input.note?.trim() || undefined,
       id: createId('advance'),
       createdAt: nowISO(),
     };
-    setState((prev) => ({ ...prev, advances: [advance, ...prev.advances] }));
+    commit((prev) => ({ ...prev, advances: [advance, ...prev.advances] }));
     return advance;
-  }, []);
+  }, [commit]);
+
+  const addRecurringRule = useCallback((input: NewRecurringRuleInput) => {
+    const current = stateRef.current;
+    if (!validRecurringInput(current, input)) return null;
+    const timestamp = nowISO();
+    const rule: RecurringRule = {
+      ...input,
+      weekdays: [...input.weekdays].sort((a, b) => a - b),
+      note: input.note?.trim() || undefined,
+      id: createId('recurring'),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    commit((prev) => ({
+      ...prev,
+      recurringRules: [rule, ...(prev.recurringRules ?? [])],
+    }));
+    return rule;
+  }, [commit]);
+
+  const updateRecurringRule = useCallback((rule: RecurringRule) => {
+    const current = stateRef.current;
+    const existing = current.recurringRules?.find((item) => item.id === rule.id);
+    if (!existing || !validRecurringInput(current, rule)) return false;
+    const scheduleChanged =
+      existing.jobId !== rule.jobId ||
+      existing.frequency !== rule.frequency ||
+      existing.startDate !== rule.startDate ||
+      existing.endDate !== rule.endDate ||
+      existing.dayOfMonth !== rule.dayOfMonth ||
+      existing.hours !== rule.hours ||
+      existing.quantity !== rule.quantity ||
+      existing.bonus !== rule.bonus ||
+      existing.deduction !== rule.deduction ||
+      existing.weekdays.join(',') !== rule.weekdays.join(',');
+    commit((prev) => ({
+      ...prev,
+      recurringRules: (prev.recurringRules ?? []).map((item) =>
+        item.id === rule.id
+          ? {
+              ...rule,
+              note: rule.note?.trim() || undefined,
+              weekdays: [...rule.weekdays].sort((a, b) => a - b),
+              lastProcessedDate: scheduleChanged ? undefined : rule.lastProcessedDate,
+              createdAt: existing.createdAt,
+              updatedAt: nowISO(),
+            }
+          : item,
+      ),
+    }));
+    return true;
+  }, [commit]);
+
+  const deleteRecurringRule = useCallback((ruleId: string) => {
+    if (!stateRef.current.recurringRules?.some((rule) => rule.id === ruleId)) return false;
+    commit((prev) => ({
+      ...prev,
+      recurringRules: (prev.recurringRules ?? []).filter((rule) => rule.id !== ruleId),
+    }));
+    return true;
+  }, [commit]);
+
+  const generateRecurring = useCallback(
+    (options: RecurringMaterializeOptions = {}): RecurringMaterializeResult => {
+      const result = materializeRecurring(stateRef.current, options);
+      if (result.state !== stateRef.current) commit(() => result.state);
+      return result;
+    },
+    [commit],
+  );
 
   const deleteAdvance = useCallback((advanceId: string) => {
     const existing = stateRef.current.advances.find((advance) => advance.id === advanceId);
     if (!existing || existing.settlementId) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       advances: prev.advances.filter((advance) => advance.id !== advanceId),
       trashedAdvances: pushTrash(
@@ -499,7 +659,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const restoreAdvance = useCallback((advance: Advance) => {
     const current = stateRef.current;
     if (current.advances.some((item) => item.id === advance.id)) {
-      setState((prev) => ({
+      commit((prev) => ({
         ...prev,
         trashedAdvances: prev.trashedAdvances.filter((item) => item.advance.id !== advance.id),
       }));
@@ -514,7 +674,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         advance.date <= settlement.periodEnd,
     );
     if (settled) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       advances: [advance, ...prev.advances],
       trashedAdvances: prev.trashedAdvances.filter((item) => item.advance.id !== advance.id),
@@ -531,7 +691,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ? { ok: true }
           : { ok: false, reason: '这条工作已经不在回收站里了' };
       }
-      setState((prev) => ({
+      commit((prev) => ({
         ...prev,
         jobs: prev.jobs.some((job) => job.id === id) ? prev.jobs : [...prev.jobs, item.job],
         trashedJobs: prev.trashedJobs.filter((value) => value.job.id !== id),
@@ -550,7 +710,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (item.entry.settlementId) {
         return { ok: false, reason: '这笔工记已结算，先撤销结算再恢复' };
       }
-      setState((prev) => ({
+      commit((prev) => ({
         ...prev,
         entries: prev.entries.some((entry) => entry.id === id)
           ? prev.entries
@@ -563,7 +723,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (kind === 'rest') {
       const item = current.trashedRests.find((value) => value.restDay.id === id);
       if (!item) return { ok: false, reason: '这条休息已经不在回收站里了' };
-      setState((prev) => ({
+      commit((prev) => ({
         ...prev,
         restDays: prev.restDays.some((rest) => rest.id === id)
           ? prev.restDays
@@ -575,7 +735,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const item = current.trashedAdvances.find((value) => value.advance.id === id);
     if (!item) return { ok: false, reason: '这条借支已经不在回收站里了' };
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       advances: prev.advances.some((advance) => advance.id === id)
         ? prev.advances
@@ -607,7 +767,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const photoId = current.trashedEntries.find((item) => item.entry.id === id)?.entry.photoId;
       if (photoId) void deletePhoto(photoId).catch(() => undefined);
     }
-    setState((prev) => {
+    commit((prev) => {
       if (kind === 'job') {
         return {
           ...prev,
@@ -649,7 +809,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .map((item) => item.entry.photoId)
       .filter((value): value is string => Boolean(value));
     if (photoIds.length > 0) void deletePhotos(photoIds).catch(() => undefined);
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       trashedJobs: [],
       trashedEntries: [],
@@ -705,7 +865,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const net = Math.max(0, settlement.net);
       const paid = Math.min(net, Math.max(0, Math.round(input.paidAmount * 100) / 100));
       const paymentStatus = paid <= 0 ? 'unpaid' : paid >= net ? 'paid' : 'partial';
-      setState((prev) => ({
+      commit((prev) => ({
         ...prev,
         settlements: prev.settlements.map((item) =>
           item.id === settlementId
@@ -728,7 +888,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const undoSettlement = useCallback((settlementId: string) => {
     const current = stateRef.current;
     if (!current.settlements.some((settlement) => settlement.id === settlementId)) return false;
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       settlements: prev.settlements.filter((settlement) => settlement.id !== settlementId),
       entries: prev.entries.map((entry) =>
@@ -742,17 +902,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateProfile = useCallback((patch: Partial<Profile>) => {
-    setState((prev) => ({ ...prev, profile: { ...prev.profile, ...patch } }));
+    commit((prev) => ({ ...prev, profile: { ...prev.profile, ...patch } }));
   }, []);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
-    setState((prev) => {
+    commit((prev) => {
       const next: Settings = {
         ...prev.settings,
         ...patch,
         reminder: patch.reminder
           ? { ...prev.settings.reminder, ...patch.reminder }
           : prev.settings.reminder,
+        budget: patch.budget
+          ? { ...prev.settings.budget, ...patch.budget }
+          : prev.settings.budget,
       };
       return { ...prev, settings: next };
     });
@@ -760,24 +923,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const replaceState = useCallback(
     (next: AppState) => {
-      setState({
+      commit(() => ({
         ...next,
         onboardingDone: next.onboardingDone || next.jobs.length > 0,
-      });
+      }));
     },
-    [],
+    [commit],
   );
 
   const resetAll = useCallback(() => {
     clearStoredState();
     clearReminderMark();
     void clearPhotos().catch(() => undefined);
-    setState(createEmptyState());
-  }, []);
+    commit(() => createEmptyState());
+  }, [commit]);
 
   const loadDemo = useCallback(() => {
-    setState(createDemoState());
-  }, []);
+    commit(() => createDemoState());
+  }, [commit]);
 
   const completeOnboarding = useCallback((name: string, input: NewJobInput) => {
     const timestamp = nowISO();
@@ -787,7 +950,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       archived: false,
       createdAt: timestamp,
     };
-    setState((prev) => ({
+    commit((prev) => ({
       ...prev,
       profile: { ...prev.profile, name: name.trim() || '工友' },
       jobs: [...prev.jobs, job],
@@ -814,6 +977,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     restoreRestDay,
     addAdvance,
     deleteAdvance,
+    addRecurringRule,
+    updateRecurringRule,
+    deleteRecurringRule,
+    generateRecurring,
     restoreAdvance,
     restoreTrashItem,
     purgeTrashItem,

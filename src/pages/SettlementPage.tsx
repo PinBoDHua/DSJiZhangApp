@@ -844,12 +844,23 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
     toast(ok ? '结算单已复制，可直接发给老板' : '复制失败，请手动截图', ok ? 'success' : 'error');
   };
 
-  const handleUndo = () => {
-    void saveSnapshot(state, 'before-undo-settlement').catch(() => undefined);
+  const handleUndo = async () => {
+    try {
+      await saveSnapshot(state, 'before-undo-settlement');
+    } catch (error) {
+      setConfirmOpen(false);
+      toast(
+        error instanceof Error
+          ? `撤销前快照失败，已保留结算：${error.message}`
+          : '撤销前快照失败，已保留结算',
+        'error',
+      );
+      return;
+    }
     const ok = undoSettlement(settlement.id);
     setConfirmOpen(false);
     if (ok) {
-      toast('已撤销结算，工记已解锁', 'info');
+      toast('已撤销结算，工记已解锁；撤销前已留快照', 'info');
       onBack();
     } else {
       toast('撤销失败，请重试', 'error');

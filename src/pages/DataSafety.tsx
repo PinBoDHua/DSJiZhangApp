@@ -19,9 +19,9 @@ import { MoveSheet } from '../components/MoveSheet';
 import { useStore } from '../store';
 import { todayISO } from '../lib/date';
 import { formatHours } from '../lib/money';
-import { buildExportPayload } from '../lib/storage';
+import { backupFileName, buildExportPayload } from '../lib/storage';
 import { getLastBackupAt, markBackedUp } from '../lib/backupStatus';
-import { buildSettlementCsv } from '../lib/csv';
+import { buildEntryCsv, buildSettlementCsv } from '../lib/csv';
 import { buildLedgerXlsx, excelFileName } from '../lib/excel';
 import { xlsxBlob } from '../lib/xlsx';
 import { isNativeApp, saveBlobFile, saveTextFile } from '../lib/native';
@@ -83,7 +83,7 @@ export function DataSafety({
     setBusy(true);
     try {
       const result = await saveTextFile(
-        `薪时备份-${todayISO()}.json`,
+        backupFileName(),
         buildExportPayload(state),
       );
       markBackedUp();
@@ -146,6 +146,27 @@ export function DataSafety({
     }
   };
 
+  const exportEntryCsv = async () => {
+    setBusy(true);
+    try {
+      const result = await saveTextFile(
+        `薪时完整工记-${todayISO()}.csv`,
+        buildEntryCsv(state.entries, state.jobs),
+        'text/csv;charset=utf-8',
+      );
+      toast(
+        result === 'native'
+          ? '完整工记 CSV 已保存到「下载/Xinshi」'
+          : '完整工记 CSV 已导出',
+        'success',
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '工记 CSV 导出失败', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const exportSettlementCsv = async () => {
     setBusy(true);
     try {
@@ -163,15 +184,24 @@ export function DataSafety({
   };
 
   const clearAll = async () => {
+    if (busy) return;
     setClearOpen(false);
+    setBusy(true);
     try {
       await saveSnapshot(state, 'before-clear');
-    } catch {
-      // 快照失败不阻止清空，但用户已经在确认框里看到警告
+      resetAll();
+      toast('数据已清空，可在本机时光机找回清空前快照', 'info');
+      await refresh();
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? `清空前快照失败，已取消清空：${error.message}`
+          : '清空前快照失败，已取消清空',
+        'error',
+      );
+    } finally {
+      setBusy(false);
     }
-    resetAll();
-    toast('数据已清空，可在本机时光机找回清空前快照', 'info');
-    await refresh();
   };
 
   const snapshotBytes = snapshotTotalBytes(snapshots);
@@ -347,6 +377,14 @@ export function DataSafety({
       <section className="settings-group">
         <h2>对账导出</h2>
         <div className="settings-card">
+          <button type="button" className="settings-row" onClick={() => void exportEntryCsv()} disabled={busy}>
+            <span className="settings-icon"><FileText size={18} /></span>
+            <span className="settings-body">
+              <strong>完整工记 CSV</strong>
+              <em>全部有效工记 + 完整计薪快照；不含照片本体，不能代替备份</em>
+            </span>
+            <ChevronRight size={16} className="settings-chevron" />
+          </button>
           <button type="button" className="settings-row" onClick={() => void exportExcel()} disabled={busy}>
             <span className="settings-icon">
               <FileSpreadsheet size={18} />

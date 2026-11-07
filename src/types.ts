@@ -114,6 +114,8 @@ export interface Entry {
   note?: string;
   /** 考勤照片 ID；照片本体存本机 IndexedDB，不进备份 */
   photoId?: string;
+  /** v1.2 周期规则来源；删除规则不会删除已经生成的工记 */
+  recurringRuleId?: string;
   /** 记录创建时的计薪快照，后续调价不影响历史 */
   rule: PayRule;
   settlementId?: string;
@@ -174,6 +176,14 @@ export interface Profile {
   hideAmounts: boolean;
 }
 
+export interface BudgetSettings {
+  enabled: boolean;
+  /** 本月收入目标；0 表示不按收入提醒 */
+  incomeTarget: number;
+  /** 本月工时上限；0 表示不按工时提醒 */
+  hoursLimit: number;
+}
+
 export interface Settings {
   weekStartsOn: WeekStart;
   theme: ThemeMode;
@@ -181,6 +191,34 @@ export interface Settings {
     enabled: boolean;
     time: string;
   };
+  /** v1.2 可选月度预算设置，旧账本缺省为关闭 */
+  budget?: BudgetSettings;
+}
+
+export type RecurringFrequency = 'daily' | 'weekly' | 'monthly';
+
+export interface RecurringRule {
+  id: string;
+  jobId: string;
+  frequency: RecurringFrequency;
+  /** 每周规则使用，0=周日 … 6=周六 */
+  weekdays: number[];
+  /** 每月规则使用；小月自动落到月末 */
+  dayOfMonth: number;
+  startDate: string;
+  endDate?: string;
+  hours: number;
+  quantity: number;
+  bonus: number;
+  deduction: number;
+  note?: string;
+  enabled: boolean;
+  /** 打开 App 时自动补记到昨天 */
+  auto: boolean;
+  /** 已处理到哪个规则日期，避免冲突项反复生成 */
+  lastProcessedDate?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface WorkTimer {
@@ -202,6 +240,8 @@ export interface AppState {
   restDays: RestDay[];
   advances: Advance[];
   settlements: Settlement[];
+  /** v1.2 可选周期记工规则；旧备份缺省为空 */
+  recurringRules?: RecurringRule[];
   activeTimer: WorkTimer | null;
   onboardingDone: boolean;
   createdAt: string;

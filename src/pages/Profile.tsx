@@ -9,6 +9,7 @@ import {
   LockKeyhole,
   Pencil,
   ShieldCheck,
+  Target,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ import {
   showLocalNotification,
 } from '../lib/reminder';
 import {
+  backupFileName,
   buildExportPayload,
   validateImport,
 } from '../lib/storage';
@@ -39,6 +41,7 @@ import {
   markBackedUp,
 } from '../lib/backupStatus';
 import { isNativeApp, saveTextFile } from '../lib/native';
+import { saveSnapshot } from '../lib/snapshots';
 import { APP_VERSION } from '../lib/version';
 import {
   getNativeReminderPermission,
@@ -69,6 +72,11 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   const [nameDraft, setNameDraft] = useState(state.profile.name);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(false);
+  const [budgetEnabled, setBudgetEnabled] = useState(false);
+  const [budgetIncome, setBudgetIncome] = useState('');
+  const [budgetHours, setBudgetHours] = useState('');
+  const [budgetError, setBudgetError] = useState('');
   const [trashOpen, setTrashOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
   const [permission, setPermission] = useState<ReminderPermission>(() => {
@@ -118,10 +126,45 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
     toast('称呼已更新');
   };
 
+  const openBudget = () => {
+    const budget = state.settings.budget;
+    setBudgetEnabled(budget?.enabled ?? false);
+    setBudgetIncome(budget?.incomeTarget ? String(budget.incomeTarget) : '');
+    setBudgetHours(budget?.hoursLimit ? String(budget.hoursLimit) : '');
+    setBudgetError('');
+    setBudgetOpen(true);
+  };
+
+  const saveBudget = () => {
+    const incomeTarget = budgetIncome.trim() ? Number(budgetIncome) : 0;
+    const hoursLimit = budgetHours.trim() ? Number(budgetHours) : 0;
+    if (!Number.isFinite(incomeTarget) || incomeTarget < 0 || incomeTarget > 100_000_000) {
+      setBudgetError('收入目标需在 0–100000000 之间');
+      return;
+    }
+    if (!Number.isFinite(hoursLimit) || hoursLimit < 0 || hoursLimit > 744) {
+      setBudgetError('工时上限需在 0–744 小时之间');
+      return;
+    }
+    if (budgetEnabled && incomeTarget <= 0 && hoursLimit <= 0) {
+      setBudgetError('至少填写一项收入目标或工时上限，或者先关闭提醒');
+      return;
+    }
+    updateSettings({
+      budget: {
+        enabled: budgetEnabled,
+        incomeTarget: Math.round(incomeTarget * 100) / 100,
+        hoursLimit: Math.round(hoursLimit * 100) / 100,
+      },
+    });
+    setBudgetOpen(false);
+    toast(budgetEnabled ? '月度预算提醒已开启' : '月度预算提醒已关闭', 'success');
+  };
+
   const handleExport = async () => {
     try {
       const result = await saveTextFile(
-        `薪时备份-${todayISO()}.json`,
+        backupFileName(),
         buildExportPayload(state),
       );
       markBackedUp();
@@ -137,11 +180,11 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   };
 
   const exportEncrypted = async () => {
-    if (exportPassword.length < 6) {
-      setExportError('密码至少 6 位');
+    if (exportPassword.trim().length < 6) {
+      setExportError('密码至少 6 位，且不能全是空格');
       return;
     }
-    if (exportPassword !== exportPasswordConfirm) {
+    if (exportPassword.trim() !== exportPasswordConfirm.trim()) {
       setExportError('两次输入的密码不一致');
       return;
     }
@@ -149,7 +192,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
     setExportError('');
     try {
       const text = await encryptBackup(state, exportPassword);
-      const result = await saveTextFile(`薪时加密备份-${todayISO()}.json`, text);
+      const result = await saveTextFile(backupFileName(new Date(), true), text);
       markBackedUp();
       setBackupAt(getLastBackupAt());
       setExportOpen(false);
@@ -202,11 +245,44 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
     }
   };
 
-  const confirmImport = () => {
-    if (!pendingImport) return;
-    replaceState(pendingImport);
-    setPendingImport(null);
-    toast('备份已导入');
+  const confirmImport = async () => {
+    if (!pendingImport || importBusy) return;
+    setImportBusy(true);
+    try {
+      await saveSnapshot(state, 'before-import');
+      replaceState(pendingImport);
+      setPendingImport(null);
+      toast('备份已导入，覆盖前账本已留快照');
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? `导入前快照失败，已取消覆盖：${error.message}`
+          : '导入前快照失败，已取消覆盖',
+        'error',
+      );
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const clearWithSnapshot = async () => {
+    if (importBusy) return;
+    setClearOpen(false);
+    setImportBusy(true);
+    try {
+      await saveSnapshot(state, 'before-clear');
+      resetAll();
+      toast('数据已清空，清空前账本已留快照', 'info');
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? `清空前快照失败，已取消清空：${error.message}`
+          : '清空前快照失败，已取消清空',
+        'error',
+      );
+    } finally {
+      setImportBusy(false);
+    }
   };
 
   const enableNotifications = async () => {
@@ -438,6 +514,18 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
       <section className="settings-group">
         <h2>提醒</h2>
         <div className="settings-card">
+          <button type="button" className="settings-row" onClick={openBudget}>
+            <span className="settings-icon"><Target size={18} /></span>
+            <span className="settings-body">
+              <strong>月度预算提醒</strong>
+              <em>
+                {state.settings.budget?.enabled
+                  ? `${state.settings.budget.incomeTarget > 0 ? `收入目标 ¥${state.settings.budget.incomeTarget}` : '未设收入目标'}${state.settings.budget.hoursLimit > 0 ? ` · 工时上限 ${state.settings.budget.hoursLimit}h` : ''}`
+                  : '设置本月收入目标 / 工时上限，80% 时提醒'}
+              </em>
+            </span>
+            <ChevronRight size={16} className="settings-chevron" />
+          </button>
           <div className="settings-row">
             <span className="settings-icon">
               <Bell size={18} />
@@ -692,6 +780,31 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
         onChange={(event) => handleFile(event.target.files?.[0])}
       />
 
+      <Sheet open={budgetOpen} title="月度预算提醒" subtitle="用于记工目标管理，不是消费支出预算" onClose={() => setBudgetOpen(false)}>
+        <div className="sheet-body">
+          <div className="settings-card budget-enable-row">
+            <div className="settings-row">
+              <span className="settings-body"><strong>启用本月提醒</strong><em>达到 80% 提醒，达到目标 / 上限再次提示</em></span>
+              <button type="button" className={`switch ${budgetEnabled ? 'is-on' : ''}`} role="switch" aria-checked={budgetEnabled} aria-label="启用月度预算提醒" onClick={() => setBudgetEnabled((value) => !value)}><i /></button>
+            </div>
+          </div>
+          <label className="field">
+            <span className="field-label">本月收入目标（元，选填）</span>
+            <input className="text-input" type="number" min={0} max={100000000} step={100} value={budgetIncome} onChange={(event) => { setBudgetIncome(event.target.value); setBudgetError(''); }} placeholder="例如 6000" inputMode="decimal" />
+          </label>
+          <label className="field">
+            <span className="field-label">本月工时上限（小时，选填）</span>
+            <input className="text-input" type="number" min={0} max={744} step={1} value={budgetHours} onChange={(event) => { setBudgetHours(event.target.value); setBudgetError(''); }} placeholder="例如 200" inputMode="decimal" />
+          </label>
+          <p className="field-hint">只统计当前月且日期不超过今天的工记；未来计划不计入。提醒显示在首页、统计和本月首次跨档 Toast，不需要通知权限。</p>
+          {budgetError ? <p className="form-error">{budgetError}</p> : null}
+        </div>
+        <div className="sheet-footer">
+          <button type="button" className="btn btn--ghost" onClick={() => setBudgetOpen(false)}>取消</button>
+          <button type="button" className="btn btn--primary" onClick={saveBudget}>保存预算</button>
+        </div>
+      </Sheet>
+
       <Sheet open={nameOpen} title="修改称呼" onClose={() => setNameOpen(false)}>
         <div className="sheet-body">
           <label className="field">
@@ -880,27 +993,23 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             <>
               将覆盖当前数据：{pendingImport.jobs.length} 份工作、
               {pendingImport.entries.length} 笔工记、{pendingImport.settlements.length} 张结算单。
-              当前数据无法恢复，建议先导出备份。
+              当前数据会先保存到本机时光机；快照失败时会取消导入。
             </>
           ) : null
         }
         confirmLabel="覆盖并导入"
         onCancel={() => setPendingImport(null)}
-        onConfirm={confirmImport}
+        onConfirm={() => void confirmImport()}
       />
 
       <ConfirmDialog
         open={clearOpen}
         title="清空所有数据？"
-        description="工作、工记、借支和结算单会全部删除，无法恢复。建议先导出备份。"
+        description="工作、工记、借支和结算单会全部删除。清空前必须成功保存本机快照，否则不会执行。"
         confirmLabel="全部清空"
         danger
         onCancel={() => setClearOpen(false)}
-        onConfirm={() => {
-          setClearOpen(false);
-          resetAll();
-          toast('数据已清空', 'info');
-        }}
+        onConfirm={() => void clearWithSnapshot()}
       />
     </div>
   );

@@ -29,6 +29,8 @@ export interface LedgerManifest {
   restDays: number;
   advances: number;
   settlements: number;
+  /** v1.2 起有周期规则时写入；旧快照 / 搬家包可缺省 */
+  recurringRules?: number;
   hours: number;
   entryTotal: number;
   firstDate: string | null;
@@ -82,6 +84,9 @@ export function ledgerManifest(state: AppState): LedgerManifest {
     restDays: state.restDays.length,
     advances: state.advances.length,
     settlements: state.settlements.length,
+    ...(state.recurringRules?.length
+      ? { recurringRules: state.recurringRules.length }
+      : {}),
     hours,
     entryTotal,
     firstDate: dates[0] ?? null,
@@ -100,6 +105,13 @@ export function diffManifests(before: LedgerManifest, after: LedgerManifest): Ma
       label: '结算单',
       before: before.settlements,
       after: after.settlements,
+      unit: 'count',
+    },
+    {
+      key: 'recurringRules',
+      label: '周期规则',
+      before: before.recurringRules ?? 0,
+      after: after.recurringRules ?? 0,
       unit: 'count',
     },
     { key: 'hours', label: '累计工时', before: before.hours, after: after.hours, unit: 'hours' },

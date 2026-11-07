@@ -96,12 +96,17 @@ function parseManifest(value: unknown): LedgerManifest {
   for (const key of numbers) {
     if (asNumber(value[key]) === null) throw new Error('搬家包清单格式不正确');
   }
+  if (value.recurringRules !== undefined && asNumber(value.recurringRules) === null) {
+    throw new Error('搬家包周期规则清单格式不正确');
+  }
   return {
     jobs: value.jobs as number,
     entries: value.entries as number,
     restDays: value.restDays as number,
     advances: value.advances as number,
     settlements: value.settlements as number,
+    recurringRules:
+      value.recurringRules === undefined ? undefined : (value.recurringRules as number),
     hours: value.hours as number,
     entryTotal: value.entryTotal as number,
     firstDate: typeof value.firstDate === 'string' ? value.firstDate : null,
@@ -272,12 +277,12 @@ export async function unlockMovePackage(
       { unlockOrphans: true },
     );
   } else {
-    if (!password) throw new Error('这个搬家包需要密码');
+    if (!password?.trim()) throw new Error('这个搬家包需要密码');
     try {
       const salt = base64ToBytes(header.payload.salt);
       const iv = base64ToBytes(header.payload.iv);
       const data = base64ToBytes(header.payload.data);
-      const key = await deriveAesKey(password, salt, header.payload.iterations);
+      const key = await deriveAesKey(password.trim(), salt, header.payload.iterations);
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
       const decoded = JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
       state = validateImport(
@@ -298,6 +303,8 @@ export async function unlockMovePackage(
     actual.restDays === expected.restDays &&
     actual.advances === expected.advances &&
     actual.settlements === expected.settlements &&
+    (expected.recurringRules === undefined ||
+      (actual.recurringRules ?? 0) === expected.recurringRules) &&
     actual.firstDate === expected.firstDate &&
     actual.lastDate === expected.lastDate;
   const amountsMatch =

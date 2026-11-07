@@ -34,6 +34,10 @@ public class SaveFilePlugin extends Plugin {
             call.reject("保存参数不完整");
             return;
         }
+        if (filename.length() > 120 || filename.matches(".*[\\\\/\\p{Cntrl}].*")) {
+            call.reject("文件名称不合法");
+            return;
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             call.reject("当前 Android 版本请使用分享保存");
             return;
@@ -54,13 +58,15 @@ public class SaveFilePlugin extends Plugin {
         String relativePath = relativePath(subdir);
         ContentResolver resolver = getContext().getContentResolver();
 
+        String temporaryName = "." + filename + "." + System.nanoTime() + ".tmp";
         ContentValues values = new ContentValues();
-        values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, temporaryName);
         values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
         values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath);
         values.put(MediaStore.MediaColumns.IS_PENDING, 1);
 
         Uri uri = null;
+        boolean removedExisting = false;
         try {
             uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) {
@@ -74,7 +80,11 @@ public class SaveFilePlugin extends Plugin {
                 stream.write(bytes);
                 stream.flush();
             }
+            // 新文件完整写入后再替换同名旧文件；写失败时只删除临时文件，旧备份不动。
+            removeExistingFiles(resolver, relativePath, filename);
+            removedExisting = true;
             ContentValues done = new ContentValues();
+            done.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
             done.put(MediaStore.MediaColumns.IS_PENDING, 0);
             if (resolver.update(uri, done, null, null) <= 0) {
                 throw new IllegalStateException("文件发布失败");
@@ -82,10 +92,37 @@ public class SaveFilePlugin extends Plugin {
 
             resolveSaved(call, uri, subdir, filename);
         } catch (Exception error) {
-            if (uri != null) {
+            if (uri != null && !removedExisting) {
                 resolver.delete(uri, null, null);
+            } else if (uri != null) {
+                // 旧文件已替换时保留新文件，宁可留下可恢复的临时文件也不双删。
+                try {
+                    ContentValues recover = new ContentValues();
+                    recover.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                    resolver.update(uri, recover, null, null);
+                } catch (Exception ignored) {
+                    // 保留原始错误返回给前端。
+                }
             }
             call.reject(error.getMessage() == null ? "保存失败" : error.getMessage());
+        }
+    }
+
+    private void removeExistingFiles(ContentResolver resolver, String relativePath, String filename) {
+        String selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
+                + MediaStore.MediaColumns.RELATIVE_PATH + " = ? AND "
+                + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + " = ? AND "
+                + MediaStore.MediaColumns.IS_PENDING + " = 0";
+        String[] args = new String[] { filename, relativePath, getContext().getPackageName() };
+        String[] columns = new String[] { MediaStore.MediaColumns._ID };
+        try (Cursor cursor = resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, columns, selection, args, null)) {
+            if (cursor == null) throw new IllegalStateException("无法检查同名文件");
+            while (cursor.moveToNext()) {
+                long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID));
+                Uri existing = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id);
+                resolver.delete(existing, null, null);
+            }
         }
     }
 

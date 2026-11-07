@@ -132,19 +132,33 @@ export function sumEntriesCapped(entries: Entry[], period?: Period): Totals {
   }
 
   for (const group of monthlyGroups.values()) {
-    const latest = group.reduce(
-      (best, item) => (item.createdAt >= best.createdAt ? item : best),
-      group[0],
+    // 同一天多段工记只取当天最新快照；调价不能回写当月其他日期的历史规则。
+    const byDate = new Map<string, Entry>();
+    for (const entry of group) {
+      const current = byDate.get(entry.date);
+      if (!current || entry.createdAt >= current.createdAt) byDate.set(entry.date, entry);
+    }
+    const dailyRules = Array.from(byDate.values());
+    const first = dailyRules[0] ?? group[0];
+    const sameTerms = dailyRules.every(
+      (entry) =>
+        entry.rule.monthlyMode === first.rule.monthlyMode &&
+        entry.rule.rate === first.rule.rate &&
+        entry.rule.expectedDays === first.rule.expectedDays,
     );
-    const days = new Set(group.map((entry) => entry.date)).size;
-    const expectedDays = latest.rule.expectedDays > 0 ? latest.rule.expectedDays : 22;
-    const rate = Math.max(0, latest.rule.rate);
-    const rawBase = (rate / expectedDays) * days;
-    const fixed = latest.rule.monthlyMode === 'fixed';
-    const fullFixedMonth = fixed && isWholeCalendarMonth;
-    const paidBase = fullFixedMonth ? rate : Math.min(rawBase, rate);
+    const rawBase = dailyRules.reduce((sum, entry) => {
+      const expectedDays = entry.rule.expectedDays > 0 ? entry.rule.expectedDays : 22;
+      return sum + Math.max(0, entry.rule.rate) / expectedDays;
+    }, 0);
+    const rate = Math.max(0, first.rule.rate);
+    const cap = sameTerms
+      ? rate
+      : Math.max(...dailyRules.map((entry) => Math.max(0, entry.rule.rate)), 0);
+    const fullFixedMonth =
+      sameTerms && first.rule.monthlyMode === 'fixed' && isWholeCalendarMonth;
+    const paidBase = fullFixedMonth ? rate : Math.min(rawBase, cap);
     totals.base += round2(paidBase);
-    totals.capAdjustment += fullFixedMonth ? 0 : Math.max(0, rawBase - rate);
+    totals.capAdjustment += fullFixedMonth ? 0 : Math.max(0, rawBase - cap);
     for (const entry of group) consume(entry, false);
   }
 
@@ -479,18 +493,63 @@ export interface DailyPoint {
 export function dailySeries(entries: Entry[], start: string, end: string): DailyPoint[] {
   const map = new Map<string, DailyPoint>();
   const dailyBaseDays = new Set<string>();
+  const monthlyGroups = new Map<string, Entry[]>();
   for (const day of eachDay(start, end)) {
     map.set(day, { date: day, earnings: 0, hours: 0 });
   }
   for (const entry of entries) {
     const point = map.get(entry.date);
     if (!point) continue;
+    if (entry.rule.payType === 'monthly') {
+      const key = `${entry.jobId}|${monthKey(entry.date)}`;
+      const group = monthlyGroups.get(key);
+      if (group) group.push(entry);
+      else monthlyGroups.set(key, [entry]);
+      continue;
+    }
     const pay = payForEntry(entry);
     const dailyKey = `${entry.jobId}|${entry.date}`;
     const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
     if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
     point.earnings = round2(point.earnings + pay.total - (includeBase ? 0 : pay.base));
     point.hours = round2(point.hours + (entry.hours || 0));
+  }
+
+  // 月薪按本期目标基础工资分摊到实际出勤日，保证图表之和与上方合计一致。
+  const period: Period = { start, end, key: `series:${start}`, label: '', shortLabel: '' };
+  for (const group of monthlyGroups.values()) {
+    const targetBase = sumEntriesCapped(group, period).base;
+    const byDate = new Map<string, Entry[]>();
+    for (const entry of group) {
+      const list = byDate.get(entry.date);
+      if (list) list.push(entry);
+      else byDate.set(entry.date, [entry]);
+    }
+    const rawByDate = new Map<string, number>();
+    let rawTotal = 0;
+    for (const [date, dayEntries] of byDate) {
+      const latest = dayEntries.reduce(
+        (best, item) => (item.createdAt >= best.createdAt ? item : best),
+        dayEntries[0],
+      );
+      const expectedDays = latest.rule.expectedDays > 0 ? latest.rule.expectedDays : 22;
+      const raw = Math.max(0, latest.rule.rate) / expectedDays;
+      rawByDate.set(date, raw);
+      rawTotal += raw;
+    }
+    for (const [date, dayEntries] of byDate) {
+      const point = map.get(date);
+      if (!point) continue;
+      const raw = rawByDate.get(date) ?? 0;
+      const base = rawTotal > 0 ? (targetBase * raw) / rawTotal : 0;
+      let additions = base;
+      for (const entry of dayEntries) {
+        const pay = payForEntry(entry);
+        additions += pay.otPay + pay.bonus - pay.deduction;
+        point.hours = round2(point.hours + (entry.hours || 0));
+      }
+      point.earnings = round2(point.earnings + additions);
+    }
   }
   return Array.from(map.values());
 }

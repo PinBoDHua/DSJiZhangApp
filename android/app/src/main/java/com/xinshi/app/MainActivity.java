@@ -11,6 +11,10 @@ import android.webkit.WebView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
@@ -21,6 +25,7 @@ public class MainActivity extends BridgeActivity {
     private static int rendererCrashCount = 0;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private String safeAreaScript = "";
     private final Runnable resetRendererCrashCount = () -> {
         rendererCrashCount = 0;
         XinshiApp.mark("webview:renderer crash count reset");
@@ -42,15 +47,18 @@ public class MainActivity extends BridgeActivity {
         try {
             Bridge bridge = getBridge();
             if (bridge != null) {
+                installSafeAreaInsets(bridge);
                 bridge.addWebViewListener(new WebViewListener() {
                     @Override
                     public void onPageStarted(WebView view) {
                         XinshiApp.mark("webview:pageStart url=" + safeUrl(view));
+                        applySafeAreaScript(view);
                     }
 
                     @Override
                     public void onPageLoaded(WebView view) {
                         XinshiApp.mark("webview:pageLoaded url=" + safeUrl(view));
+                        applySafeAreaScript(view);
                         mainHandler.removeCallbacks(resetRendererCrashCount);
                         mainHandler.postDelayed(resetRendererCrashCount, RENDERER_STABLE_MS);
                         if (BuildConfig.XINSHI_DIAG) {
@@ -109,6 +117,30 @@ public class MainActivity extends BridgeActivity {
     public void onDestroy() {
         mainHandler.removeCallbacks(resetRendererCrashCount);
         super.onDestroy();
+    }
+
+    /** WebView 的 env(safe-area-inset-*) 在部分 ROM 上恒为 0，直接桥接系统 inset。 */
+    private void installSafeAreaInsets(Bridge bridge) {
+        final WebView webView = bridge.getWebView();
+        if (webView == null) return;
+        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+            Insets insets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+            );
+            float density = view.getResources().getDisplayMetrics().density;
+            safeAreaScript = "document.documentElement.style.setProperty('--safe-top','" + (insets.top / density) + "px');"
+                + "document.documentElement.style.setProperty('--safe-right','" + (insets.right / density) + "px');"
+                + "document.documentElement.style.setProperty('--safe-bottom','" + (insets.bottom / density) + "px');"
+                + "document.documentElement.style.setProperty('--safe-left','" + (insets.left / density) + "px');";
+            applySafeAreaScript(webView);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(webView);
+    }
+
+    private void applySafeAreaScript(WebView view) {
+        if (view == null || safeAreaScript.isEmpty()) return;
+        view.evaluateJavascript(safeAreaScript, null);
     }
 
     private static void destroyWebView(WebView view) {

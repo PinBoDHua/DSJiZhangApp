@@ -219,6 +219,7 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
               ) : null}
               {pay.otHours > 0 ? <span className="is-ot">加班 {formatHours(pay.otHours)}h</span> : null}
               {entry.holiday ? <span className="is-holiday">法定节假日</span> : null}
+              {entry.recurringRuleId ? <span className="is-recurring">周期记工</span> : null}
             </div>
           </div>
 

@@ -8,6 +8,8 @@ import type {
   MonthlyMode,
   PayRule,
   PayType,
+  RecurringFrequency,
+  RecurringRule,
   RestDay,
   RestPolicy,
   Settlement,
@@ -53,25 +55,58 @@ export function createEmptyState(name = ''): AppState {
   };
 }
 
-export function loadState(): AppState | null {
+export interface LoadStateFailure {
+  key: string;
+  raw: string;
+  message: string;
+}
+
+export interface LoadStateResult {
+  state: AppState | null;
+  failure: LoadStateFailure | null;
+}
+
+/** 已存在但损坏 / 高版本的数据必须停下，不能回退后覆盖原记录。 */
+export function loadStateDetailed(): LoadStateResult {
   const keys = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
   for (const key of keys) {
+    let raw: string | null;
     try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
+      raw = localStorage.getItem(key);
+    } catch (error) {
+      return {
+        state: null,
+        failure: {
+          key,
+          raw: '',
+          message: error instanceof Error ? error.message : '浏览器拒绝了本地存储访问',
+        },
+      };
+    }
+    if (raw === null) continue;
+    try {
       const state = validateImport(raw);
       try {
         saveState(state);
         if (LEGACY_STORAGE_KEYS.includes(key)) localStorage.removeItem(key);
       } catch (error) {
+        // 已校验的账本仍可只读加载；保存失败由 Store 的持久化提示继续告知。
         console.warn('迁移本地数据失败，但已加载', error);
       }
-      return state;
+      return { state, failure: null };
     } catch (error) {
-      console.warn(`读取本地数据失败（${key}）`, error);
+      console.error(`本地账本无法读取（${key}）`, error);
+      return {
+        state: null,
+        failure: {
+          key,
+          raw,
+          message: error instanceof Error ? error.message : '账本格式无法识别',
+        },
+      };
     }
   }
-  return null;
+  return { state: null, failure: null };
 }
 
 export function saveState(state: AppState): void {
@@ -84,6 +119,14 @@ export function clearStoredState(): void {
   for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
   localStorage.removeItem(THEME_KEY);
   localStorage.removeItem('xinshi.lastBackup');
+  localStorage.removeItem('xinshi.budgetAlert');
+}
+
+export function backupFileName(now = new Date(), encrypted = false): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `薪时${encrypted ? '加密' : ''}备份-${date}-${time}.json`;
 }
 
 export function buildExportPayload(state: AppState): string {
@@ -138,7 +181,7 @@ function asBoolean(value: unknown, fallback = false): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function isValidDate(value: unknown): value is string {
+export function isValidDate(value: unknown): value is string {
   const text = asString(value);
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
   if (!match) return false;
@@ -157,6 +200,11 @@ function asDate(value: unknown): string {
   return text;
 }
 
+function asTime(value: unknown): string | undefined {
+  const text = asString(value);
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(text) ? text : undefined;
+}
+
 function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
@@ -172,6 +220,7 @@ const REST_POLICIES: RestPolicy[] = ['quota', 'flexible'];
 const CYCLES: Cycle[] = ['daily', 'weekly', 'monthly'];
 const COLORS: JobColor[] = JOB_COLORS.map((color) => color.key);
 const THEMES: ThemeMode[] = ['system', 'light', 'dark'];
+const RECURRING_FREQUENCIES: RecurringFrequency[] = ['daily', 'weekly', 'monthly'];
 
 function normalizeReminder(value: unknown): { enabled: boolean; time: string } {
   const raw = isRecord(value) ? value : {};
@@ -240,12 +289,8 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
 
 function normalizeShift(value: unknown): Job['shift'] {
   const raw = isRecord(value) ? value : {};
-  const startTime = /^\d{2}:\d{2}$/.test(asString(raw.startTime))
-    ? asString(raw.startTime)
-    : '08:00';
-  const endTime = /^\d{2}:\d{2}$/.test(asString(raw.endTime))
-    ? asString(raw.endTime)
-    : '17:00';
+  const startTime = asTime(raw.startTime) ?? '08:00';
+  const endTime = asTime(raw.endTime) ?? '17:00';
   const breakMinutes = Math.max(
     0,
     Math.min(720, Math.round(asNumber(raw.breakMinutes, 60))),
@@ -310,8 +355,8 @@ function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): En
     id,
     jobId,
     date: asDate(raw.date),
-    startTime: asString(raw.startTime) || undefined,
-    endTime: asString(raw.endTime) || undefined,
+    startTime: asTime(raw.startTime),
+    endTime: asTime(raw.endTime),
     breakMinutes: Math.max(0, asNumber(raw.breakMinutes)),
     hours: Math.max(0, asNumber(raw.hours)),
     quantity: Math.max(0, asNumber(raw.quantity)),
@@ -321,6 +366,7 @@ function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): En
     holiday: asBoolean(raw.holiday),
     note: asString(raw.note) || undefined,
     photoId: asString(raw.photoId).trim() || undefined,
+    recurringRuleId: asString(raw.recurringRuleId).trim() || undefined,
     rule: normalizeRule(raw.rule, job.rule),
     settlementId: asString(raw.settlementId) || undefined,
     createdAt,
@@ -491,6 +537,56 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
   };
 }
 
+function normalizeRecurringRule(
+  value: unknown,
+  jobs: Map<string, Job>,
+  now: string,
+): RecurringRule {
+  const raw = requireObject(value, '周期记工规则');
+  const id = asString(raw.id).trim();
+  const jobId = asString(raw.jobId);
+  if (!id) throw new Error('周期记工规则缺少 ID');
+  if (!jobs.has(jobId)) throw new Error('周期记工规则引用了不存在的工作');
+  const frequency = pick(raw.frequency, RECURRING_FREQUENCIES, 'weekly');
+  const weekdays = Array.isArray(raw.weekdays)
+    ? Array.from(
+        new Set(
+          raw.weekdays
+            .map((item) => Math.round(asNumber(item, -1)))
+            .filter((item) => item >= 0 && item <= 6),
+        ),
+      ).sort((a, b) => a - b)
+    : [];
+  if (frequency === 'weekly' && weekdays.length === 0) {
+    throw new Error('每周记工规则至少需要一个工作日');
+  }
+  const startDate = asDate(raw.startDate);
+  const endDate = raw.endDate ? asDate(raw.endDate) : undefined;
+  if (endDate && endDate < startDate) throw new Error('周期记工结束日期早于开始日期');
+  const createdAt = asString(raw.createdAt, now);
+  return {
+    id,
+    jobId,
+    frequency,
+    weekdays,
+    dayOfMonth: Math.max(1, Math.min(31, Math.round(asNumber(raw.dayOfMonth, 1)))),
+    startDate,
+    endDate,
+    hours: Math.max(0, Math.min(24, asNumber(raw.hours))),
+    quantity: Math.max(0, Math.min(1_000_000, asNumber(raw.quantity))),
+    bonus: Math.max(0, asNumber(raw.bonus)),
+    deduction: Math.max(0, asNumber(raw.deduction)),
+    note: asString(raw.note).trim().slice(0, 80) || undefined,
+    enabled: asBoolean(raw.enabled, true),
+    auto: asBoolean(raw.auto, true),
+    lastProcessedDate: isValidDate(raw.lastProcessedDate)
+      ? raw.lastProcessedDate
+      : undefined,
+    createdAt,
+    updatedAt: asString(raw.updatedAt, createdAt),
+  };
+}
+
 export interface ValidateImportOptions {
   /** 用户主动导入备份时解锁指向不存在结算的工记 / 借支；本机读取保留给账本体检处理 */
   unlockOrphans?: boolean;
@@ -600,6 +696,15 @@ export function validateImport(
     settlements.push(settlement);
   }
 
+  const recurringRuleIds = new Set<string>();
+  const recurringRules: RecurringRule[] = [];
+  for (const item of Array.isArray(raw.recurringRules) ? raw.recurringRules : []) {
+    const rule = normalizeRecurringRule(item, jobMap, now);
+    if (recurringRuleIds.has(rule.id)) throw new Error('周期记工规则存在重复 ID');
+    recurringRuleIds.add(rule.id);
+    recurringRules.push(rule);
+  }
+
   const settlementMap = new Map(settlements.map((settlement) => [settlement.id, settlement]));
   const entryMap = new Map(entries.map((entry) => [entry.id, entry]));
   const advanceMap = new Map(advances.map((advance) => [advance.id, advance]));
@@ -706,6 +811,14 @@ export function validateImport(
   const weekStartsOn = asNumber(settingsRaw.weekStartsOn, 1) === 0 ? 0 : 1;
   const theme = pick(settingsRaw.theme, THEMES, 'system');
   const reminder = normalizeReminder(settingsRaw.reminder);
+  const budgetRaw = isRecord(settingsRaw.budget) ? settingsRaw.budget : null;
+  const budget = budgetRaw
+    ? {
+        enabled: asBoolean(budgetRaw.enabled),
+        incomeTarget: Math.max(0, Math.min(100_000_000, asNumber(budgetRaw.incomeTarget))),
+        hoursLimit: Math.max(0, Math.min(744, asNumber(budgetRaw.hoursLimit))),
+      }
+    : undefined;
   const activeTimer = normalizeTimer(raw.activeTimer, jobMap);
 
   return {
@@ -714,7 +827,7 @@ export function validateImport(
       name: asString(profileRaw.name),
       hideAmounts: asBoolean(profileRaw.hideAmounts),
     },
-    settings: { weekStartsOn, theme, reminder },
+    settings: { weekStartsOn, theme, reminder, ...(budget ? { budget } : {}) },
     jobs,
     trashedJobs: activeTrash,
     trashedEntries: limitTrash(purgeExpiredTrash(trashedEntries)),
@@ -724,6 +837,7 @@ export function validateImport(
     restDays,
     advances: repairedAdvances,
     settlements,
+    ...(recurringRules.length > 0 ? { recurringRules } : {}),
     activeTimer,
     onboardingDone: asBoolean(raw.onboardingDone, jobs.length > 0),
     createdAt: asString(raw.createdAt, now),

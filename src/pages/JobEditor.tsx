@@ -193,7 +193,8 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
     !state.entries.some((entry) => entry.jobId === jobId) &&
     !state.advances.some((advance) => advance.jobId === jobId) &&
     !state.restDays.some((rest) => rest.jobId === jobId) &&
-    !state.settlements.some((settlement) => settlement.jobId === jobId);
+    !state.settlements.some((settlement) => settlement.jobId === jobId) &&
+    !state.recurringRules?.some((rule) => rule.jobId === jobId);
 
   const cycleOptions: Array<{ value: Cycle; label: string }> =
     payType === 'monthly'
@@ -361,7 +362,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       });
       onBack();
     } else {
-      toast('有工记、借支、休息或结算的工作只能归档', 'error');
+      toast('有工记、借支、休息、结算或周期规则的工作只能归档', 'error');
     }
   };
 

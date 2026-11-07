@@ -31,6 +31,7 @@ function blobToBase64(blob: Blob): Promise<string> {
       resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
     reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'));
+    reader.onabort = () => reject(new Error('文件读取已取消'));
     reader.readAsDataURL(blob);
   });
 }

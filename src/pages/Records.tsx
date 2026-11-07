@@ -8,6 +8,7 @@ import {
   Coffee,
   List,
   Plus,
+  Repeat2,
   Search,
 } from 'lucide-react';
 import { useStore } from '../store';
@@ -40,6 +41,7 @@ interface RecordsProps {
   onOpenJobs: () => void;
   onOpenSearch: () => void;
   onOpenAttendance: (jobId?: string) => void;
+  onOpenRecurring: () => void;
 }
 
 type ViewMode = 'list' | 'calendar';
@@ -57,6 +59,7 @@ export function Records({
   onOpenJobs,
   onOpenSearch,
   onOpenAttendance,
+  onOpenRecurring,
 }: RecordsProps) {
   const { state } = useStore();
   const today = todayISO();
@@ -274,6 +277,16 @@ export function Records({
         >
           <Coffee size={17} />
           记休息
+        </button>
+        <button
+          type="button"
+          className="records-tool"
+          onClick={onOpenRecurring}
+          aria-label="周期记工"
+          title="周期记工"
+        >
+          <Repeat2 size={17} />
+          周期记工
         </button>
       </div>
 

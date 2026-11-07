@@ -32,4 +32,17 @@ describe('加密备份', () => {
     expect(isEncryptedBackup('{"app":"xinshi","version":3,"data":{}}')).toBe(false);
     expect(isEncryptedBackup('not json')).toBe(false);
   });
+
+  it('拒绝全空白密码，且密码首尾空格规则一致', async () => {
+    await expect(encryptBackup(createEmptyState('A'), '      ')).rejects.toThrow('至少 6 位');
+    const text = await encryptBackup(createEmptyState('A'), '  right-password  ');
+    const restored = await decryptBackup(text, 'right-password');
+    expect(restored.profile.name).toBe('A');
+  });
+
+  it('未来版本加密备份明确拒绝', async () => {
+    const envelope = JSON.parse(await encryptBackup(createEmptyState('A'), 'right-password'));
+    envelope.version = 8;
+    await expect(decryptBackup(JSON.stringify(envelope), 'right-password')).rejects.toThrow('更新版本');
+  });
 });

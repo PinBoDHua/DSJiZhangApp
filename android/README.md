@@ -4,7 +4,7 @@
 
 - 包名：`com.xinshi.app`
 - 应用名：`薪时`
-- versionCode / versionName：`1000` / `1.0.0`（可用 `-Pxinshi.versionCode=1001 -Pxinshi.versionName=1.0.1` 覆盖）
+- versionCode / versionName：`1200` / `1.2.0`（可用 `-Pxinshi.versionCode=1201 -Pxinshi.versionName=1.2.1` 覆盖）
 - minSdk 22 / compileSdk 36 / targetSdk 36；文件导出使用 MediaStore，建议 Android 10+（API 29+）。
 - release 开启 R8 + `shrinkResources`，APK 约 **3.3MB**；混淆 mapping 在 `app/build/outputs/mapping/release/mapping.txt`，发布时归档。
 - 上架合规：
@@ -18,7 +18,9 @@
   - 返回键优先关闭弹层 / 子页面，首页再按收起到后台；
   - 导出备份 / 自动备份 / PDF / 工资条图片 / Excel 写入公共目录 **Download/Xinshi/**（自定义 `SaveFilePlugin`，不依赖分享面板）；
   - `SaveFilePlugin` 支持同名覆盖与按前缀保留最新 N 份，用于自动备份轮转；
-  - 原生壳内不注册 Service Worker，避免 APK 更新后缓存旧页面。
+  - 原生壳内不注册 Service Worker，避免 APK 更新后缓存旧页面；
+  - v1.2.0 将系统 WindowInsets 桥接到 `--safe-top/right/bottom/left`，并在 WebView 页面开始 / 完成时重放，修复部分 ROM 的 `env()` 恒为 0；
+  - `SaveFilePlugin` 先写临时文件再替换同名目标，拒绝路径分隔符 / 控制字符 / 超长文件名。
 
 ## 构建
 
@@ -109,6 +111,7 @@ aapt dump permissions release/xinshi-v1.0.0.apk
 - v0.7.2 真机：同机 1220×2712 @480dpi（407×904 CSS），状态栏安全区 122px / 手势条 48px；安装后首页正常、内容不被状态栏压住、悬浮底栏距底 25pt；`--gutter` 统一后页面无 1–3px 横向溢出。
 - v0.8.0 真机：同机用 `-Pxinshi.debuggable=true` 的 release 签名包覆盖 0.7.2（4 笔账本完整保留），通过 CDP 验证记录搜索、年度统计、关于页 0.8.0、导出备份到 `Download/Xinshi`、深色模式；软键盘展开后底部抽屉跟随可视视口收缩，保存按钮在键盘上方。正式包安装后冷启动正常，权限仍只有通知 / 开机提醒 / WakeLock，无 INTERNET。
 - v0.9.0 构建：签名 APK / AAB 构建通过；`aapt` 校验 `versionCode 900` / `versionName 0.9.0`，权限不变、无 INTERNET；本版未重跑真机，原生壳与 v0.8.0 一致。
+- v1.2.0 真机：Redmi 2312DRA50C / Android 16 覆盖 1.1.0，6 笔工记与 1 份工作保持不变；分类统计、周期页、完整 CSV 与 SaveFile 同名覆盖通过；WindowInsets 桥接后主区顶部 41px、底栏距底 25px；最终 R8 非调试包冷启动正常。
 - v1.0.0 构建：签名 APK / AAB 通过；`aapt` 校验 `versionCode 1000` / `versionName 1.0.0`，权限仍只有通知 / 开机提醒 / WakeLock（无 INTERNET / CAMERA）；照片通过系统文件选择器拍照 / 选图；签名证书 SHA-256 与旧版一致。APK `3,324,009 B`、AAB `3,799,812 B`；真机验证待补。
 - v0.5 回归：固定月薪、随机休息、月结页补标 / 取消休息、月度考勤总表 / 半天休 / 格子补记工、结算二维码显示与保存 / 校验码、工资条模板 / 文字版 PDF、考勤 CSV、超休扣款、收款状态、CSV 导出、工作回收站、批量排休、固定周排班、未来计划、多岗位切换、计划日补记、批量补记、排班岗位记忆、系统本地每日提醒 / 通知权限 / 测试通知 / 30 天续排、发薪通知调度、计件、PDF/PNG/加密备份保存、加密导入。
 - 导出文件实际路径：`/sdcard/Download/Xinshi/`；自动备份目录：`/sdcard/Download/Xinshi/自动备份/`，保留最新 14 份。

@@ -171,7 +171,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
   };
 
   const unlockPending = async () => {
-    if (!password) {
+    if (!password.trim()) {
       setError('请输入密码');
       return;
     }
@@ -199,16 +199,24 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
   };
 
   const importNow = async () => {
-    if (!preview) return;
+    if (!preview || busy) return;
     setConfirmOpen(false);
+    setBusy(true);
+    setError('');
     try {
       await saveSnapshot(state, 'before-import');
-    } catch {
-      // 快照失败不阻止导入；确认框已经提示过
+      replaceState(preview.state);
+      toast('搬家包已导入，覆盖前账本已留快照', 'success');
+      onClose();
+    } catch (snapshotError) {
+      setError(
+        snapshotError instanceof Error
+          ? `导入前快照失败，已取消覆盖：${snapshotError.message}`
+          : '导入前快照失败，已取消覆盖',
+      );
+    } finally {
+      setBusy(false);
     }
-    replaceState(preview.state);
-    toast('搬家包已导入', 'success');
-    onClose();
   };
 
   const diff = preview ? diffManifests(ledgerManifest(state), preview.manifest) : [];
@@ -497,8 +505,9 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
                 type="button"
                 className="btn btn--primary btn--block"
                 onClick={() => setConfirmOpen(true)}
+                disabled={busy}
               >
-                用包覆盖本机
+                {busy ? '正在留快照…' : '用包覆盖本机'}
               </button>
               <button type="button" className="btn btn--ghost btn--block" onClick={onClose}>
                 先不导入

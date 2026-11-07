@@ -11694,3 +11694,309 @@ html[data-theme="dark"] .today-strip.is-done .today-icon {
     font-size: 50px;
   }
 }
+
+/* =========================================================
+   v1.2.0 · 分类统计 / 月度预算 / 周期记工
+   ========================================================= */
+
+.records-tools {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.budget-card {
+  margin-bottom: 13px;
+  padding: 16px;
+}
+
+.budget-card .section-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.budget-card.is-warning {
+  border-color: rgba(179, 64, 47, 0.28);
+}
+
+.budget-card.is-success {
+  border-color: rgba(20, 107, 75, 0.3);
+}
+
+.budget-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 7px 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.budget-metric > div:first-child {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.budget-metric strong {
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.budget-metric .money {
+  font-size: inherit;
+}
+
+.budget-metric > em {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-style: normal;
+  text-align: right;
+}
+
+.budget-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.budget-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
+.budget-track--hours span,
+.budget-card.is-warning .budget-track span {
+  background: var(--accent);
+}
+
+.budget-alert {
+  margin-top: 13px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+.budget-nudge {
+  margin-top: 10px;
+}
+
+.budget-nudge.is-success .backup-nudge-icon {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.budget-enable-row {
+  margin-bottom: 16px;
+}
+
+.category-card .distribution-bar {
+  height: 7px;
+}
+
+.recurring-summary {
+  margin-bottom: 20px;
+  padding: 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(110% 100% at 100% 0%, rgba(232, 164, 58, 0.12), transparent 58%),
+    var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.recurring-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 14px;
+}
+
+.recurring-summary-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 13px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.recurring-summary-head strong {
+  font-size: 18px;
+}
+
+.recurring-summary-head p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.recurring-preview-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 13px;
+}
+
+.recurring-preview-dates span,
+.recurring-preview-dates em {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.recurring-summary .field-hint {
+  text-align: center;
+}
+
+.recurring-list-head {
+  margin-bottom: 10px;
+}
+
+.recurring-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.recurring-rule {
+  padding: 15px;
+}
+
+.recurring-rule.is-disabled {
+  opacity: 0.66;
+}
+
+.recurring-rule-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recurring-rule-head h3 {
+  font-size: var(--text-md);
+}
+
+.recurring-rule-head p,
+.recurring-rule-next {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+.recurring-rule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.recurring-rule-meta span {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: var(--text-xs);
+}
+
+.recurring-rule-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+.recurring-form .field {
+  margin-bottom: 14px;
+}
+
+.recurring-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.recurring-weekdays button {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.recurring-weekdays button.is-active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.recurring-switches {
+  margin-top: 4px;
+}
+
+.detail-tags .is-recurring {
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+html[data-theme="dark"] .recurring-summary,
+html[data-theme="dark"] .recurring-rule,
+html[data-theme="dark"] .budget-card {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+html[data-theme="dark"] .recurring-weekdays button {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+html[data-theme="dark"] .recurring-weekdays button.is-active {
+  border-color: #2f6b50;
+  background: #2f6b50;
+  color: #ffffff;
+}
+
+@media (min-width: 480px) {
+  .records-tools {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .records-tool {
+    font-size: var(--text-xs);
+  }
+}
+
+@media (max-width: 360px) {
+  .recurring-weekdays {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .budget-metric > div:first-child {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

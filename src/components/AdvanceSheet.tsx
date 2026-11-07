@@ -52,6 +52,10 @@ export function AdvanceSheet({
       amount: parsed,
       note: note.trim() || undefined,
     });
+    if (!advance) {
+      setError('没有保存：工作已归档、日期无效，或借支日期已在结算周期内');
+      return;
+    }
     toast('借支已记上', 'success');
     setAmount('');
     setNote('');

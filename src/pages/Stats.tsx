@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Target } from 'lucide-react';
 import { useStore } from '../store';
 import type { Period, Totals } from '../types';
 import { BarChart } from '../components/BarChart';
@@ -23,6 +23,8 @@ import {
   sumEntriesCapped,
 } from '../lib/settlement';
 import { buildYearSummary, shiftYear, yearPeriod } from '../lib/yearStats';
+import { payTypeBreakdown } from '../lib/categoryStats';
+import { monthlyBudgetStatus } from '../lib/budget';
 
 type Mode = 'week' | 'month' | 'year';
 
@@ -102,6 +104,11 @@ export function Stats({ onAddEntry }: StatsProps) {
     }));
   }, [yearSummary, entries, mode, state.jobs]);
   const jobTotal = breakdown.reduce((sum, item) => sum + item.total, 0);
+  const categories = useMemo(
+    () => payTypeBreakdown(entries, mode !== 'week'),
+    [entries, mode],
+  );
+  const categoryTotal = categories.reduce((sum, item) => sum + item.total, 0);
   const avgHourly = totals.hours > 0 ? totals.total / totals.hours : 0;
   const hasFixedMonthly = entries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
@@ -110,6 +117,9 @@ export function Stats({ onAddEntry }: StatsProps) {
   const positiveTotal = totals.base + totals.otPay + totals.bonus;
   const canGoNext = period.end < today;
   const isCurrent = today >= period.start && today <= period.end;
+  const budget = mode === 'month' && isCurrent
+    ? monthlyBudgetStatus(state.settings.budget, entries, today)
+    : null;
   const heatmap = buildHeatmap(state.entries, {
     today,
     weekStartsOn: state.settings.weekStartsOn,
@@ -241,6 +251,37 @@ export function Stats({ onAddEntry }: StatsProps) {
             </div>
           </section>
 
+          {budget ? (
+            <section className={`card budget-card ${budget.alert ? `is-${budget.alert.tone}` : ''}`}>
+              <div className="section-head section-head--tight">
+                <div>
+                  <h2><Target size={17} /> 本月预算</h2>
+                  <p>收入目标与工时上限 · 不含未来工记</p>
+                </div>
+                {budget.alert ? <span className="micro-badge">{budget.alert.tone === 'warning' ? '注意' : '进度'}</span> : null}
+              </div>
+              {budget.incomeTarget > 0 ? (
+                <div className="budget-metric">
+                  <div><span>收入目标</span><strong><Money value={budget.income} /> / <Money value={budget.incomeTarget} /></strong></div>
+                  <div className="budget-track" aria-label={`收入目标完成 ${Math.floor(budget.incomePercent)}%`}>
+                    <span style={{ width: `${Math.min(100, Math.max(0, budget.incomePercent))}%` }} />
+                  </div>
+                  <em>{Math.floor(budget.incomePercent)}%</em>
+                </div>
+              ) : null}
+              {budget.hoursLimit > 0 ? (
+                <div className="budget-metric">
+                  <div><span>工时上限</span><strong>{formatHours(budget.hours)}h / {formatHours(budget.hoursLimit)}h</strong></div>
+                  <div className="budget-track budget-track--hours" aria-label={`工时上限使用 ${Math.floor(budget.hoursPercent)}%`}>
+                    <span style={{ width: `${Math.min(100, Math.max(0, budget.hoursPercent))}%` }} />
+                  </div>
+                  <em>{Math.floor(budget.hoursPercent)}%</em>
+                </div>
+              ) : null}
+              {budget.alert ? <p className="budget-alert">{budget.alert.message}</p> : <p className="field-hint">达到 80% 时提醒，达到目标或上限时再次提示。</p>}
+            </section>
+          ) : null}
+
           {heatmap.totalHours > 0 ? (
             <section className="card heat-card">
               <div className="section-head section-head--tight">
@@ -291,7 +332,7 @@ export function Stats({ onAddEntry }: StatsProps) {
                   {hasFixedMonthly
                     ? mode === 'year'
                       ? ' · 固定月薪逐月封顶'
-                      : ' · 固定月薪按日折算'
+                      : ' · 固定月薪按出勤日分摊'
                     : ''}
                 </p>
               </div>
@@ -369,6 +410,35 @@ export function Stats({ onAddEntry }: StatsProps) {
                   <Money value={-totals.deduction} />
                 </div>
               ) : null}
+            </div>
+          </section>
+
+          <section className="card distribution-card category-card">
+            <div className="section-head section-head--tight">
+              <div>
+                <h2>分类统计</h2>
+                <p>按时薪、日薪、月薪和计件看收入</p>
+              </div>
+              <span className="count-pill">{categories.length}</span>
+            </div>
+            <div className="distribution-list">
+              {categories.map((item, index) => {
+                const percent = categoryTotal !== 0 ? (item.total / categoryTotal) * 100 : 0;
+                const colors = ['#146b4b', '#c48128', '#44708c', '#7c5874'];
+                return (
+                  <div className="distribution-row" key={item.payType}>
+                    <div className="distribution-head">
+                      <span><i style={{ background: colors[index % colors.length] }} />{item.label}</span>
+                      <strong><Money value={item.total} /></strong>
+                    </div>
+                    <div className="distribution-bar"><span style={{ width: `${Math.max(2, percent)}%`, background: colors[index % colors.length] }} /></div>
+                    <div className="distribution-meta">
+                      <span>{item.count} 笔 · {item.days} 天 · {formatHours(item.hours)}h</span>
+                      <span>{Math.round(percent)}%</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
 

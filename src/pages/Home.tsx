@@ -13,6 +13,7 @@ import {
   RotateCcw,
   ShieldAlert,
   Sun,
+  Target,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { EntryRow } from '../components/EntryRow';
@@ -49,6 +50,7 @@ import { backupDueText, backupIsDue } from '../lib/backupStatus';
 import { daysUntilPayday } from '../lib/payment';
 import { planStatusForJob, shortWeekday, formatWorkWeekdays } from '../lib/plan';
 import { makePlannedEntry, type PlannedEntryOptions } from '../lib/planEntries';
+import { monthlyBudgetStatus } from '../lib/budget';
 
 const PLAN_JOB_KEY = 'xinshi.planJobId';
 
@@ -95,6 +97,7 @@ export function Home({
   const month = periodOf('monthly', today, state.settings.weekStartsOn);
   const monthEntries = state.entries.filter((entry) => periodContains(month, entry.date));
   const summary = sumEntriesCapped(monthEntries);
+  const budgetStatus = monthlyBudgetStatus(state.settings.budget, monthEntries, today);
   const outstanding = computeOutstanding(state);
   const overview = getSettlementOverview(state);
   const activeJobs = state.jobs.filter((job) => !job.archived);
@@ -335,6 +338,17 @@ export function Home({
               · {paydayReminder.job.name}
             </strong>
             <em>去核对结算，登记收款状态。</em>
+          </span>
+          <ChevronRight size={16} />
+        </button>
+      ) : null}
+
+      {budgetStatus?.alert ? (
+        <button type="button" className={`backup-nudge budget-nudge is-${budgetStatus.alert.tone}`} onClick={onOpenProfile}>
+          <span className="backup-nudge-icon"><Target size={17} /></span>
+          <span className="backup-nudge-copy">
+            <strong>{budgetStatus.alert.tone === 'success' ? '本月目标已完成' : '本月预算提醒'}</strong>
+            <em>{budgetStatus.alert.message}</em>
           </span>
           <ChevronRight size={16} />
         </button>

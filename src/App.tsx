@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { StoreProvider, useStore } from './store';
 import { BottomNav, type TabKey } from './components/BottomNav';
 import { Fab } from './components/Fab';
@@ -20,6 +20,7 @@ import { pushNativeBack } from './lib/nativeBack';
 import { schedulePaydayNotifications } from './lib/paydayNotifications';
 import { cancelDailyReminder, syncDailyReminder } from './lib/nativeReminders';
 import { isNativeApp } from './lib/native';
+import { monthlyBudgetStatus, shouldToastBudgetAlert } from './lib/budget';
 
 const loadRecords = () => import('./pages/Records');
 const loadSettlements = () => import('./pages/Settlements');
@@ -60,6 +61,9 @@ const Privacy = lazy(() =>
   import('./pages/Privacy').then((module) => ({ default: module.Privacy })),
 );
 const Search = lazy(() => loadSearch().then((module) => ({ default: module.Search })));
+const Recurring = lazy(() =>
+  import('./pages/Recurring').then((module) => ({ default: module.Recurring })),
+);
 
 /** 底部 Tab 与高频子页：首屏画完后空闲预取，切换时不再先出骨架。 */
 const PREFETCH_LOADERS = [
@@ -102,6 +106,7 @@ function prefetchRouteChunks(): () => void {
 type Page =
   | { type: 'jobs' }
   | { type: 'search' }
+  | { type: 'recurring' }
   | { type: 'jobEditor'; jobId?: string; template?: 'longterm' }
   | { type: 'settlementDraft'; jobId: string; periodStart: string }
   | { type: 'settlementRecord'; settlementId: string }
@@ -127,17 +132,51 @@ export default function App() {
 }
 
 function AppContent() {
-  const { state } = useStore();
+  const { state, generateRecurring, toast } = useStore();
   const [tab, setTab] = useState<TabKey>('home');
   const [page, setPage] = useState<Page | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [privacyOk, setPrivacyOk] = useState(() => hasPrivacyConsent());
+  const autoRecurringRan = useRef(false);
+  const today = todayISO();
+  const currentMonth = today.slice(0, 7);
+  const budgetStatus = monthlyBudgetStatus(
+    state.settings.budget,
+    state.entries.filter((entry) => entry.date.startsWith(currentMonth)),
+    today,
+  );
   useTheme(state.settings.theme);
   useVisualViewport();
   const todayEntryCount = state.entries.filter((entry) => entry.date === todayISO()).length;
   useReminder(state.settings.reminder, todayEntryCount);
   useAutoSnapshot(state, privacyOk);
+
+  useEffect(() => {
+    if (!privacyOk || !state.onboardingDone || autoRecurringRan.current) return;
+    autoRecurringRan.current = true;
+    const result = generateRecurring({ automaticOnly: true, today });
+    if (result.added > 0) {
+      toast(`周期规则已补记 ${result.added} 笔${result.skipped > 0 ? `，跳过 ${result.skipped} 天` : ''}`);
+    }
+  }, [privacyOk, state.onboardingDone, generateRecurring, today, toast]);
+
+  useEffect(() => {
+    if (!privacyOk || !state.onboardingDone || !budgetStatus?.alert) return;
+    if (!shouldToastBudgetAlert(currentMonth, budgetStatus)) return;
+    toast(
+      budgetStatus.alert.message,
+      budgetStatus.alert.tone === 'warning' ? 'error' : budgetStatus.alert.tone,
+    );
+  }, [
+    privacyOk,
+    state.onboardingDone,
+    currentMonth,
+    budgetStatus?.alert?.code,
+    budgetStatus?.incomeTarget,
+    budgetStatus?.hoursLimit,
+    toast,
+  ]);
 
   useEffect(() => {
     void schedulePaydayNotifications(state.jobs);
@@ -232,6 +271,7 @@ function AppContent() {
           onOpenJobs={openJobs}
           onOpenSearch={() => setPage({ type: 'search' })}
           onOpenAttendance={(jobId) => setPage({ type: 'attendance', jobId })}
+          onOpenRecurring={() => setPage({ type: 'recurring' })}
         />
       );
     }
@@ -269,6 +309,9 @@ function AppContent() {
     }
     if (page.type === 'search') {
       return <Search onBack={() => setPage(null)} onOpenEntry={openEntryDetail} />;
+    }
+    if (page.type === 'recurring') {
+      return <Recurring onBack={() => setPage(null)} />;
     }
     if (page.type === 'jobEditor') {
       return (

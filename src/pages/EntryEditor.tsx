@@ -436,6 +436,7 @@ export function EntryEditor({
     };
 
     submittingRef.current = true;
+    let savedNewEntry: Entry | null = null;
     try {
       if (existing) {
         const ok = updateEntry(existing.id, base);
@@ -446,6 +447,7 @@ export function EntryEditor({
         toast(restMoved ? '工记已更新，这天的休息已移到回收站' : '工记已更新');
       } else {
         const created = addEntry(base);
+        savedNewEntry = created;
         if (!created) {
           showError('没有保存：这个周期已经结算过了，或当天合计超过 24 小时');
           return;
@@ -458,7 +460,9 @@ export function EntryEditor({
           try {
             await putPhoto(nextPhotoId, photoDraft);
           } catch {
-            toast('照片保存失败，工记已保存', 'error');
+            // 工记保留，但移除无法兑现的照片引用，避免详情页误报“照片损坏”。
+            if (savedNewEntry) updateEntry(savedNewEntry.id, { photoId: undefined });
+            toast('照片保存失败，工记已保存且未保留照片引用', 'error');
           }
         } else if (existing?.photoId) {
           void deletePhoto(existing.photoId).catch(() => undefined);

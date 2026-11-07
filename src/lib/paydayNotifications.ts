@@ -4,6 +4,16 @@ import { isNativeApp } from './native';
 const CHANNEL_ID = 'xinshi-payday';
 const PAYDAY_KIND = 'xinshi-payday';
 
+export function paydayNotificationBaseId(jobId: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < jobId.length; index += 1) {
+    hash ^= jobId.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  // 与工作数组顺序无关，并远离 daily / test 使用的 8100–8199。
+  return 100_000 + (hash >>> 0) % 1_000_000 * 3;
+}
+
 function nextPayday(payday: number, from = new Date()): Date {
   const safeDay = Math.max(1, Math.min(31, Math.round(payday)));
   const candidate = new Date(
@@ -59,11 +69,8 @@ export async function schedulePaydayNotifications(jobs: Job[]): Promise<number> 
       return 0;
     }
     const permission = await LocalNotifications.checkPermissions();
-    if (permission.display === 'denied') return 0;
-    if (permission.display !== 'granted') {
-      const requested = await LocalNotifications.requestPermissions();
-      if (requested.display !== 'granted') return 0;
-    }
+    // 启动同步绝不能自行弹权限框；权限只在用户主动开启通知时申请。
+    if (permission.display !== 'granted') return 0;
 
     try {
       await LocalNotifications.createChannel({
@@ -77,9 +84,9 @@ export async function schedulePaydayNotifications(jobs: Job[]): Promise<number> 
       // 通道通常只在 Android 需要；失败时继续用默认通道。
     }
 
-    const notifications = paydayJobs.flatMap((job, jobIndex) =>
+    const notifications = paydayJobs.flatMap((job) =>
       nextOccurrences(job.payday as number).map((at, occurrence) => ({
-        id: 7100 + jobIndex * 10 + occurrence,
+        id: paydayNotificationBaseId(job.id) + occurrence,
         title: '今天发薪',
         body: `${job.name} · 记得核对结算和登记收款`,
         channelId: CHANNEL_ID,
