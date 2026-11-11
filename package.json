@@ -1,7 +1,7 @@
 {
   "name": "xinshi",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "description": "薪时 · 面向灵活就业者的工时与薪资记录 App",
   "scripts": {
