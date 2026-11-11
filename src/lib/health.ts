@@ -137,7 +137,6 @@ export function checkLedger(state: AppState, options: HealthOptions = {}): Healt
     (item) =>
       item.periodStart > item.periodEnd ||
       !Number.isFinite(item.net) ||
-      item.net < 0 ||
       !Number.isFinite(item.base) ||
       !Number.isFinite(item.advanceTotal),
   );

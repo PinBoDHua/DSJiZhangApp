@@ -14,6 +14,7 @@ import {
   endOfMonth,
   formatDateShort,
   formatDateWithWeekday,
+  daysInMonth,
   monthKey,
   periodContains,
   periodOf,
@@ -261,9 +262,15 @@ export function buildSettlementDraft(
   const historicalPolicy = latestEntry?.rule ?? job.rule;
   const isFlexibleRest =
     isFixedMonthly && (policy.restPolicy ?? 'quota') === 'flexible';
+  // 超休额度是「每月」口径。非整月周期（导入的固定月薪工作可能出现）按周期占当月的
+  // 比例折算，否则每个短周期都重置一整月额度，会系统性少扣超休。整月周期比例恰为 1，口径不变。
+  const periodDayCount = eachDay(period.start, period.end).length;
+  const restQuota =
+    Math.max(0, policy.restDaysPerMonth) *
+    (periodDayCount / Math.max(1, daysInMonth(period.start)));
   const overRestDays =
     isFixedMonthly && !isFlexibleRest
-      ? Math.max(0, restCount - Math.max(0, policy.restDaysPerMonth))
+      ? round2(Math.max(0, restCount - restQuota))
       : 0;
   const dailyRate =
     policy.overRestDailyRate > 0

@@ -2,6 +2,7 @@ import type { AppState } from '../types';
 import { APP_VERSION } from './compliance';
 import {
   digestText,
+  fnv1aHex,
   base64ToBytes,
   bytesToBase64,
   deriveAesKey,
@@ -197,11 +198,18 @@ export function parseMovePackage(text: string): MovePackageHeader {
 async function verifyChecksum(header: MovePackageHeader): Promise<void> {
   const [alg, expected] = header.checksum.split(':', 2);
   if (alg !== 'sha256' && alg !== 'fnv1a') throw new Error('搬家包校验算法不受支持');
-  const actual = await digestText(checksumInput(header));
-  if (actual.alg !== alg) {
-    throw new Error('当前环境无法验证该搬家包的校验码');
+  const input = checksumInput(header);
+  let actualHex: string;
+  if (alg === 'fnv1a') {
+    // fnv1a 包来自不支持 SHA-256 的旧环境；新设备必须仍按原算法校验，
+    // 否则旧→新搬家会被「当前环境无法验证」卡死。
+    actualHex = fnv1aHex(input, 16);
+  } else {
+    const digest = await digestText(input);
+    if (digest.alg !== 'sha256') throw new Error('当前环境无法验证该搬家包的校验码');
+    actualHex = digest.hex;
   }
-  if (actual.hex.toLowerCase() !== expected.toLowerCase()) {
+  if (actualHex.toLowerCase() !== expected.toLowerCase()) {
     throw new Error('搬家包校验失败，文件可能已损坏或被修改');
   }
 }

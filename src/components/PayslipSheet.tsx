@@ -51,11 +51,19 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
   const [shareable, setShareable] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [textBusy, setTextBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
   const [options, setOptions] = useState<PayslipOptions>(loadPayslipOptions);
+  const [renderOptions, setRenderOptions] = useState<PayslipOptions>(options);
   const [templateId, setTemplateId] = useState<PayslipTemplateId>(() =>
     matchPayslipTemplate(loadPayslipOptions()),
   );
   const blobRef = useRef<Blob | null>(null);
+
+  // 页脚备注逐字输入时不要每键都重绘 canvas；防抖后再渲染，选项切换也合并抖动。
+  useEffect(() => {
+    const timer = window.setTimeout(() => setRenderOptions(options), 280);
+    return () => window.clearTimeout(timer);
+  }, [options]);
 
   const updateOption = (patch: Partial<PayslipOptions>) => {
     const next = { ...options, ...patch };
@@ -77,7 +85,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     let objectUrl = '';
     if (!blobRef.current) setLoading(true);
     setError('');
-    createPayslipBlob(settlement, accent, options)
+    createPayslipBlob(settlement, accent, renderOptions)
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
@@ -101,10 +109,11 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [settlement, accent, options]);
+  }, [settlement, accent, renderOptions]);
 
   const save = async () => {
-    if (!blobRef.current) return;
+    if (!blobRef.current || saveBusy) return;
+    setSaveBusy(true);
     try {
       const result = await saveBlobFile(blobRef.current, payslipFileName(settlement));
       toast(
@@ -114,6 +123,8 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
       );
     } catch {
       toast('保存失败，请稍后再试', 'error');
+    } finally {
+      setSaveBusy(false);
     }
   };
 
@@ -169,9 +180,12 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     <Sheet open title="工资条图片" subtitle="发给老板对账，或留作记录" onClose={onClose}>
       <div className="sheet-body payslip-body">
         {loading ? (
-          <div className="payslip-loading">
-            <span className="payslip-spinner" />
-            <p>正在生成工资条…</p>
+          <div className="payslip-skeleton" aria-busy="true" aria-label="正在生成工资条">
+            <div className="skeleton skeleton--eyebrow" />
+            <div className="skeleton skeleton--title" />
+            <div className="skeleton skeleton--hero" />
+            <div className="skeleton skeleton--row" />
+            <div className="skeleton skeleton--row skeleton--short" />
           </div>
         ) : error ? (
           <div className="payslip-loading">
@@ -262,9 +276,14 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
           <FileText size={16} />
           {pdfBusy ? '生成中' : 'PDF'}
         </button>
-        <button type="button" className="btn btn--primary" onClick={save} disabled={!url}>
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={save}
+          disabled={!url || saveBusy}
+        >
           <Download size={16} />
-          {isNativeApp() ? '保存文件' : '保存图片'}
+          {saveBusy ? '保存中' : isNativeApp() ? '保存文件' : '保存图片'}
         </button>
       </div>
     </Sheet>

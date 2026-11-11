@@ -440,7 +440,7 @@ export function Stats({ onAddEntry }: StatsProps) {
             <div className="distribution-list">
               {categories.map((item, index) => {
                 const percent = categoryTotal !== 0 ? (item.total / categoryTotal) * 100 : 0;
-                const colors = ['#146b4b', '#c48128', '#44708c', '#7c5874'];
+                const colors = ['var(--primary)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'];
                 return (
                   <div className="distribution-row" key={item.payType}>
                     <div className="distribution-head">

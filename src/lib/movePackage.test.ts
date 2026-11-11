@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { digestText } from './crypto';
+import { digestText, fnv1aHex } from './crypto';
 import {
   buildMovePackage,
   isMovePackage,
@@ -135,6 +135,19 @@ describe('搬家包', () => {
     expect(result.state.jobs[0].rule.standardHours).toBe(0.5);
     expect(result.state.entries).toHaveLength(1);
     expect(result.header.manifest.entryTotal).toBe(2100);
+  });
+
+  it('fnv1a 校验的旧包在支持 SHA-256 的新环境也能验证（旧→新搬家）', async () => {
+    const { text } = await buildMovePackage(sampleState(), { now });
+    const parsed = JSON.parse(text);
+    const input = JSON.stringify({
+      schemaVersion: parsed.schemaVersion,
+      manifest: parsed.manifest,
+      payload: parsed.payload,
+    });
+    parsed.checksum = `fnv1a:${fnv1aHex(input, 16)}`;
+    const result = await unlockMovePackage(JSON.stringify(parsed));
+    expect(result.state.entries).toHaveLength(1);
   });
 
   it('文件名和短校验码可读', () => {

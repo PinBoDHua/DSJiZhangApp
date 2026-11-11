@@ -27,6 +27,7 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoMissing, setPhotoMissing] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [photoSaving, setPhotoSaving] = useState(false);
   const viewerRef = useRef<HTMLDivElement>(null);
   const entry = state.entries.find((item) => item.id === entryId);
 
@@ -143,7 +144,8 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
   };
 
   const savePhoto = async () => {
-    if (!photo) return;
+    if (!photo || photoSaving) return;
+    setPhotoSaving(true);
     try {
       const blob = await (await fetch(photo)).blob();
       const result = await saveBlobFile(blob, photoFileName(job?.name ?? '考勤', entry.date));
@@ -152,6 +154,8 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
       );
     } catch {
       toast('照片保存失败，请稍后再试', 'error');
+    } finally {
+      setPhotoSaving(false);
     }
   };
 
@@ -428,9 +432,14 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
           <div className="photo-viewer-card" onMouseDown={(event) => event.stopPropagation()}>
             <img className="photo-full" src={photo} alt={`${entry.date} 考勤照片`} />
             <div className="photo-viewer-actions">
-              <button type="button" className="btn btn--soft" onClick={() => void savePhoto()}>
+              <button
+                type="button"
+                className="btn btn--soft"
+                onClick={() => void savePhoto()}
+                disabled={photoSaving}
+              >
                 <Download size={16} />
-                保存照片
+                {photoSaving ? '保存中' : '保存照片'}
               </button>
               <button
                 type="button"

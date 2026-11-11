@@ -390,7 +390,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
         onBack={requestBack}
         footer={
           <div className="job-editor-footer">
-            {error ? <p className="form-error">{error}</p> : null}
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
             <div className="job-editor-footer-row">
               <div>
                 <span>保存后</span>

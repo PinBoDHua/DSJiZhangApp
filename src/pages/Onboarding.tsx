@@ -202,7 +202,7 @@ export function Onboarding({ onOpenSnapshots }: { onOpenSnapshots?: () => void }
             />
           </div>
 
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
 
           <button type="submit" className="btn btn--primary btn--block onboarding-submit">
             开始记工

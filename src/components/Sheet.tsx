@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { pushNativeBack } from '../lib/nativeBack';
@@ -9,16 +9,50 @@ interface SheetProps {
   open: boolean;
   title?: string;
   subtitle?: string;
+  ariaLabel?: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
 }
 
-export function Sheet({ open, title, subtitle, onClose, children, className = '' }: SheetProps) {
+const EXIT_MS = 190;
+
+export function Sheet({
+  open,
+  title,
+  subtitle,
+  ariaLabel,
+  onClose,
+  children,
+  className = '',
+}: SheetProps) {
   const closeRef = useRef(onClose);
   const sheetRef = useRef<HTMLDivElement>(null);
   closeRef.current = onClose;
   useModalFocus(open, sheetRef);
+
+  // 关闭时先播一段下滑淡出再卸载；打开 / 焦点 / 滚动锁仍由 open 即时驱动。
+  const [visible, setVisible] = useState(open);
+  const [closing, setClosing] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setVisible(true);
+      setClosing(false);
+      return;
+    }
+    if (!visible) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setVisible(false);
+      return;
+    }
+    setClosing(true);
+    const timer = window.setTimeout(() => {
+      setVisible(false);
+      setClosing(false);
+    }, EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, visible]);
 
   useEffect(() => {
     if (!open) return;
@@ -38,11 +72,11 @@ export function Sheet({ open, title, subtitle, onClose, children, className = ''
     };
   }, [open]);
 
-  if (!open) return null;
+  if (!visible) return null;
 
   return createPortal(
     <div
-      className="sheet-layer"
+      className={`sheet-layer ${closing ? 'is-closing' : ''}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -52,7 +86,7 @@ export function Sheet({ open, title, subtitle, onClose, children, className = ''
         className={`sheet ${className}`}
         role="dialog"
         aria-modal="true"
-        aria-label={title || '编辑'}
+        aria-label={ariaLabel || title || '编辑'}
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >

@@ -813,7 +813,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             <input className="text-input" type="number" min={0} max={744} step={1} value={budgetHours} onChange={(event) => { setBudgetHours(event.target.value); setBudgetError(''); }} placeholder="例如 200" inputMode="decimal" />
           </label>
           <p className="field-hint">只统计当前月且日期不超过今天的工记；未来计划不计入。提醒显示在首页、统计和本月首次跨档 Toast，不需要通知权限。</p>
-          {budgetError ? <p className="form-error">{budgetError}</p> : null}
+          {budgetError ? <p className="form-error" role="alert">{budgetError}</p> : null}
         </div>
         <div className="sheet-footer">
           <button type="button" className="btn btn--ghost" onClick={() => setBudgetOpen(false)}>取消</button>
@@ -924,7 +924,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
               autoComplete="new-password"
             />
           </label>
-          {exportError ? <p className="form-error">{exportError}</p> : null}
+          {exportError ? <p className="form-error" role="alert">{exportError}</p> : null}
           <p className="inline-hint">
             <ShieldCheck size={14} />
             文件使用 AES-GCM 加密，只有密码能打开。密码不会上传，也没有找回入口。
@@ -971,7 +971,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
               autoFocus
             />
           </label>
-          {importError ? <p className="form-error">{importError}</p> : null}
+          {importError ? <p className="form-error" role="alert">{importError}</p> : null}
           <p className="inline-hint">
             <LockKeyhole size={14} />
             密码错误或文件被改动过，都无法解密。

@@ -52,7 +52,7 @@ export function EntryRow({ entry, job, onClick, showDate = false, showNote = fal
           {settled ? <LockKeyhole size={12} className="entry-lock" aria-label="已结算" /> : null}
         </span>
         <span className="entry-row-meta">
-          {entryMeta(entry)}
+          <span className="entry-row-meta-text">{entryMeta(entry)}</span>
           {entry.otHours > 0 ? (
             <em className="entry-ot">
               加班 {formatHours(pay.otHours)}h

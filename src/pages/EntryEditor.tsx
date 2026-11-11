@@ -534,15 +534,13 @@ export function EntryEditor({
 
   return (
     <>
-      <Sheet open onClose={requestClose} className="entry-sheet">
+      <Sheet open ariaLabel={existing ? '编辑工记' : '记一笔'} onClose={requestClose} className="entry-sheet">
         <form
           className="entry-form"
           onSubmit={handleSubmit}
           onChange={() => {
             dirtyRef.current = true;
-          }}
-          onClick={() => {
-            dirtyRef.current = true;
+            setError('');
           }}
         >
         <header className="entry-head">
@@ -1026,7 +1024,7 @@ export function EntryEditor({
                 <span>{photoBusy ? '正在处理照片…' : '拍照或从相册选择'}</span>
               </button>
             )}
-            {photoError ? <p className="form-error">{photoError}</p> : null}
+            {photoError ? <p className="form-error" role="alert">{photoError}</p> : null}
             <p className="field-hint">
               自动加岗位 / 日期 / 工时水印；照片不上传，也不随备份迁移。
             </p>
@@ -1034,7 +1032,7 @@ export function EntryEditor({
         </div>
 
         <div className="entry-footer">
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
           <div className="entry-footer-main">
             <div className="entry-preview">
               <span>

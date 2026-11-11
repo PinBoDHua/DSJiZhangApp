@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { formatMoney } from '../lib/money';
 import { formatDateWithWeekday } from '../lib/date';
 
@@ -26,6 +27,13 @@ export function BarChart({
   const max = Math.max(...data.map((point) => point.value), 1);
   const every = labelEvery ?? (data.length > 10 ? 5 : 1);
 
+  // 首次挂载从 0 长到目标高度，让入场动画真正触发；后续数据变化沿用高度过渡。
+  const [grown, setGrown] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setGrown(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   return (
     <div className={`bar-chart ${className}`} style={{ height }}>
       {showGrid ? (
@@ -47,22 +55,27 @@ export function BarChart({
             <div
               className={`bar-col ${point.highlight ? 'is-highlight' : ''}`}
               key={point.date}
-              title={`${formatDateWithWeekday(point.date)} · ${formatMoney(point.value, {
-                symbol: true,
-              })}`}
               aria-label={`${formatDateWithWeekday(point.date)}，${formatMoney(point.value, {
                 symbol: true,
               })}`}
             >
               <div className="bar-track">
-                <div
-                  className="bar-fill"
-                  style={{
-                    height: `${ratio}%`,
-                    minHeight: point.value > 0 ? 2 : 0,
-                    opacity: point.value > 0 ? 1 : 0.18,
-                  }}
-                />
+                <div className="bar-stack">
+                  {point.highlight && point.value > 0 ? (
+                    <span className="bar-peak">
+                      {formatMoney(point.value, { symbol: true })}
+                    </span>
+                  ) : null}
+                  <div
+                    className="bar-fill"
+                    style={{
+                      height: `${grown ? ratio : 0}%`,
+                      minHeight: point.value > 0 ? 2 : 0,
+                      opacity: point.value > 0 ? 1 : 0.18,
+                      transitionDelay: `${Math.min(index, 12) * 30}ms`,
+                    }}
+                  />
+                </div>
               </div>
               <span className={`bar-label ${showLabel ? '' : 'is-faint'}`}>
                 {showLabel ? point.label : '·'}

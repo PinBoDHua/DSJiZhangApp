@@ -23,7 +23,21 @@ export function useModalFocus(open: boolean, ref: RefObject<HTMLElement | null>)
 
     const timer = window.setTimeout(() => {
       const initial = node.querySelector<HTMLElement>('[data-initial-focus]');
-      (initial ?? node).focus({ preventScroll: true });
+      if (initial) {
+        initial.focus({ preventScroll: true });
+        return;
+      }
+      // autoFocus 等已把焦点放进弹层时不抢焦点，避免输入框键盘弹起又立刻收回。
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        active !== node &&
+        node.contains(active) &&
+        active.matches(FOCUSABLE_SELECTOR)
+      ) {
+        return;
+      }
+      node.focus({ preventScroll: true });
     }, 0);
 
     const onKeyDown = (event: KeyboardEvent) => {

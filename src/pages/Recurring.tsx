@@ -339,7 +339,7 @@ function RuleEditor({
             <div className="settings-row"><span className="settings-body"><strong>打开 App 自动补到昨天</strong><em>默认关闭；跳过冲突，不提前记今天</em></span>
               <button type="button" className={`switch ${auto ? 'is-on' : ''}`} role="switch" aria-checked={auto} aria-label="自动补记周期工记" onClick={() => setAuto((value) => !value)}><i /></button></div>
           </div>
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
         </div>
         <div className="sheet-footer"><button type="button" className="btn btn--ghost" onClick={onClose}>取消</button><button type="submit" className="btn btn--primary">保存规则</button></div>
       </form>

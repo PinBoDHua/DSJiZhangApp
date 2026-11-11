@@ -45,4 +45,11 @@ describe('加密备份', () => {
     envelope.version = 8;
     await expect(decryptBackup(JSON.stringify(envelope), 'right-password')).rejects.toThrow('更新版本');
   });
+
+  it('密码正确但账本结构损坏时，报结构错误而非密码错误', async () => {
+    const state = createEmptyState('A');
+    (state as { entries: unknown }).entries = 'broken';
+    const text = await encryptBackup(state, 'right-password');
+    await expect(decryptBackup(text, 'right-password')).rejects.toThrow('备份缺少工作或工记数据');
+  });
 });

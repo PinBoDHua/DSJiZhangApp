@@ -706,6 +706,39 @@ describe('结算汇总', () => {
     expect(draft.net).toBe(3420.45);
   });
 
+  it('固定月薪非整月周期按占比折算超休额度，不再整月重置', () => {
+    const fixedJob = job({
+      cycle: 'weekly',
+      rule: rule({
+        payType: 'monthly',
+        rate: 3500,
+        standardHours: 6,
+        monthlyMode: 'fixed',
+        restDaysPerMonth: 5,
+        overRestDeduct: true,
+        otEnabled: false,
+      }),
+    });
+    // 一周 7 天、11 月 30 天 → 额度约 5×7/30≈1.17；休 3 天应判超休（旧逻辑 3<5 不扣）。
+    const restDays: RestDay[] = [2, 3, 4].map((day) => ({
+      id: `rest-${day}`,
+      jobId: 'job-1',
+      date: `2026-11-${String(day).padStart(2, '0')}`,
+      createdAt: '2026-11-01T00:00:00.000Z',
+    }));
+    const draft = buildSettlementDraft(
+      fixedJob,
+      [entry({ date: '2026-11-05', hours: 6, rule: fixedJob.rule })],
+      [],
+      periodOf('weekly', '2026-11-03', 1),
+      0,
+      0,
+      restDays,
+    );
+    expect(draft.overRestDays).toBeGreaterThan(0);
+    expect(draft.overRestDeduction).toBeGreaterThan(0);
+  });
+
   it('全部未结金额扣除借支', () => {
     const current = state({
       entries: [entry({ date: '2026-11-03' }), entry({ date: '2026-11-04' })],

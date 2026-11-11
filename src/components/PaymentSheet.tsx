@@ -158,7 +158,7 @@ export function PaymentSheet({ open, settlement, onClose }: PaymentSheetProps) {
             />
           </label>
 
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
         </div>
         <div className="sheet-footer">
           <button type="button" className="btn btn--ghost" onClick={onClose}>

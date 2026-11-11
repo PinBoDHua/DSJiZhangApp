@@ -119,7 +119,7 @@ export function AdvanceSheet({
             <Money value={toAmount(amount)} className="advance-preview-money" />
             <p>结算时会从工钱里自动抵扣。</p>
           </div>
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
         </div>
         <div className="sheet-footer">
           <button type="button" className="btn btn--ghost" onClick={onClose}>

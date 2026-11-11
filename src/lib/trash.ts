@@ -64,6 +64,7 @@ export function pushTrash<T extends { deletedAt: string }>(
   cap = TRASH_CAP_PER_KIND,
 ): T[] {
   const limit = Math.max(0, cap);
+  if (limit === 0) return [];
   const rest = list.filter((value) => idOf(value) !== idOf(item));
   return rest.length >= limit ? [item, ...rest.slice(0, limit - 1)] : [item, ...rest];
 }

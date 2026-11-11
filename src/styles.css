@@ -9165,7 +9165,7 @@ html[data-theme="dark"] .snap-diff {
   --ink: #17251f;
   --ink-soft: #36473e;
   --muted: #5f6f66;
-  --muted-2: #7d8982;
+  --muted-2: #67746c;
   --line: #e1e8e3;
   --line-strong: #cbd7cf;
   --primary: #146b4b;
@@ -12036,5 +12036,239 @@ html[data-theme="dark"] .recurring-weekdays button.is-active {
   .budget-metric > div:first-child {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+/* =========================================================
+   v1.2.2 · 打磨层
+   只覆盖视觉与交互反馈，不改计薪 / 结算逻辑；沿用既有纸感绿调。
+   ========================================================= */
+
+/* 分类统计图表色板：从设计 token 派生，暗色下提亮保证可辨。 */
+:root {
+  --chart-2: #c48128;
+  --chart-3: #44708c;
+  --chart-4: #7c5874;
+}
+
+html[data-theme="dark"] {
+  --chart-2: #e0a44e;
+  --chart-3: #82aac4;
+  --chart-4: #b591ac;
+}
+
+/* 暗色下选中态统一用深绿底 + 浅字，修复奶油字压浅绿的低对比。 */
+html[data-theme="dark"] .weekday-chip.is-active,
+html[data-theme="dark"] .plan-day.is-selected,
+html[data-theme="dark"] .duration-presets button.is-active,
+html[data-theme="dark"] .plan-week-day.is-worked,
+html[data-theme="dark"] .batch-plan-row.is-checked .batch-plan-check {
+  border-color: #2f6b50;
+  background: #2f6b50;
+  color: #fff9ed;
+}
+
+html[data-theme="dark"] .plan-week-day.is-worked strong {
+  color: #fff9ed;
+}
+
+/* 小控件扩大不可见点击区（沿用 switch 的做法），不改视觉尺寸。 */
+.mini-chips button,
+.duration-presets button,
+.weekday-chip,
+.color-swatch,
+.plan-week-tabs button,
+.timer-cancel,
+.search-clear {
+  position: relative;
+}
+
+.mini-chips button::after,
+.duration-presets button::after,
+.weekday-chip::after,
+.color-swatch::after,
+.plan-week-tabs button::after,
+.timer-cancel::after,
+.search-clear::after {
+  content: '';
+  position: absolute;
+  inset: -6px -2px;
+}
+
+/* 考勤表：让表头真正吸顶（表体成为滚动容器）。 */
+.attendance-table-wrap {
+  max-height: 68vh;
+  max-height: 68dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 工记元信息：长时段 / 加班文本省略号收尾，不再硬裁切。 */
+.entry-row-meta-text {
+  overflow: hidden;
+  min-width: 0;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行级按压反馈：移动端点按有回应。 */
+.entry-row,
+.settings-row,
+.history-row,
+.timer-job-row {
+  transition: background 0.14s ease;
+}
+
+.entry-row:active,
+.settings-row:active,
+.history-row:active,
+.timer-job-row:active {
+  background: var(--surface-2);
+}
+
+.settle-card:active {
+  transform: scale(0.995);
+}
+
+/* 实时金额预览用等宽数字，输入时不抖动。 */
+.entry-preview-money,
+.settle-footer-amount,
+.budget-metric strong,
+.slip-stats strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 图表：入场生长 + 高亮柱顶数值气泡（触屏可见，不再只靠 title）。 */
+.bar-chart {
+  padding-top: 18px;
+}
+
+.bar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.bar-peak {
+  color: var(--accent-ink);
+  font-family: var(--font-num);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  animation: rise-soft 0.4s ease both;
+}
+
+html[data-theme="dark"] .bar-peak {
+  color: var(--accent-ink);
+}
+
+/* 空状态：柔和绿色光晕 + 一次性轻入场。 */
+.empty-icon {
+  background: radial-gradient(circle at 50% 32%, var(--primary-soft), var(--surface-2) 74%);
+  color: var(--primary);
+  animation: rise-soft 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* 工资条：纸张显影式骨架，替代空白闪烁。 */
+.payslip-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px;
+}
+
+.payslip-skeleton .skeleton--hero {
+  height: 236px;
+}
+
+.payslip-skeleton .skeleton--row {
+  height: 44px;
+  margin-top: 0;
+}
+
+/* 抽屉关闭：下滑淡出（打开 / 焦点 / 滚动锁仍由 open 即时驱动）。 */
+.sheet-layer.is-closing {
+  animation: sheet-fade-out 0.19s ease both;
+  pointer-events: none;
+}
+
+.sheet-layer.is-closing .sheet {
+  animation: sheet-down 0.19s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes sheet-down {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(26px);
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 提示条跟随软键盘上移，不被键盘盖住。 */
+.toast-wrap {
+  bottom: calc(96px + var(--safe-bottom) + var(--keyboard-inset, 0px));
+}
+
+/* 照片全屏：阻断触摸滚动链到背后的抽屉。 */
+.photo-viewer {
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
+/* 滚动区域用品牌色细滚动条（桌面 / 平板可见）。 */
+.sheet-body::-webkit-scrollbar,
+.attendance-table-wrap::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sheet-body::-webkit-scrollbar-thumb,
+.attendance-table-wrap::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.sheet-body::-webkit-scrollbar-thumb:hover,
+.attendance-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-2);
+}
+
+.sheet-body::-webkit-scrollbar-track,
+.attendance-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-icon,
+  .bar-peak {
+    animation: none;
+  }
+
+  .bar-fill {
+    transition: none;
+  }
+
+  .sheet-layer.is-closing,
+  .sheet-layer.is-closing .sheet {
+    animation: none;
   }
 }

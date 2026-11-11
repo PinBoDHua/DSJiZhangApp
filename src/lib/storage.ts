@@ -110,8 +110,13 @@ export function loadStateDetailed(): LoadStateResult {
 }
 
 export function saveState(state: AppState): void {
+  // 主题先写且单独兜底：账本写入才是关键路径，避免主题写失败误报「账本存储不足」。
+  try {
+    localStorage.setItem(THEME_KEY, state.settings.theme);
+  } catch {
+    // 主题写失败不影响账本保存
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  localStorage.setItem(THEME_KEY, state.settings.theme);
 }
 
 export function clearStoredState(): void {

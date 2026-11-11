@@ -2,6 +2,7 @@ import type { AppState, Settlement } from '../types';
 import { monthKey, weekdayCN } from './date';
 import { round2 } from './money';
 import { payForEntry } from './pay';
+import { paidAmountOf, paymentStatusOf, remainingAmountOf } from './payment';
 import { sumEntriesCapped } from './settlement';
 import { buildXlsx, type XlsxCellValue, type XlsxSheet } from './xlsx';
 
@@ -20,7 +21,7 @@ function statusLabel(status?: string): string {
 }
 
 function settlementStatus(settlement: Settlement): string {
-  return statusLabel(settlement.paymentStatus);
+  return statusLabel(paymentStatusOf(settlement));
 }
 
 function paymentState(entries: AppState['entries']): string {
@@ -220,8 +221,8 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
       money(settlement.extraBonus),
       money(settlement.extraDeduction),
       money(settlement.net),
-      money(settlement.paidAmount ?? 0),
-      money(round2(settlement.net - (settlement.paidAmount ?? 0))),
+      money(paidAmountOf(settlement)),
+      money(remainingAmountOf(settlement)),
       settlementStatus(settlement),
       settlement.note ?? '',
     ]);

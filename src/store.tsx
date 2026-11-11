@@ -170,23 +170,40 @@ function StoreStateProvider({
   const [state, setState] = useState<AppState>(() => initialState ?? createEmptyState());
   const [toastState, setToastState] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const toastQueue = useRef<ToastState[]>([]);
+  const toastSeq = useRef(0);
+  const currentToast = useRef<ToastState | null>(null);
   const stateRef = useRef(state);
   const storageWarned = useRef(false);
   stateRef.current = state;
 
+  const dismissToast = useCallback(() => {
+    if (toastTimer.current) {
+      window.clearTimeout(toastTimer.current);
+      toastTimer.current = null;
+    }
+    const next = toastQueue.current.shift() ?? null;
+    currentToast.current = next;
+    setToastState(next);
+    if (next) {
+      toastTimer.current = window.setTimeout(dismissToast, next.action ? 5200 : 2800);
+    }
+  }, []);
+
   const toast = useCallback(
     (message: string, tone: ToastTone = 'success', action?: ToastAction) => {
+      const next: ToastState = { id: ++toastSeq.current, message, tone, action };
+      // 带「撤销」等动作的提示正在显示时，新提示先排队，避免把撤销入口顶掉。
+      if (currentToast.current?.action) {
+        toastQueue.current.push(next);
+        return;
+      }
       if (toastTimer.current) window.clearTimeout(toastTimer.current);
-      const id = Date.now();
-      setToastState({ id, message, tone, action });
-      toastTimer.current = window.setTimeout(
-        () => {
-          setToastState((current) => (current?.id === id ? null : current));
-        },
-        action ? 5200 : 2800,
-      );
+      currentToast.current = next;
+      setToastState(next);
+      toastTimer.current = window.setTimeout(dismissToast, next.action ? 5200 : 2800);
     },
-    [],
+    [dismissToast],
   );
 
   useEffect(() => {
@@ -751,6 +768,9 @@ function StoreStateProvider({
 
     const item = current.trashedAdvances.find((value) => value.advance.id === id);
     if (!item) return { ok: false, reason: '这条借支已经不在回收站里了' };
+    if (item.advance.settlementId) {
+      return { ok: false, reason: '这笔借支已结算，先撤销结算再恢复' };
+    }
     commit((prev) => ({
       ...prev,
       advances: prev.advances.some((advance) => advance.id === id)
@@ -1015,7 +1035,7 @@ function StoreStateProvider({
   return (
     <StoreContext.Provider value={value}>
       <PrivacyProvider hidden={state.profile.hideAmounts}>{children}</PrivacyProvider>
-      <Toast toast={toastState} onClose={() => setToastState(null)} />
+      <Toast toast={toastState} onClose={dismissToast} />
     </StoreContext.Provider>
   );
 }

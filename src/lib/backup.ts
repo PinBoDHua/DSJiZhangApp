@@ -92,18 +92,20 @@ export async function decryptBackup(text: string, password: string): Promise<App
   ) {
     throw new Error('备份文件的加密参数不正确');
   }
+  let decoded: unknown;
   try {
     const salt = base64ToBytes(envelope.salt);
     const iv = base64ToBytes(envelope.iv);
     const data = base64ToBytes(envelope.data);
     const key = await deriveAesKey(normalizedPassword, salt, envelope.iterations);
     const plaintext = await assertCrypto().decrypt({ name: 'AES-GCM', iv }, key, data);
-    const decoded = JSON.parse(new TextDecoder().decode(plaintext));
-    return validateImport(
-      JSON.stringify({ app: EXPORT_APP, version: SCHEMA_VERSION, data: decoded }),
-      { unlockOrphans: true },
-    );
+    decoded = JSON.parse(new TextDecoder().decode(plaintext));
   } catch {
     throw new Error('密码错误，或备份文件已损坏');
   }
+  // 解密成功后的校验失败要原样上抛，否则会把「账本结构问题」误报成「密码错误」。
+  return validateImport(
+    JSON.stringify({ app: EXPORT_APP, version: SCHEMA_VERSION, data: decoded }),
+    { unlockOrphans: true },
+  );
 }
