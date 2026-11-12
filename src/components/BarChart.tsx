@@ -55,6 +55,7 @@ export function BarChart({
             <div
               className={`bar-col ${point.highlight ? 'is-highlight' : ''}`}
               key={point.date}
+              role="img"
               aria-label={`${formatDateWithWeekday(point.date)}，${formatMoney(point.value, {
                 symbol: true,
               })}`}

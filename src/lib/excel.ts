@@ -24,9 +24,9 @@ function settlementStatus(settlement: Settlement): string {
   return statusLabel(paymentStatusOf(settlement));
 }
 
-function paymentState(entries: AppState['entries']): string {
+function paymentState(entries: AppState['entries'], settledEntries: Set<string>): string {
   if (entries.length === 0) return '未结（预估）';
-  const settled = entries.filter((entry) => entry.settlementId).length;
+  const settled = entries.filter((entry) => settledEntries.has(entry.id)).length;
   if (settled === entries.length) return '已结';
   if (settled === 0) return '未结（预估）';
   return '部分已结';
@@ -35,6 +35,10 @@ function paymentState(entries: AppState['entries']): string {
 export function buildLedgerSheets(state: AppState): XlsxSheet[] {
   const jobMap = new Map(state.jobs.map((job) => [job.id, job]));
   const settlementMap = new Map(state.settlements.map((item) => [item.id, item]));
+  // 结算状态以结算单 entryIds 为准：孤儿 settlementId（结算已删）不算已结算，与汇总口径一致。
+  const settledEntries = new Set(
+    state.settlements.flatMap((settlement) => settlement.entryIds),
+  );
 
   const detailRows: XlsxCellValue[][] = [
     [
@@ -84,8 +88,8 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
       money(pay.deduction),
       money(pay.total),
       entry.holiday ? '是' : '',
-      entry.settlementId ? '已结算' : '未结算',
-      entry.settlementId ? entry.settlementId.slice(-8) : '',
+      settledEntries.has(entry.id) ? '已结算' : '未结算',
+      settledEntries.has(entry.id) && entry.settlementId ? entry.settlementId.slice(-8) : '',
       entry.note ?? '',
     ]);
   }
@@ -110,9 +114,6 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
     ],
   ];
 
-  const settledEntries = new Set(
-    state.settlements.flatMap((settlement) => settlement.entryIds),
-  );
   const unsettledByJobMonth = new Map<string, AppState['entries']>();
   for (const entry of state.entries) {
     if (settledEntries.has(entry.id)) continue;
@@ -126,8 +127,19 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
     const [month, jobId] = key.split('|');
     const job = jobMap.get(jobId);
     const totals = sumEntriesCapped(entries);
+    // 已结算行已计入的休息日这里排除，避免重复计入；未提供休息信息的旧结算单不做排除。
+    const jobSettlements = state.settlements.filter((item) => item.jobId === jobId);
+    const countedInSettled = (rest: AppState['restDays'][number]): boolean =>
+      jobSettlements.some((item) => {
+        if (item.restDates) return item.restDates.includes(rest.date);
+        if (item.restDays !== undefined) {
+          return rest.date >= item.periodStart && rest.date <= item.periodEnd;
+        }
+        return false;
+      });
     const restDays = state.restDays
       .filter((rest) => rest.jobId === jobId && monthKey(rest.date) === month)
+      .filter((rest) => !countedInSettled(rest))
       .reduce((sum, rest) => sum + (rest.days ?? 1), 0);
     summaryRows.push([
       month,
@@ -144,7 +156,7 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
       money(0),
       money(0),
       money(totals.total),
-      paymentState(entries),
+      paymentState(entries, settledEntries),
     ]);
   }
 

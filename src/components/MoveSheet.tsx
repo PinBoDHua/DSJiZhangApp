@@ -361,7 +361,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
         open={open}
         title="导入搬家包"
         subtitle="先看差异，再决定"
-        onClose={onClose}
+        onClose={busy ? () => undefined : onClose}
         className="move-sheet"
       >
         <div className="sheet-body">
@@ -515,7 +515,12 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
               >
                 {busy ? '正在留快照…' : '用包覆盖本机'}
               </button>
-              <button type="button" className="btn btn--ghost btn--block" onClick={onClose}>
+              <button
+                type="button"
+                className="btn btn--ghost btn--block"
+                onClick={onClose}
+                disabled={busy}
+              >
                 先不导入
               </button>
             </>

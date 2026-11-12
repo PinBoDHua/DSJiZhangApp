@@ -417,7 +417,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 export async function downloadPayslipPdf(
   blob: Blob,
   settlement: Settlement,
-): Promise<'web' | 'native'> {
+): Promise<'web' | 'native' | 'shared'> {
   const [{ jsPDF }, dataUrl] = await Promise.all([import('jspdf'), blobToDataUrl(blob)]);
   const pdf = new jsPDF({
     orientation: 'portrait',

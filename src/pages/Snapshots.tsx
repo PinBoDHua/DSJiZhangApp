@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, HardDrive, History, RotateCcw, Trash2 } from 'lucide-react';
 import { SubPage } from '../components/SubPage';
 import { EmptyState } from '../components/EmptyState';
@@ -38,6 +38,8 @@ export function Snapshots({ onBack }: SnapshotsProps) {
   } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SnapshotMeta | null>(null);
   const [busy, setBusy] = useState(false);
+  // 确认框确认钮不随 busy 禁用，用 ref 挡住恢复 / 删除的连点重入。
+  const actingRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!isSnapshotStoreAvailable()) {
@@ -87,7 +89,8 @@ export function Snapshots({ onBack }: SnapshotsProps) {
   };
 
   const restoreNow = async () => {
-    if (!pendingRestore) return;
+    if (!pendingRestore || actingRef.current) return;
+    actingRef.current = true;
     const previous = state;
     setBusy(true);
     try {
@@ -102,12 +105,14 @@ export function Snapshots({ onBack }: SnapshotsProps) {
     } catch (restoreError) {
       toast(restoreError instanceof Error ? restoreError.message : '恢复失败', 'error');
     } finally {
+      actingRef.current = false;
       setBusy(false);
     }
   };
 
   const deleteNow = async () => {
-    if (!pendingDelete) return;
+    if (!pendingDelete || actingRef.current) return;
+    actingRef.current = true;
     setBusy(true);
     try {
       await deleteSnapshots([pendingDelete.id]);
@@ -117,6 +122,7 @@ export function Snapshots({ onBack }: SnapshotsProps) {
     } catch (deleteError) {
       toast(deleteError instanceof Error ? deleteError.message : '删除失败', 'error');
     } finally {
+      actingRef.current = false;
       setBusy(false);
     }
   };

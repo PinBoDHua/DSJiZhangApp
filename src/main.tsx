@@ -26,6 +26,19 @@ if (import.meta.env.PROD && !nativeShell && 'serviceWorker' in navigator) {
   });
 }
 
+// 新版部署后旧页面的懒加载 chunk 可能 404：自动刷新一次拿新页面；30 秒内不重复刷新，避免死循环。
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  try {
+    const last = Number(sessionStorage.getItem('xinshi.preloadReload') || 0);
+    if (Date.now() - last < 30_000) return;
+    sessionStorage.setItem('xinshi.preloadReload', String(Date.now()));
+  } catch {
+    // sessionStorage 不可用时仍刷新一次
+  }
+  window.location.reload();
+});
+
 if (nativeShell) {
   void installNativeBack();
 }

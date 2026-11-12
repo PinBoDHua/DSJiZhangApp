@@ -134,7 +134,9 @@ export function EntryEditor({
   const photoInputRef = useRef<HTMLInputElement>(null);
   const photoChangedRef = useRef(false);
   const submittingRef = useRef(false);
-  const dirtyRef = useRef(false);
+  // 计时结束带出的工记：计时器已清除，直接关闭会丢工时，预置脏标记让关闭走确认。
+  const dirtyRef = useRef(!entryId && Boolean(initialTimes));
+  const afterDiscardRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -314,6 +316,7 @@ export function EntryEditor({
   };
 
   const switchTimeMode = (next: TimeMode) => {
+    dirtyRef.current = true;
     if (next === 'manual' && timeMode === 'range' && netHours > 0) {
       setManualHours(String(netHours));
     }
@@ -323,10 +326,21 @@ export function EntryEditor({
 
   const requestClose = () => {
     if (dirtyRef.current) {
+      afterDiscardRef.current = null;
       setDiscardOpen(true);
       return;
     }
     onClose();
+  };
+
+  // 「管理」会直接关掉编辑器，未保存内容同样要先确认放弃。
+  const requestManageJobs = () => {
+    if (dirtyRef.current) {
+      afterDiscardRef.current = onManageJobs;
+      setDiscardOpen(true);
+      return;
+    }
+    onManageJobs();
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -557,7 +571,7 @@ export function EntryEditor({
           <div className="field">
             <div className="field-head">
               <span className="field-label">工作</span>
-              <button type="button" className="text-link" onClick={onManageJobs}>
+              <button type="button" className="text-link" onClick={requestManageJobs}>
                 管理
               </button>
             </div>
@@ -585,7 +599,10 @@ export function EntryEditor({
                   type="button"
                   key={item.offset}
                   className={`date-chip ${date === item.iso ? 'is-active' : ''}`}
-                  onClick={() => setDate(item.iso)}
+                  onClick={() => {
+                    dirtyRef.current = true;
+                    setDate(item.iso);
+                  }}
                 >
                   <strong>{item.label}</strong>
                   <span>{formatDateCompact(item.iso)}</span>
@@ -640,9 +657,10 @@ export function EntryEditor({
                         className={
                           Math.abs(netHours - preset) < 0.01 ? 'is-active' : ''
                         }
-                        onClick={() =>
-                          setEndTime(endTimeForDuration(startTime, preset, breakMinutes))
-                        }
+                        onClick={() => {
+                          dirtyRef.current = true;
+                          setEndTime(endTimeForDuration(startTime, preset, breakMinutes));
+                        }}
                       >
                         {preset}h
                       </button>
@@ -675,7 +693,10 @@ export function EntryEditor({
                           type="button"
                           key={value}
                           className={breakMinutes === value ? 'is-active' : ''}
-                          onClick={() => setBreakMinutes(value)}
+                          onClick={() => {
+                            dirtyRef.current = true;
+                            setBreakMinutes(value);
+                          }}
                         >
                           {value === 0 ? '无' : `${value}分`}
                         </button>
@@ -883,7 +904,10 @@ export function EntryEditor({
                 className={`switch-row ${holiday ? 'is-on' : ''}`}
                 role="switch"
                 aria-checked={holiday}
-                onClick={() => setHoliday((value) => !value)}
+                onClick={() => {
+                  dirtyRef.current = true;
+                  setHoliday((value) => !value);
+                }}
               >
                 <span>
                   <Sun size={15} />
@@ -1080,10 +1104,15 @@ export function EntryEditor({
         description="已经填写的内容不会保存。"
         confirmLabel="放弃"
         danger
-        onCancel={() => setDiscardOpen(false)}
+        onCancel={() => {
+          afterDiscardRef.current = null;
+          setDiscardOpen(false);
+        }}
         onConfirm={() => {
           setDiscardOpen(false);
-          onClose();
+          const action = afterDiscardRef.current;
+          afterDiscardRef.current = null;
+          (action ?? onClose)();
         }}
       />
     </>

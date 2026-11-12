@@ -78,6 +78,12 @@ export function Records({
     [anchor, state.settings.weekStartsOn],
   );
   const isCurrentMonth = monthPeriod.start === currentMonthStart;
+  // 批量补记 / 排休会产生未来月份的记录：有未来记录时允许向后翻页，否则它们永远看不到。
+  const latestDate = state.entries.reduce(
+    (max, entry) => (entry.date > max ? entry.date : max),
+    state.restDays.reduce((max, rest) => (rest.date > max ? rest.date : max), today),
+  );
+  const canMoveNext = monthPeriod.end < latestDate;
   const monthEntries = state.entries.filter(
     (entry) => entry.date >= monthPeriod.start && entry.date <= monthPeriod.end,
   );
@@ -228,7 +234,7 @@ export function Records({
           type="button"
           className="icon-button"
           onClick={() => moveMonth(1)}
-          disabled={isCurrentMonth}
+          disabled={!canMoveNext}
           aria-label="下个月"
         >
           <ChevronRight size={20} />

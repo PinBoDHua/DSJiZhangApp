@@ -15,6 +15,8 @@
               window.matchMedia('(prefers-color-scheme: dark)').matches);
           document.documentElement.dataset.theme = dark ? 'dark' : 'light';
           document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', dark ? '#0F1714' : '#146B4B');
         } catch (error) {
           /* 首次进入或隐私模式，保持默认浅色 */
         }

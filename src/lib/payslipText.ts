@@ -38,7 +38,7 @@ export async function downloadPayslipTextPdf(
   settlement: Settlement,
   options: PayslipOptions = DEFAULT_PAYSLIP_OPTIONS,
   entries: Entry[] = [],
-): Promise<'web' | 'native'> {
+): Promise<'web' | 'native' | 'shared'> {
   const [{ jsPDF }, font] = await Promise.all([import('jspdf'), loadPdfFont()]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   doc.addFileToVFS(FONT_FILE, font);

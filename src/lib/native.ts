@@ -1,7 +1,7 @@
 import { downloadText } from './storage';
 import { saveFileToDownloads } from './saveFile';
 
-type SaveResult = 'web' | 'native';
+type SaveResult = 'web' | 'native' | 'shared';
 
 interface SaveOptions {
   subdirectory?: string;
@@ -24,15 +24,15 @@ export function isAndroidApp(): boolean {
   return isNativeApp() && capacitor?.getPlatform?.() === 'android';
 }
 
-/** 原生 App 写入公共下载目录；网页继续用普通下载。 */
+/** 原生 App 写入公共下载目录（旧系统走分享面板）；网页继续用普通下载。 */
 export async function saveBlobFile(
   blob: Blob,
   filename: string,
   options: SaveOptions = {},
 ): Promise<SaveResult> {
   if (isNativeApp()) {
-    await saveFileToDownloads(blob, filename, options);
-    return 'native';
+    const saved = await saveFileToDownloads(blob, filename, options);
+    return saved.shared ? 'shared' : 'native';
   }
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');

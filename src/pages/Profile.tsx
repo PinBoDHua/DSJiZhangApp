@@ -88,6 +88,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
   const [exportBusy, setExportBusy] = useState(false);
+  const [plainExportBusy, setPlainExportBusy] = useState(false);
   const [exportError, setExportError] = useState('');
   const [encryptedImportText, setEncryptedImportText] = useState<string | null>(null);
   const [importPassword, setImportPassword] = useState('');
@@ -169,6 +170,8 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   };
 
   const handleExport = async () => {
+    if (plainExportBusy) return;
+    setPlainExportBusy(true);
     try {
       const result = await saveTextFile(
         backupFileName(),
@@ -183,6 +186,8 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
       );
     } catch {
       toast('导出失败，请稍后再试', 'error');
+    } finally {
+      setPlainExportBusy(false);
     }
   };
 
@@ -680,13 +685,13 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
-          <button type="button" className="settings-row" onClick={handleExport}>
+          <button type="button" className="settings-row" onClick={handleExport} disabled={plainExportBusy}>
             <span className="settings-icon">
               <Download size={18} />
             </span>
             <span className="settings-body">
               <strong>导出备份</strong>
-              <em>普通 JSON 文件，方便随时恢复</em>
+              <em>{plainExportBusy ? '正在导出…' : '普通 JSON 文件，方便随时恢复'}</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>

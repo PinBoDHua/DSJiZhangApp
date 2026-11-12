@@ -1,6 +1,11 @@
 /** 金额四舍五入到分，避免浮点误差 */
 export function round2(value: number): number {
   if (!Number.isFinite(value)) return 0;
+  // 指数记法先移位再舍入：+EPSILON 对 8.165 这类值失效（8.165*100=816.4999…）。
+  const shifted = Number(`${value}e2`);
+  if (Number.isFinite(shifted)) return Number(`${Math.round(shifted)}e-2`);
+  // 指数形式的大数已超出「分」的表示精度，原样返回；极小值仍归零。
+  if (Math.abs(value) >= 1e15) return value;
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 

@@ -59,7 +59,10 @@ export function useAutoSnapshot(state: AppState, enabled = true): void {
     window.setTimeout(() => {
       void saveSnapshot(stateRef.current, 'daily-open')
         .then(() => markDailyAt(new Date()))
-        .catch(() => undefined);
+        .catch(() => {
+          // 保存失败要回退当日标记，否则直到重启前都不会再重试每日快照。
+          if (scheduledDay.current === dayKey) scheduledDay.current = null;
+        });
     }, 1600);
   }, [enabled]);
 

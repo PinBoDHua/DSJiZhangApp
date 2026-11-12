@@ -43,7 +43,23 @@ export function useModalFocus(open: boolean, ref: RefObject<HTMLElement | null>)
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return;
       // 嵌套弹层时只处理焦点所在的那一层。
-      if (!node.contains(document.activeElement)) return;
+      if (!node.contains(document.activeElement)) {
+        const active = document.activeElement;
+        // 焦点在其他真实元素上（可能是更上层弹层）：不干预。
+        if (active && active !== document.body && active !== document.documentElement) return;
+        // 焦点丢失到 body（如按钮变 disabled）：由最上层弹层收回，防止 Tab 逃逸到背景页。
+        const layers = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="dialog"],[role="alertdialog"]'),
+        );
+        const top = layers[layers.length - 1];
+        if (top && top !== node && !node.contains(top)) return;
+        event.preventDefault();
+        const items = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+          (element) => element.getClientRects().length > 0,
+        );
+        (items[0] ?? node).focus({ preventScroll: true });
+        return;
+      }
       const items = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
         (element) => element.getClientRects().length > 0,
       );

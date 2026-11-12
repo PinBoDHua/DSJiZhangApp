@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { ArrowUpRight, CheckCircle2, ClipboardList, Download } from 'lucide-react';
 import { useStore } from '../store';
 import { EmptyState } from '../components/EmptyState';
@@ -31,6 +31,7 @@ export function Settlements({
   onOpenJobs,
 }: SettlementsProps) {
   const { state, toast } = useStore();
+  const [csvBusy, setCsvBusy] = useState(false);
   const overview = getSettlementOverview(state);
   const history = [...state.settlements].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const month = periodOf('monthly', todayISO(), state.settings.weekStartsOn);
@@ -49,10 +50,12 @@ export function Settlements({
   const clear = pendingJobs.length === 0 && overview.advanceTotal === 0;
 
   const exportCsv = async () => {
+    if (csvBusy) return;
     if (monthSettlements.length === 0) {
       toast('本月还没有结算记录', 'info');
       return;
     }
+    setCsvBusy(true);
     try {
       const result = await saveTextFile(
         `薪时-工资流水-${month.start.slice(0, 7)}.csv`,
@@ -62,6 +65,8 @@ export function Settlements({
       toast(result === 'native' ? 'CSV 已保存到「下载/Xinshi」' : 'CSV 已下载');
     } catch {
       toast('CSV 导出失败，请稍后再试', 'error');
+    } finally {
+      setCsvBusy(false);
     }
   };
 
@@ -126,10 +131,10 @@ export function Settlements({
             type="button"
             className="btn btn--soft btn--sm"
             onClick={exportCsv}
-            disabled={monthSettlements.length === 0}
+            disabled={monthSettlements.length === 0 || csvBusy}
           >
             <Download size={14} />
-            导出 CSV
+            {csvBusy ? '导出中…' : '导出 CSV'}
           </button>
         </div>
         <div className="month-settle-stats">

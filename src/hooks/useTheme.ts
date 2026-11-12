@@ -23,7 +23,12 @@ export function useTheme(mode: ThemeMode): void {
     if (mode !== 'system') return;
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => apply('system');
-    media.addEventListener('change', handleChange);
-    return () => media.removeEventListener('change', handleChange);
+    // Safari < 14 没有 MediaQueryList.addEventListener
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', handleChange);
+      return () => media.removeEventListener('change', handleChange);
+    }
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
   }, [mode]);
 }

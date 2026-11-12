@@ -3,6 +3,7 @@ package com.xinshi.app;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
+import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -10,12 +11,16 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
 
+import androidx.core.content.FileProvider;
+
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.OutputStream;
 
 @CapacitorPlugin(name = "SaveFile")
@@ -38,10 +43,6 @@ public class SaveFilePlugin extends Plugin {
             call.reject("文件名称不合法");
             return;
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            call.reject("当前 Android 版本请使用分享保存");
-            return;
-        }
         if (subdir == null) {
             call.reject("目录名称不合法");
             return;
@@ -52,6 +53,13 @@ public class SaveFilePlugin extends Plugin {
             bytes = Base64.decode(data, Base64.DEFAULT);
         } catch (IllegalArgumentException error) {
             call.reject("文件内容编码错误");
+            return;
+        }
+
+        // Android 9 及以下没有分区存储的 Downloads API：走系统分享面板保存 / 转发，
+        // 否则这些设备上备份、工资条、CSV 全部无法导出。
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            shareViaLegacy(call, filename, mimeType, bytes);
             return;
         }
 
@@ -113,6 +121,38 @@ public class SaveFilePlugin extends Plugin {
                 }
             }
             call.reject(error.getMessage() == null ? "保存失败" : error.getMessage());
+        }
+    }
+
+    /** Android 5–9：写入应用缓存目录后经 FileProvider 交给系统分享面板。 */
+    private void shareViaLegacy(PluginCall call, String filename, String mimeType, byte[] bytes) {
+        try {
+            File dir = new File(getContext().getCacheDir(), "exports");
+            if (!dir.exists() && !dir.mkdirs()) {
+                call.reject("无法创建临时目录");
+                return;
+            }
+            File file = new File(dir, filename);
+            try (OutputStream stream = new FileOutputStream(file)) {
+                stream.write(bytes);
+                stream.flush();
+            }
+            Uri uri = FileProvider.getUriForFile(
+                    getContext(), getContext().getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType(mimeType);
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent chooser = Intent.createChooser(intent, "保存或分享文件");
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getActivity().startActivity(chooser);
+            JSObject result = new JSObject();
+            result.put("path", filename);
+            result.put("uri", uri.toString());
+            result.put("shared", true);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject(error.getMessage() == null ? "分享失败" : error.getMessage());
         }
     }
 

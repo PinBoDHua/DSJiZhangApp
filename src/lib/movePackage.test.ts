@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { digestText, fnv1aHex } from './crypto';
+import { base64ToBytes, bytesToBase64, deriveAesKey, digestText, fnv1aHex } from './crypto';
 import {
   buildMovePackage,
   isMovePackage,
@@ -54,6 +54,37 @@ describe('搬家包', () => {
       password: 'right-password',
     });
     await expect(unlockMovePackage(text, 'wrong-password')).rejects.toThrow('密码错误');
+  });
+
+  it('密码正确但账本结构损坏时原样上抛结构错误，不误报密码错误', async () => {
+    const { text } = await buildMovePackage(sampleState(), {
+      now,
+      password: 'right-password',
+    });
+    const parsed = JSON.parse(text);
+    // 用同一密码 / 盐 / IV 重新加密一份结构损坏的账本，模拟「解密成功但内容坏」。
+    const key = await deriveAesKey(
+      'right-password',
+      base64ToBytes(parsed.payload.salt),
+      parsed.payload.iterations,
+    );
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: base64ToBytes(parsed.payload.iv) },
+      key,
+      new TextEncoder().encode(JSON.stringify({ jobs: 'bad', entries: [] })),
+    );
+    parsed.payload.data = bytesToBase64(new Uint8Array(ciphertext));
+    const digest = await digestText(
+      JSON.stringify({
+        schemaVersion: parsed.schemaVersion,
+        manifest: parsed.manifest,
+        payload: parsed.payload,
+      }),
+    );
+    parsed.checksum = `${digest.alg}:${digest.hex}`;
+    await expect(unlockMovePackage(JSON.stringify(parsed), 'right-password')).rejects.toThrow(
+      '备份缺少工作或工记数据',
+    );
   });
 
   it('密文被改一个字符就拒绝', async () => {

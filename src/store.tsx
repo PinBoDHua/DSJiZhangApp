@@ -30,6 +30,7 @@ import {
   saveState,
   clearStoredState,
   isValidDate,
+  STORAGE_KEY,
 } from './lib/storage';
 import {
   materializeRecurring,
@@ -46,7 +47,7 @@ import { createDemoState } from './lib/seed';
 import { clearReminderMark } from './lib/reminder';
 import { commitSettlement } from './lib/settlement';
 import { findRestOnDay, wouldExceedDayLimit } from './lib/guards';
-import { clearPhotos, deletePhoto, deletePhotos, prunePhotos } from './lib/photos';
+import { clearPhotos, deletePhotos, prunePhotos } from './lib/photos';
 import { PrivacyProvider } from './components/Money';
 import { Toast } from './components/Toast';
 import { StorageRecovery } from './components/StorageRecovery';
@@ -219,6 +220,22 @@ function StoreStateProvider({
     }
   }, [state, toast]);
 
+  // 跨标签页同步：其他窗口写账本时重载最新数据，避免两个窗口各持旧账整包互相覆盖。
+  // storage 事件只在其他标签页触发；回写相同内容不会再触发事件，不会形成回环。
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY && event.key !== null) return;
+      const loaded = loadStateDetailed();
+      if (loaded.failure) return;
+      const next = loaded.state ?? createEmptyState();
+      stateRef.current = next;
+      setState(next);
+      toast('账本已在其他窗口更新，已同步最新数据', 'info');
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [toast]);
+
   useEffect(
     () => () => {
       if (toastTimer.current) window.clearTimeout(toastTimer.current);
@@ -244,6 +261,16 @@ function StoreStateProvider({
     const next = updater(stateRef.current);
     stateRef.current = next;
     setState(next);
+  }, []);
+
+  // 删除照片等不可逆清理前，先确认新账本已落盘；落盘失败则保留照片，避免重启后记录还在照片没了。
+  const persistNow = useCallback(() => {
+    try {
+      saveState(stateRef.current);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   const addJob = useCallback((input: NewJobInput) => {
@@ -792,16 +819,16 @@ function StoreStateProvider({
             ? current.trashedRests.some((item) => item.restDay.id === id)
             : current.trashedAdvances.some((item) => item.advance.id === id);
     if (!exists) return false;
+    let photoIds: string[] = [];
     if (kind === 'job') {
-      const photoIds = current.trashedEntries
+      photoIds = current.trashedEntries
         .filter((item) => item.entry.jobId === id)
         .map((item) => item.entry.photoId)
         .filter((value): value is string => Boolean(value));
-      if (photoIds.length > 0) void deletePhotos(photoIds).catch(() => undefined);
     }
     if (kind === 'entry') {
       const photoId = current.trashedEntries.find((item) => item.entry.id === id)?.entry.photoId;
-      if (photoId) void deletePhoto(photoId).catch(() => undefined);
+      if (photoId) photoIds = [photoId];
     }
     commit((prev) => {
       if (kind === 'job') {
@@ -830,8 +857,11 @@ function StoreStateProvider({
         trashedAdvances: prev.trashedAdvances.filter((item) => item.advance.id !== id),
       };
     });
+    if (photoIds.length > 0 && persistNow()) {
+      void deletePhotos(photoIds).catch(() => undefined);
+    }
     return true;
-  }, []);
+  }, [persistNow]);
 
   const emptyTrash = useCallback(() => {
     const current = stateRef.current;
@@ -844,7 +874,6 @@ function StoreStateProvider({
     const photoIds = current.trashedEntries
       .map((item) => item.entry.photoId)
       .filter((value): value is string => Boolean(value));
-    if (photoIds.length > 0) void deletePhotos(photoIds).catch(() => undefined);
     commit((prev) => ({
       ...prev,
       trashedJobs: [],
@@ -852,8 +881,11 @@ function StoreStateProvider({
       trashedRests: [],
       trashedAdvances: [],
     }));
+    if (photoIds.length > 0 && persistNow()) {
+      void deletePhotos(photoIds).catch(() => undefined);
+    }
     return count;
-  }, []);
+  }, [persistNow]);
 
   const settleJob = useCallback(
     (

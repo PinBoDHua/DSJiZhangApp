@@ -49,9 +49,16 @@ export function AttendancePage({
   const today = todayISO();
   const [anchor, setAnchor] = useState(startOfMonth(today));
   const [selected, setSelected] = useState<SelectedCell | null>(null);
+  const [csvBusy, setCsvBusy] = useState(false);
   const period = periodOf('monthly', anchor, state.settings.weekStartsOn);
   const currentMonth = startOfMonth(today);
   const isCurrent = period.start === currentMonth;
+  // 批量排休 / 补记可能落在未来月份：有未来记录时允许向后翻页查看。
+  const latestDate = state.entries.reduce(
+    (max, entry) => (entry.date > max ? entry.date : max),
+    state.restDays.reduce((max, rest) => (rest.date > max ? rest.date : max), today),
+  );
+  const canMoveNext = period.end < latestDate;
 
   const activeJobs = state.jobs.filter((job) => !job.archived);
   const jobs = initialJobId
@@ -122,6 +129,8 @@ export function AttendancePage({
       : false;
 
   const exportCsv = async () => {
+    if (csvBusy) return;
+    setCsvBusy(true);
     const csv = buildAttendanceCsv(
       jobs,
       monthEntries.filter((entry) => jobs.some((job) => job.id === entry.jobId)),
@@ -141,6 +150,8 @@ export function AttendancePage({
       );
     } catch {
       toast('考勤 CSV 导出失败，请稍后再试', 'error');
+    } finally {
+      setCsvBusy(false);
     }
   };
 
@@ -177,9 +188,10 @@ export function AttendancePage({
             type="button"
             className="btn btn--ghost btn--sm"
             onClick={() => void exportCsv()}
+            disabled={csvBusy}
           >
             <Download size={14} />
-            导出 CSV
+            {csvBusy ? '导出中…' : '导出 CSV'}
           </button>
         }
       >
@@ -208,7 +220,7 @@ export function AttendancePage({
             type="button"
             className="icon-button"
             onClick={() => moveMonth(1)}
-            disabled={isCurrent}
+            disabled={!canMoveNext}
             aria-label="下个月"
           >
             <ChevronRight size={20} />

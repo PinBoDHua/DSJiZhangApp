@@ -49,6 +49,18 @@ describe('统计金额回归', () => {
     expect(series.reduce((sum, point) => sum + point.earnings, 0)).toBe(318.18);
   });
 
+  it('窗口外同月记录不稀释窗口内图表金额（整月出勤超 expectedDays 触发封顶时）', () => {
+    const entries = Array.from({ length: 25 }, (_, index) =>
+      makeEntry({
+        id: `out-${index}`,
+        date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+        rule: fixedRule,
+      }),
+    );
+    const series = dailySeries(entries, '2026-11-03', '2026-11-04');
+    expect(series.reduce((sum, point) => sum + point.earnings, 0)).toBe(318.18);
+  });
+
   it('月薪同一天多段也只计一次基础工资，周统计与热力图口径一致', () => {
     const monthlyRule = {
       ...baseRule,

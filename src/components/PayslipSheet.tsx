@@ -54,6 +54,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
   const [saveBusy, setSaveBusy] = useState(false);
   const [options, setOptions] = useState<PayslipOptions>(loadPayslipOptions);
   const [renderOptions, setRenderOptions] = useState<PayslipOptions>(options);
+  const [rendering, setRendering] = useState(true);
   const [templateId, setTemplateId] = useState<PayslipTemplateId>(() =>
     matchPayslipTemplate(loadPayslipOptions()),
   );
@@ -83,6 +84,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
   useEffect(() => {
     let cancelled = false;
     let objectUrl = '';
+    setRendering(true);
     if (!blobRef.current) setLoading(true);
     setError('');
     createPayslipBlob(settlement, accent, renderOptions)
@@ -99,11 +101,13 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
             navigator.canShare({ files: [nextFile] }),
         );
         setLoading(false);
+        setRendering(false);
       })
       .catch(() => {
         if (cancelled) return;
         setError('图片生成失败，请稍后再试');
         setLoading(false);
+        setRendering(false);
       });
     return () => {
       cancelled = true;
@@ -111,8 +115,11 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     };
   }, [settlement, accent, renderOptions]);
 
+  // 选项变更到重绘完成之间，blob 还是旧版：此时保存 / 分享会导出旧图，先禁用。
+  const stale = rendering || options !== renderOptions;
+
   const save = async () => {
-    if (!blobRef.current || saveBusy) return;
+    if (!blobRef.current || saveBusy || stale) return;
     setSaveBusy(true);
     try {
       const result = await saveBlobFile(blobRef.current, payslipFileName(settlement));
@@ -145,7 +152,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
   };
 
   const savePdf = async () => {
-    if (!blobRef.current) return;
+    if (!blobRef.current || stale) return;
     setPdfBusy(true);
     try {
       const result = await downloadPayslipPdf(blobRef.current, settlement);
@@ -262,7 +269,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
       </div>
       <div className="sheet-footer payslip-footer">
         {shareable ? (
-          <button type="button" className="btn btn--soft" onClick={share} disabled={loading}>
+          <button type="button" className="btn btn--soft" onClick={share} disabled={loading || stale}>
             <Share2 size={16} />
             分享
           </button>
@@ -271,7 +278,7 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
           type="button"
           className="btn btn--soft"
           onClick={savePdf}
-          disabled={loading || !url || pdfBusy}
+          disabled={loading || !url || pdfBusy || stale}
         >
           <FileText size={16} />
           {pdfBusy ? '生成中' : 'PDF'}
@@ -280,10 +287,10 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
           type="button"
           className="btn btn--primary"
           onClick={save}
-          disabled={!url || saveBusy}
+          disabled={!url || saveBusy || stale}
         >
           <Download size={16} />
-          {saveBusy ? '保存中' : isNativeApp() ? '保存文件' : '保存图片'}
+          {saveBusy ? '保存中' : stale ? '更新中' : isNativeApp() ? '保存文件' : '保存图片'}
         </button>
       </div>
     </Sheet>

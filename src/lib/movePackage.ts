@@ -297,21 +297,22 @@ export async function unlockMovePackage(
     );
   } else {
     if (!password?.trim()) throw new Error('这个搬家包需要密码');
+    let decoded: unknown;
     try {
       const salt = base64ToBytes(header.payload.salt);
       const iv = base64ToBytes(header.payload.iv);
       const data = base64ToBytes(header.payload.data);
       const key = await deriveAesKey(password.trim(), salt, header.payload.iterations);
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
-      const decoded = JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
-      state = validateImport(
-        JSON.stringify({ app: EXPORT_APP, version: header.schemaVersion, data: decoded }),
-        { unlockOrphans: true },
-      );
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('升级')) throw error;
+      decoded = JSON.parse(new TextDecoder().decode(plaintext));
+    } catch {
       throw new Error('密码错误，或搬家包已损坏');
     }
+    // 解密成功后的结构校验错误原样上抛，不再误报「密码错误」让用户反复试密码。
+    state = validateImport(
+      JSON.stringify({ app: EXPORT_APP, version: header.schemaVersion, data: decoded }),
+      { unlockOrphans: true },
+    );
   }
 
   const actual = ledgerManifest(state);

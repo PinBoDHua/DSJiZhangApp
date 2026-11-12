@@ -507,7 +507,9 @@ export function dailySeries(entries: Entry[], start: string, end: string): Daily
   for (const day of eachDay(start, end)) {
     map.set(day, { date: day, earnings: 0, hours: 0 });
   }
-  for (const entry of entries) {
+  // 先按窗口过滤：窗口外的同月月薪记录会参与分摊，稀释窗口内每日金额。
+  const inWindow = entries.filter((entry) => entry.date >= start && entry.date <= end);
+  for (const entry of inWindow) {
     const point = map.get(entry.date);
     if (!point) continue;
     if (entry.rule.payType === 'monthly') {

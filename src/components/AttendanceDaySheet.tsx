@@ -135,16 +135,36 @@ export function AttendanceDaySheet({
         ) : null}
 
         {hasEntry ? (
-          <button
-            type="button"
-            className="btn btn--soft btn--block"
-            onClick={() => {
-              onClose();
-              onOpenEntry(entries[0].id);
-            }}
-          >
-            查看 / 编辑这天的工记
-          </button>
+          entries.length === 1 ? (
+            <button
+              type="button"
+              className="btn btn--soft btn--block"
+              onClick={() => {
+                onClose();
+                onOpenEntry(entries[0].id);
+              }}
+            >
+              查看 / 编辑这天的工记
+            </button>
+          ) : (
+            // 一天多笔工记时逐笔列出，否则除第一笔外都不可达。
+            entries.map((entry, index) => (
+              <button
+                key={entry.id}
+                type="button"
+                className="btn btn--soft btn--block"
+                onClick={() => {
+                  onClose();
+                  onOpenEntry(entry.id);
+                }}
+              >
+                第 {index + 1} 笔 · {formatHours(entry.hours)}h
+                {entry.startTime && entry.endTime
+                  ? ` · ${entry.startTime}–${entry.endTime}`
+                  : ''}
+              </button>
+            ))
+          )
         ) : null}
 
         {!settled && !hasEntry ? (

@@ -3,6 +3,8 @@ import { registerPlugin } from '@capacitor/core';
 interface SaveFileResult {
   path: string;
   uri: string;
+  /** Android 9 及以下走系统分享面板，而非直接写入下载目录 */
+  shared?: boolean;
 }
 
 interface PruneResult {
@@ -36,12 +38,12 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-/** 写入 Android 公共下载目录：Download/Xinshi/，不依赖分享面板。 */
+/** 写入 Android 公共下载目录：Download/Xinshi/；旧系统回退系统分享面板。 */
 export async function saveFileToDownloads(
   blob: Blob,
   filename: string,
   options: { subdirectory?: string } = {},
-): Promise<string> {
+): Promise<{ path: string; shared: boolean }> {
   if (blob.size > MAX_NATIVE_SAVE_BYTES) {
     throw new Error('文件超过 32 MB，已停止直接保存以避免手机内存不足');
   }
@@ -52,7 +54,7 @@ export async function saveFileToDownloads(
     data,
     subdir: options.subdirectory,
   });
-  return result.path;
+  return { path: result.path, shared: Boolean(result.shared) };
 }
 
 /** 只清理Download/Xinshi（或指定子目录）下固定前缀的文件，按修改时间保留最新 keep 份。 */
