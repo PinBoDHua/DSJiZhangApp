@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Archive, Briefcase, Check, Coffee, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import type {
   Cycle,
+  Entry,
   Job,
   JobColor,
   MonthlyMode,
   PayRule,
   PayType,
   RestPolicy,
+  Settlement,
+  WeekStart,
 } from '../types';
 import { useStore } from '../store';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -17,8 +20,39 @@ import { SubPage } from '../components/SubPage';
 import { Segmented } from '../components/Segmented';
 import { CYCLE_LABEL, JOB_COLORS, PAY_TYPE_LABEL, PAY_TYPE_UNIT, rateLabel } from '../lib/meta';
 import { toAmount, formatHours } from '../lib/money';
-import { hoursBetween } from '../lib/date';
+import { hoursBetween, periodOf } from '../lib/date';
+import { findSettlementOverlap } from '../lib/guards';
 import { pushNativeBack } from '../lib/nativeBack';
+
+/**
+ * 改结算周期后，未结工记的新周期是否会与已有结算单重叠。
+ * 重叠会让这批剩余工记永远结算不了（settlement 只允许未重叠周期），所以保存前要拦住。
+ */
+function wouldCycleConflict(
+  job: Job,
+  nextCycle: Cycle,
+  entries: Entry[],
+  settlements: Settlement[],
+  weekStartsOn: WeekStart,
+): boolean {
+  const jobSettlements = settlements.filter((item) => item.jobId === job.id);
+  if (jobSettlements.length === 0) return false;
+  const unsettledDates = Array.from(
+    new Set(
+      entries
+        .filter((entry) => entry.jobId === job.id && !entry.settlementId)
+        .map((entry) => entry.date),
+    ),
+  );
+  return unsettledDates.some(
+    (date) =>
+      findSettlementOverlap(
+        jobSettlements,
+        job.id,
+        periodOf(nextCycle, date, weekStartsOn),
+      ) !== undefined,
+  );
+}
 
 interface JobEditorProps {
   jobId?: string;
@@ -206,7 +240,12 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
         ];
 
   const changePayType = (next: PayType) => {
+    if (next === payType) return;
     setPayType(next);
+    // 单价单位随计薪方式变化（时 / 天 / 月 / 件），旧数字不能直接沿用，避免出现「月薪 25 元/月」。
+    setRate('');
+    setError('');
+    toast('单价单位已变化，请重新填写', 'info');
     if (next === 'monthly') {
       setCycle('monthly');
       if (
@@ -298,6 +337,23 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       workWeekdays.size > 0 && workWeekdays.size < 7
         ? [...workWeekdays].sort((a, b) => a - b)
         : undefined;
+    // 保守阻断：只有确实已有结算单、且新周期会与旧结算重叠时才不让改周期，没结算过的工作照常改。
+    if (
+      existing &&
+      normalizedCycle !== existing.cycle &&
+      wouldCycleConflict(
+        existing,
+        normalizedCycle,
+        state.entries,
+        state.settlements,
+        state.settings.weekStartsOn,
+      )
+    ) {
+      setError(
+        '该岗位已有周结/月结记录，修改结算周期会导致剩余工记无法结算；请先撤销相关结算后再改',
+      );
+      return;
+    }
     setError('');
     if (existing) {
       const next: Job = {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'xinshi-v29';
+const CACHE_NAME = 'xinshi-v30';
 // 保留上一版缓存：新版部署后仍开着的旧页面，懒加载 chunk 还能命中旧缓存。
 const KEEP_VERSIONS = 2;
 const CORE = [

@@ -26,6 +26,7 @@ import { formatDateTime } from '../lib/date';
 import { formatHours, formatMoney } from '../lib/money';
 import { isNativeApp, saveTextFile } from '../lib/native';
 import { markBackedUp } from '../lib/backupStatus';
+import { usePrivacy } from './Money';
 
 interface MoveSheetProps {
   open: boolean;
@@ -46,6 +47,8 @@ type ImportStep = 'pick' | 'password' | 'preview';
 
 export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
   const { state, replaceState, toast } = useStore();
+  // 金额隐私：导入预览的「工记合计」也要跟随隐藏金额开关。
+  const hideAmounts = usePrivacy();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordHint, setPasswordHint] = useState('');
@@ -211,7 +214,13 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
     setError('');
     try {
       await saveSnapshot(state, 'before-import');
-      replaceState(preview.state);
+      // replaceState 现在先同步落盘再切内存：写入失败时旧账本保持不变，不能提示成功。
+      if (!replaceState(preview.state)) {
+        const message = '本机存储写入失败，导入未生效，请先导出备份';
+        setError(message);
+        toast(message, 'error');
+        return;
+      }
       toast('搬家包已导入，覆盖前账本已留快照', 'success');
       onClose();
     } catch (snapshotError) {
@@ -482,9 +491,9 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
                 {diff.map((row) => (
                   <div className="move-compare-row" key={row.key}>
                     <span>{row.label}</span>
-                    <span>{formatDiffValue(row.before, row.unit)}</span>
+                    <span>{formatDiffValue(row.before, row.unit, hideAmounts)}</span>
                     <span className="move-compare-after">
-                      {formatDiffValue(row.after, row.unit)}
+                      {formatDiffValue(row.after, row.unit, hideAmounts)}
                     </span>
                   </div>
                 ))}
@@ -556,8 +565,12 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
   );
 }
 
-function formatDiffValue(value: number, unit: 'count' | 'hours' | 'money'): string {
-  if (unit === 'money') return `¥${formatMoney(value)}`;
+function formatDiffValue(
+  value: number,
+  unit: 'count' | 'hours' | 'money',
+  hideAmounts: boolean,
+): string {
+  if (unit === 'money') return hideAmounts ? '••••' : `¥${formatMoney(value)}`;
   if (unit === 'hours') return `${formatHours(value)}h`;
   return String(value);
 }

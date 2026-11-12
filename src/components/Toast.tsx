@@ -28,8 +28,13 @@ export function Toast({ toast, onClose }: ToastProps) {
               className="toast-action"
               onClick={() => {
                 const action = toast.action;
-                onClose();
-                action?.onClick();
+                // 先执行动作再关掉当前提示：store 会把动作里产生的新提示排到队尾，
+                // 若先 onClose 再执行动作，刚排到队首的提示会被动作里的 toast 顶掉。
+                try {
+                  action?.onClick();
+                } finally {
+                  onClose();
+                }
               }}
             >
               {toast.action.label}

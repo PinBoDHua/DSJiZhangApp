@@ -219,7 +219,13 @@ export function filterTrashRows(
 }
 
 /** 恢复前告诉用户为什么不行，避免只丢一句「恢复失败」 */
-export function trashRestoreBlockReason(row: TrashRow, state: AppState): string | null {
+export function trashRestoreBlockReason(
+  row: TrashRow,
+  state: AppState,
+  now = Date.now(),
+): string | null {
+  // 30 天保留期只在启动 / 导入时清理；长驻会话里过期记录不能还能恢复。
+  if (trashRemainingDays(row.deletedAt, now) <= 0) return '已超过 30 天保留期，无法恢复';
   if (row.kind === 'job') return null;
   const jobId = row.jobId;
   const date = row.date;

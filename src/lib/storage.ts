@@ -59,6 +59,8 @@ export interface LoadStateFailure {
   key: string;
   raw: string;
   message: string;
+  /** unavailable = 存储本身不可访问（隐私模式 / 策略拦截），不是账本损坏 */
+  kind: 'unavailable' | 'invalid';
 }
 
 export interface LoadStateResult {
@@ -74,24 +76,31 @@ export function loadStateDetailed(): LoadStateResult {
     try {
       raw = localStorage.getItem(key);
     } catch (error) {
+      // 访问 localStorage 本身抛错（SecurityError / 存储被策略禁用）时不能当成
+      // “已有账本损坏”，否则会把用户锁死在恢复页，正常使用也会被阻断。
       return {
         state: null,
         failure: {
           key,
           raw: '',
           message: error instanceof Error ? error.message : '浏览器拒绝了本地存储访问',
+          kind: 'unavailable',
         },
       };
     }
     if (raw === null) continue;
     try {
       const state = validateImport(raw);
-      try {
-        saveState(state);
-        if (LEGACY_STORAGE_KEYS.includes(key)) localStorage.removeItem(key);
-      } catch (error) {
-        // 已校验的账本仍可只读加载；保存失败由 Store 的持久化提示继续告知。
-        console.warn('迁移本地数据失败，但已加载', error);
+      // 只有真正发生了“旧 key → v7”迁移才回写。读取（含跨标签页 storage 事件）
+      // 绝不能顺手整本回写：读-改-写没有 CAS，会把别的窗口刚保存的新状态覆盖掉。
+      if (LEGACY_STORAGE_KEYS.includes(key)) {
+        try {
+          saveState(state);
+          localStorage.removeItem(key);
+        } catch (error) {
+          // 已校验的账本仍可只读加载；保存失败由 Store 的持久化提示继续告知。
+          console.warn('迁移本地数据失败，但已加载', error);
+        }
       }
       return { state, failure: null };
     } catch (error) {
@@ -102,6 +111,7 @@ export function loadStateDetailed(): LoadStateResult {
           key,
           raw,
           message: error instanceof Error ? error.message : '账本格式无法识别',
+          kind: 'invalid',
         },
       };
     }
@@ -356,18 +366,21 @@ function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): En
   const job = jobs.get(jobId);
   if (!job) throw new Error('工记引用了不存在的工作');
   const createdAt = asString(raw.createdAt, now);
+  // 与录入 / 周期记工同一组上限：手改或第三方生成的备份不能把 1000 小时记进账本。
+  const clamp = (input: unknown, max: number) =>
+    Math.min(max, Math.max(0, asNumber(input)));
   return {
     id,
     jobId,
     date: asDate(raw.date),
     startTime: asTime(raw.startTime),
     endTime: asTime(raw.endTime),
-    breakMinutes: Math.max(0, asNumber(raw.breakMinutes)),
-    hours: Math.max(0, asNumber(raw.hours)),
-    quantity: Math.max(0, asNumber(raw.quantity)),
-    otHours: Math.max(0, asNumber(raw.otHours)),
-    bonus: Math.max(0, asNumber(raw.bonus)),
-    deduction: Math.max(0, asNumber(raw.deduction)),
+    breakMinutes: Math.round(Math.min(1440, Math.max(0, asNumber(raw.breakMinutes)))),
+    hours: clamp(raw.hours, 24),
+    quantity: clamp(raw.quantity, 1_000_000),
+    otHours: clamp(raw.otHours, 24),
+    bonus: clamp(raw.bonus, 1_000_000),
+    deduction: clamp(raw.deduction, 1_000_000),
     holiday: asBoolean(raw.holiday),
     note: asString(raw.note) || undefined,
     photoId: asString(raw.photoId).trim() || undefined,
@@ -660,10 +673,14 @@ export function validateImport(
   }
 
   const restDaysRaw = raw.restDays;
+  const restDayIds = new Set<string>();
   const restDayKeys = new Set<string>();
   const restDays: RestDay[] = [];
   for (const item of Array.isArray(restDaysRaw) ? restDaysRaw : []) {
     const restDay = normalizeRestDay(item, jobMap, now);
+    // 删除 / 恢复都按 id 操作：重复 id 会让取消一天休息时连带删掉另一天。
+    if (restDayIds.has(restDay.id)) throw new Error('休息日数据存在重复 ID');
+    restDayIds.add(restDay.id);
     const key = `${restDay.jobId}|${restDay.date}`;
     if (restDayKeys.has(key)) continue;
     restDayKeys.add(key);

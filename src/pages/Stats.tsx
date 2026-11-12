@@ -19,7 +19,6 @@ import { buildHeatmap, heatmapAriaLabel } from '../lib/insights';
 import {
   dailySeries,
   jobBreakdown,
-  sumEntries,
   sumEntriesCapped,
 } from '../lib/settlement';
 import { buildYearSummary, shiftYear, yearPeriod } from '../lib/yearStats';
@@ -75,8 +74,10 @@ export function Stats({ onAddEntry }: StatsProps) {
   );
   const totals: Totals = useMemo(() => {
     if (yearSummary) return yearSummary.totals;
-    return mode === 'month' ? sumEntriesCapped(entries) : sumEntries(entries);
-  }, [yearSummary, mode, entries]);
+    // 与柱状图（dailySeries → sumEntriesCapped）同一口径：先汇总再 round，避免和图表差 1 分。
+    // 月档是整自然月，与原先不传 period 的封顶口径等价；周档按周折算（固定月薪不整月发放）。
+    return sumEntriesCapped(entries, period);
+  }, [yearSummary, entries, period]);
   const series = useMemo(() => {
     if (yearSummary) {
       const currentMonth = today.slice(0, 7);
@@ -256,7 +257,10 @@ export function Stats({ onAddEntry }: StatsProps) {
               <div className="section-head section-head--tight">
                 <div>
                   <h2><Target size={17} /> 本月预算</h2>
-                  <p>收入目标与工时上限 · 不含未来工记</p>
+                  <p>
+                    收入目标与工时上限 · 不含未来工记
+                    {hasFixedMonthly ? ' · 固定月薪按整月估算' : ''}
+                  </p>
                 </div>
                 {budget.alert ? <span className="micro-badge">{budget.alert.tone === 'warning' ? '注意' : '进度'}</span> : null}
               </div>

@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppState, Job } from '../types';
-import { buildExportPayload, createEmptyState, validateImport } from './storage';
+import {
+  LEGACY_STORAGE_KEYS,
+  STORAGE_KEY,
+  buildExportPayload,
+  createEmptyState,
+  loadStateDetailed,
+  validateImport,
+} from './storage';
 import { makeAdvance, makeEntry, makeSettlement } from './testFixtures';
 
 const rule = {
@@ -646,5 +653,115 @@ describe('结算引用完整性', () => {
     const lateAdvance = linkedState();
     lateAdvance.advances[0].date = '2026-11-09';
     expect(() => importLinked(lateAdvance)).toThrow('借支日期超出结算周期');
+  });
+});
+
+class MemoryStorage {
+  values = new Map<string, string>();
+  writes: string[] = [];
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+  setItem(key: string, value: string) {
+    this.writes.push(key);
+    this.values.set(key, value);
+  }
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('本机账本读取与旧键迁移', () => {
+  it('读取 v7 账本不回写，避免覆盖其他标签页刚保存的状态', () => {
+    const storage = new MemoryStorage();
+    storage.values.set(
+      STORAGE_KEY,
+      JSON.stringify({ ...createEmptyState('本机账本'), jobs: [job], onboardingDone: true }),
+    );
+    vi.stubGlobal('localStorage', storage);
+
+    const result = loadStateDetailed();
+
+    expect(result.failure).toBeNull();
+    expect(result.state?.version).toBe(7);
+    expect(result.state?.profile.name).toBe('本机账本');
+    // 读-改-写没有 CAS：读取（含跨标签页 storage 事件）不能顺手整本回写。
+    expect(storage.writes).toEqual([]);
+  });
+
+  it('v6 旧键迁移时回写 v7 并删除旧键', () => {
+    const storage = new MemoryStorage();
+    const legacyKey = LEGACY_STORAGE_KEYS[0];
+    storage.values.set(
+      legacyKey,
+      JSON.stringify({ ...createEmptyState('旧账本'), version: 6, onboardingDone: true }),
+    );
+    vi.stubGlobal('localStorage', storage);
+
+    const result = loadStateDetailed();
+
+    expect(result.failure).toBeNull();
+    expect(result.state?.version).toBe(7);
+    expect(result.state?.profile.name).toBe('旧账本');
+    const migrated = JSON.parse(storage.values.get(STORAGE_KEY) ?? 'null') as AppState;
+    expect(migrated.version).toBe(7);
+    expect(migrated.profile.name).toBe('旧账本');
+    expect(storage.values.has(legacyKey)).toBe(false);
+    expect(storage.writes.filter((key) => key === STORAGE_KEY)).toHaveLength(1);
+    expect(storage.writes).not.toContain(legacyKey);
+  });
+});
+
+describe('导入字段上限', () => {
+  it('手改备份里的工时 / 数量 / 金额 / 午休被钳制到录入上限', () => {
+    const oversized = makeEntry({
+      id: 'entry-oversized',
+      date: '2026-11-05',
+      hours: 1000,
+      otHours: 1000,
+      quantity: 1_000_000_000,
+      bonus: 1_000_000_000_000,
+      deduction: 1_000_000_000_000,
+      breakMinutes: 9999,
+    });
+
+    const imported = validateImport(
+      JSON.stringify({
+        app: 'xinshi',
+        version: 7,
+        data: { ...v1State, version: 7, entries: [oversized] },
+      }),
+    );
+
+    const entry = imported.entries[0];
+    expect(entry.hours).toBe(24);
+    expect(entry.otHours).toBe(24);
+    expect(entry.quantity).toBe(1_000_000);
+    expect(entry.bonus).toBe(1_000_000);
+    expect(entry.deduction).toBe(1_000_000);
+    expect(entry.breakMinutes).toBe(1440);
+  });
+});
+
+describe('休息日 ID 唯一性', () => {
+  it('拒绝重复 ID 的休息日，避免取消一天连带删掉另一天', () => {
+    const rest = (date: string) => ({
+      id: 'rest-duplicate',
+      jobId: 'job-1',
+      date,
+      days: 1,
+      createdAt: `${date}T12:00:00.000Z`,
+    });
+    const duplicated = {
+      ...v1State,
+      version: 7,
+      restDays: [rest('2026-11-03'), rest('2026-11-04')],
+    };
+
+    expect(() =>
+      validateImport(JSON.stringify({ app: 'xinshi', version: 7, data: duplicated })),
+    ).toThrow('休息日数据存在重复 ID');
   });
 });

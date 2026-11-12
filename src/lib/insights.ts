@@ -2,6 +2,7 @@ import type { Entry } from '../types';
 import { addDays, startOfWeek, todayISO, weekdayShort } from './date';
 import { round2 } from './money';
 import { payForEntry } from './pay';
+import { dailyBaseEntryIds } from './settlement';
 
 export interface HeatDay {
   date: string;
@@ -46,16 +47,15 @@ export function buildHeatmap(
   const currentWeekStart = startOfWeek(today, weekStartsOn);
   const firstWeekStart = addDays(currentWeekStart, -(weeksCount - 1) * 7);
   const byDate = new Map<string, { hours: number; earnings: number }>();
-  const baseDays = new Set<string>();
+  // 与统计 / 结算同一套「同一天多段只计一次基础工资」规则；earnings 是逐日折算参考，
+  // 不套月薪封顶（图表只展示工时，金额字段不参与账目口径）。
+  const baseIds = dailyBaseEntryIds(entries);
   for (const entry of entries) {
     const current = byDate.get(entry.date) ?? { hours: 0, earnings: 0 };
     const pay = payForEntry(entry);
-    // 日薪 / 月薪同一天多段只计一次基础工资，与统计页口径一致。
     const payType = entry.rule.payType;
     const perDayBase = payType === 'daily' || payType === 'monthly';
-    const baseKey = `${payType}|${entry.jobId}|${entry.date}`;
-    const includeBase = !perDayBase || !baseDays.has(baseKey);
-    if (perDayBase) baseDays.add(baseKey);
+    const includeBase = !perDayBase || baseIds.has(entry.id);
     current.hours += entry.hours || 0;
     current.earnings += pay.total - (includeBase ? 0 : pay.base);
     byDate.set(entry.date, current);

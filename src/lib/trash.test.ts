@@ -133,13 +133,14 @@ describe('恢复前的拦截理由', () => {
   )[0];
 
   it('原工作不存在时说明原因', () => {
-    expect(trashRestoreBlockReason(entryRow, makeState({ jobs: [] }))).toBe(
+    expect(trashRestoreBlockReason(entryRow, makeState({ jobs: [] }), NOW)).toBe(
       '原工作已彻底删除，无法恢复',
     );
     expect(
       trashRestoreBlockReason(
         entryRow,
         makeState({ jobs: [], trashedJobs: [{ job, deletedAt: daysAgo(1) }] }),
+        NOW,
       ),
     ).toBe('原工作还在回收站，先恢复工作');
   });
@@ -147,14 +148,18 @@ describe('恢复前的拦截理由', () => {
   it('已结算的时间段不能恢复', () => {
     const settlement = makeSettlement({ periodStart: '2026-11-02', periodEnd: '2026-11-08' });
     expect(
-      trashRestoreBlockReason(entryRow, makeState({ jobs: [job], settlements: [settlement] })),
+      trashRestoreBlockReason(
+        entryRow,
+        makeState({ jobs: [job], settlements: [settlement] }),
+        NOW,
+      ),
     ).toBe('这段时间已结算，先撤销结算再恢复');
   });
 
   it('同日合计超过 24 小时不能恢复', () => {
     const other = makeEntry({ id: 'entry-2', hours: 20 });
     expect(
-      trashRestoreBlockReason(entryRow, makeState({ jobs: [job], entries: [other] })),
+      trashRestoreBlockReason(entryRow, makeState({ jobs: [job], entries: [other] }), NOW),
     ).toBe('这天合计会超过 24 小时');
   });
 
@@ -163,6 +168,7 @@ describe('恢复前的拦截理由', () => {
       trashRestoreBlockReason(
         entryRow,
         makeState({ jobs: [job], restDays: [makeRestDay({ date: '2026-11-02' })] }),
+        NOW,
       ),
     ).toBe('这天已有休息，先取消休息再恢复');
   });
@@ -179,11 +185,12 @@ describe('恢复前的拦截理由', () => {
       trashRestoreBlockReason(
         restRow,
         makeState({ jobs: [job], entries: [makeEntry({ date: '2026-11-03' })] }),
+        NOW,
       ),
     ).toBe('这天已有工记，休息和工记只能留一个');
-    expect(trashRestoreBlockReason(restRow, makeState({ jobs: [job], restDays: [makeRestDay()] }))).toBe(
-      null,
-    );
+    expect(
+      trashRestoreBlockReason(restRow, makeState({ jobs: [job], restDays: [makeRestDay()] }), NOW),
+    ).toBe(null);
   });
 
   it('工作本身没有恢复限制', () => {
@@ -192,6 +199,33 @@ describe('恢复前的拦截理由', () => {
       NOW,
     )[0];
     expect(jobRow.kind).toBe('job');
-    expect(trashRestoreBlockReason(jobRow, makeState())).toBeNull();
+    expect(trashRestoreBlockReason(jobRow, makeState(), NOW)).toBeNull();
+  });
+
+  it('删除满 30 天后不能再恢复，未满保留期仍可恢复', () => {
+    const expiredJob = makeJob({ id: 'job-expired', name: '过期工作' });
+    const rowAfter = (days: number) =>
+      buildTrashRows(
+        makeState({ trashedJobs: [{ job: expiredJob, deletedAt: daysAgo(days) }] }),
+        NOW,
+      )[0];
+
+    const day31 = rowAfter(31);
+    expect(day31.remainingDays).toBe(0);
+    expect(trashRestoreBlockReason(day31, makeState(), NOW)).toBe(
+      '已超过 30 天保留期，无法恢复',
+    );
+
+    // 保留期边界：满 30 天剩余天数为 0，已经不能恢复。
+    const day30 = rowAfter(30);
+    expect(day30.remainingDays).toBe(0);
+    expect(trashRestoreBlockReason(day30, makeState(), NOW)).toBe(
+      '已超过 30 天保留期，无法恢复',
+    );
+
+    // 前一天仍在保留期内，工作类型没有其他恢复限制。
+    const day29 = rowAfter(29);
+    expect(day29.remainingDays).toBe(1);
+    expect(trashRestoreBlockReason(day29, makeState(), NOW)).toBeNull();
   });
 });

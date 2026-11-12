@@ -3,6 +3,7 @@ import { monthKey, weekdayCN } from './date';
 import { round2 } from './money';
 import { payForEntry } from './pay';
 import { paidAmountOf, paymentStatusOf, remainingAmountOf } from './payment';
+import { restDayAmount } from './rest';
 import { sumEntriesCapped } from './settlement';
 import { buildXlsx, type XlsxCellValue, type XlsxSheet } from './xlsx';
 
@@ -140,7 +141,7 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
     const restDays = state.restDays
       .filter((rest) => rest.jobId === jobId && monthKey(rest.date) === month)
       .filter((rest) => !countedInSettled(rest))
-      .reduce((sum, rest) => sum + (rest.days ?? 1), 0);
+      .reduce((sum, rest) => sum + restDayAmount(rest), 0);
     summaryRows.push([
       month,
       job?.name ?? '已删除工作',

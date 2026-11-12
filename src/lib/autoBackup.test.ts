@@ -96,4 +96,20 @@ describe('自动备份设置与调度', () => {
     expect(settings.lastRunAt).toBeTruthy();
     expect(settings.lastError).toBeUndefined();
   });
+
+  it('旧系统走分享面板时不能记成“已备份”，并给出确认提示', async () => {
+    writeAutoBackupSettings({ enabled: true, keep: 14 });
+    vi.mocked(saveTextFile).mockResolvedValueOnce('shared');
+    const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
+    const result = await runAutoBackup(state, {
+      native: true,
+      now: new Date(2026, 10, 6, 9, 0, 0),
+    });
+    expect(result.ran).toBe(true);
+    expect(result.warning).toContain('分享面板');
+    // 没真正落盘：不能把 14 天备份提醒重置为“刚备份过”。
+    expect(globalThis.localStorage.getItem('xinshi.lastBackup')).toBeNull();
+    // 但当日不应反复弹分享面板，lastRunAt 仍推进。
+    expect(readAutoBackupSettings().lastRunAt).toBeTruthy();
+  });
 });

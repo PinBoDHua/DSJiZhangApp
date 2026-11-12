@@ -169,6 +169,8 @@ export function SettlementDraftPage({
   const [note, setNote] = useState('');
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 净额为 0 / 负数时先过一次“仍然结算”的二次确认，避免误按额外扣款直接落库负数结算。
+  const [netWarnOpen, setNetWarnOpen] = useState(false);
   const [advanceToDelete, setAdvanceToDelete] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [overRestEnabled, setOverRestEnabled] = useState(
@@ -242,6 +244,8 @@ export function SettlementDraftPage({
   );
   const today = todayISO();
   const defaultAdvanceDate = today <= period.end ? today : period.end;
+  // 周期还没走完就结算，会把周期内剩余日期一起锁死：提前明确警示，让用户二次确认。
+  const periodNotOver = period.end > today || period.start > today;
 
   if (!job || !draft) {
     return (
@@ -285,6 +289,11 @@ export function SettlementDraftPage({
     state.settings.weekStartsOn === 1 ? WEEKDAYS_MONDAY : WEEKDAYS_SUNDAY;
 
   const handleMonthDayClick = (date: string) => {
+    // 归档岗位不能补记工 / 标休息，直接挡住入口，避免编辑器静默换成别的岗位。
+    if (job.archived) {
+      toast('这份工作已归档，不能补记工或标休息；需要修改请先到「工作管理」恢复工作', 'error');
+      return;
+    }
     setSelectedDay(date);
   };
 
@@ -347,15 +356,20 @@ export function SettlementDraftPage({
                 type="button"
                 className="btn btn--primary"
                 disabled={!hasEntries}
-                onClick={() => setConfirmOpen(true)}
+                onClick={() => {
+                  if (draft.net <= 0) setNetWarnOpen(true);
+                  else setConfirmOpen(true);
+                }}
               >
                 确认结算
               </button>
             </div>
             <p>
-              {hasEntries
-                ? '确认后工记与借支会锁定，可在结算历史里撤销。'
-                : '本期没有工记，先补记一笔再结算。'}
+              {!hasEntries
+                ? '本期没有工记，先补记一笔再结算。'
+                : periodNotOver
+                  ? '本期还没结束，确认后该周期剩余日期将无法再记工。'
+                  : '确认后工记与借支会锁定，可在结算历史里撤销。'}
             </p>
           </div>
         }
@@ -437,7 +451,9 @@ export function SettlementDraftPage({
                       : ''}
                 </p>
               </div>
-              <span className="rest-month-hint">点日期补记工 / 标休息</span>
+              <span className="rest-month-hint">
+                {job.archived ? '已归档 · 仅查看' : '点日期补记工 / 标休息'}
+              </span>
             </div>
             <div className="rest-month-weekdays">
               {monthWeekdays.map((day) => (
@@ -647,15 +663,12 @@ export function SettlementDraftPage({
                     step={0.01}
                     value={overRestAmount}
                     onChange={(event) => setOverRestAmount(event.target.value)}
-                    placeholder={String(
-                      Math.round(
-                        (job.rule.overRestDailyRate > 0
-                          ? job.rule.overRestDailyRate
-                          : job.rule.rate / Math.max(1, job.rule.expectedDays)) *
-                          draft.overRestDays *
-                          100,
-                      ) / 100,
-                    )}
+                    // 与 draft 实际扣款同一口径（含历史工记快照费率），不再用当前岗位单价自行推算。
+                    placeholder={
+                      draft.overRestDeduction > 0
+                        ? draft.overRestDeduction.toFixed(2)
+                        : '自动'
+                    }
                     inputMode="decimal"
                   />
                   <span>元</span>
@@ -790,12 +803,39 @@ export function SettlementDraftPage({
       />
 
       <ConfirmDialog
+        open={netWarnOpen}
+        title="本期应发净额为负或为零"
+        description={
+          <span>
+            应发净额 <b><Money value={draft.net} /></b>。
+            <span className="form-error">
+              本期应发净额为负或为零，请核对额外扣款与借支；确认结算后工记与借支会锁定。
+            </span>
+          </span>
+        }
+        confirmLabel="仍然结算"
+        danger
+        onCancel={() => setNetWarnOpen(false)}
+        onConfirm={() => {
+          setNetWarnOpen(false);
+          setConfirmOpen(true);
+        }}
+      />
+
+      <ConfirmDialog
         open={confirmOpen}
         title="确认结算这一期？"
         description={
           <span>
             应发净额 <b><Money value={draft.net} /></b>，共 {draft.entries.length} 笔工记。
             确认后工记与借支会锁定，可在结算历史里撤销。
+            {periodNotOver ? (
+              <span className="form-error">
+                {period.start > today ? '本期尚未开始' : '本期尚未结束'}（
+                {formatDateShort(period.start)} – {formatDateShort(period.end)}），
+                确认后该周期剩余日期将无法再记工，需要先撤销结算才能补记。
+              </span>
+            ) : null}
           </span>
         }
         confirmLabel="确认结算"

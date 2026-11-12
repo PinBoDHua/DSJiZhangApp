@@ -47,10 +47,11 @@ function deferred() {
   return { promise, resolve };
 }
 
-function createSnapshotIndexedDb() {
+function createSnapshotIndexedDb(existing: any[] = []) {
   const putCalled = deferred();
   const putSucceeded = deferred();
   let writeTx: any = null;
+  let putCalls = 0;
   const db = {
     close: vi.fn(),
     transaction: (_store: string, mode: IDBTransactionMode) => {
@@ -58,7 +59,7 @@ function createSnapshotIndexedDb() {
         return {
           objectStore: () => ({
             getAll: () => {
-              const request: any = { result: [], error: null };
+              const request: any = { result: existing, error: null };
               queueMicrotask(() => request.onsuccess?.());
               return request;
             },
@@ -68,6 +69,7 @@ function createSnapshotIndexedDb() {
       writeTx = { error: null };
       writeTx.objectStore = () => ({
         put: () => {
+          putCalls += 1;
           const request: any = { result: undefined, error: null };
           putCalled.resolve();
           queueMicrotask(() => {
@@ -90,6 +92,7 @@ function createSnapshotIndexedDb() {
     } as unknown as IDBFactory,
     putCalled: putCalled.promise,
     putSucceeded: putSucceeded.promise,
+    getPutCalls: () => putCalls,
     complete: () => writeTx?.oncomplete?.(),
     fail: () => {
       writeTx.error = new Error('模拟事务写入失败');
@@ -283,5 +286,69 @@ describe('快照写入事务', () => {
     await idb.putSucceeded;
     idb.abort();
     await expect(saving).rejects.toThrow('模拟事务中止');
+  });
+});
+
+describe('快照去重语义', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const state = makeState({ jobs: [makeJob()] });
+
+  function existingRecord(id: string, reason: SnapshotMeta['reason'], hash: string) {
+    return {
+      ...meta(id, '2026-11-05T12:00:00.000Z', reason),
+      hash,
+      data: new ArrayBuffer(0),
+    };
+  }
+
+  it('自动快照与最新快照同 hash 时跳过，不写事务', async () => {
+    const hash = await stateHash(state);
+    const idb = createSnapshotIndexedDb([existingRecord('latest', 'manual', hash)]);
+    vi.stubGlobal('indexedDB', idb.factory);
+
+    await expect(saveSnapshot(state, 'auto-idle')).resolves.toBeNull();
+    expect(idb.getPutCalls()).toBe(0);
+  });
+
+  it('自动组已有同 hash 时手动/安全快照仍会写入', async () => {
+    const hash = await stateHash(state);
+    for (const reason of ['manual', 'before-import'] as const) {
+      const idb = createSnapshotIndexedDb([existingRecord('auto-1', 'auto-idle', hash)]);
+      vi.stubGlobal('indexedDB', idb.factory);
+
+      const saving = saveSnapshot(state, reason);
+      await idb.putSucceeded;
+      idb.complete();
+      const result = await saving;
+
+      expect(result).not.toBeNull();
+      expect(result?.meta.reason).toBe(reason);
+      expect(result?.meta.hash).toBe(hash);
+      expect(result?.pruned).toBe(0);
+      expect(idb.getPutCalls()).toBe(1);
+    }
+  });
+
+  it('手动组已有同 hash 时手动快照跳过写入', async () => {
+    const hash = await stateHash(state);
+    const idb = createSnapshotIndexedDb([
+      existingRecord('manual-1', 'before-undo-settlement', hash),
+    ]);
+    vi.stubGlobal('indexedDB', idb.factory);
+
+    await expect(saveSnapshot(state, 'manual')).resolves.toBeNull();
+    expect(idb.getPutCalls()).toBe(0);
+  });
+
+  it('每日快照按自动组语义只与最新快照比较', async () => {
+    const hash = await stateHash(state);
+    const idb = createSnapshotIndexedDb([existingRecord('manual-latest', 'manual', hash)]);
+    vi.stubGlobal('indexedDB', idb.factory);
+
+    await expect(saveSnapshot(state, 'daily-open')).resolves.toBeNull();
+    expect(idb.getPutCalls()).toBe(0);
   });
 });

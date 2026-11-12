@@ -313,7 +313,14 @@ export async function saveSnapshot(
 ): Promise<{ meta: SnapshotMeta; pruned: number } | null> {
   const existing = await listSnapshots();
   const hash = await stateHash(state);
-  if (existing[0]?.hash === hash) return null;
+  // 安全类快照（导入/清空/恢复/撤销结算前）必须在手动保留组里有一份，不能被
+  // 「最新快照内容相同」的自动快照顶掉：自动组轮转快，覆盖前恢复点可能先被删。
+  // 手动组内同内容已存在才算重复，提示里的「已留快照」才成立。
+  const isManual = MANUAL_REASONS.includes(reason);
+  const duplicate = isManual
+    ? existing.some((meta) => meta.hash === hash && MANUAL_REASONS.includes(meta.reason))
+    : existing[0]?.hash === hash;
+  if (duplicate) return null;
 
   const payload = await compressPayload(JSON.stringify(state));
   const meta: SnapshotMeta = {
@@ -362,6 +369,16 @@ export async function readSnapshotState(id: string): Promise<AppState> {
     );
     if (!record) throw new Error('快照不存在，可能已被清理');
     const text = await decompressPayload(record);
+    // 写入时存了 hash / bytes，读取时要用它验完整性：IndexedDB 被清理工具或
+    // 其他脚本改过时，只要能通过结构校验就会被当成正常账本静默恢复。
+    if (record.hash) {
+      const candidates = new Set<string>([fnv1aHex(text, 16).slice(0, 16)]);
+      const sha = await sha256Hex(text);
+      if (sha) candidates.add(sha.slice(0, 16));
+      if (!candidates.has(record.hash)) {
+        throw new Error('快照已损坏，可能被清理工具修改，无法恢复');
+      }
+    }
     const parsed = JSON.parse(text) as unknown;
     return validateImport(
       JSON.stringify({ app: 'xinshi', version: record.schema, data: parsed }),

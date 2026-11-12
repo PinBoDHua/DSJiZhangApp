@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react';
 import { Copy, Download } from 'lucide-react';
 import type { Settlement } from '../types';
 import { createSettlementQrFor, qrToPngBlob } from '../lib/shareQr';
-import { formatMoney } from '../lib/money';
 import { formatDateShort } from '../lib/date';
 import { saveBlobFile } from '../lib/native';
 import { copyText } from '../lib/clipboard';
 import { useStore } from '../store';
 import { Sheet } from './Sheet';
+import { Money } from './Money';
 
 interface ShareQrSheetProps {
   settlement: Settlement;
@@ -61,7 +61,7 @@ export function ShareQrSheet({ settlement, onClose }: ShareQrSheetProps) {
             {formatDateShort(settlement.periodStart)} –{' '}
             {formatDateShort(settlement.periodEnd)}
           </span>
-          <b>{formatMoney(settlement.net, { symbol: true })}</b>
+          <b><Money value={settlement.net} symbol /></b>
           <span className="share-qr-code">校验码 {qr.checksum}</span>
         </div>
         <p className="share-qr-hint">

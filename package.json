@@ -1,7 +1,7 @@
 {
   "name": "xinshi",
   "private": true,
-  "version": "1.2.3",
+  "version": "1.2.4",
   "type": "module",
   "description": "薪时 · 面向灵活就业者的工时与薪资记录 App",
   "scripts": {
@@ -20,7 +20,8 @@
     "audit:dark": "node scripts/audit-v080-dark.mjs",
     "perf:large": "node scripts/audit-v080-perf.mjs",
     "android:sync": "pnpm build && cap sync android",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:release": "node scripts/check-release-config.mjs"
   },
   "dependencies": {
     "@capacitor/android": "6.2.3",

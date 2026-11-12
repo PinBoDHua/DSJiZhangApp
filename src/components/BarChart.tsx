@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatMoney } from '../lib/money';
 import { formatDateWithWeekday } from '../lib/date';
+import { usePrivacy } from './Money';
 
 export interface BarPoint {
   date: string;
@@ -26,6 +27,8 @@ export function BarChart({
 }: BarChartProps) {
   const max = Math.max(...data.map((point) => point.value), 1);
   const every = labelEvery ?? (data.length > 10 ? 5 : 1);
+  // 金额隐私：柱顶金额与读屏文案都不能漏出具体数字。
+  const hideAmounts = usePrivacy();
 
   // 首次挂载从 0 长到目标高度，让入场动画真正触发；后续数据变化沿用高度过渡。
   const [grown, setGrown] = useState(false);
@@ -56,13 +59,17 @@ export function BarChart({
               className={`bar-col ${point.highlight ? 'is-highlight' : ''}`}
               key={point.date}
               role="img"
-              aria-label={`${formatDateWithWeekday(point.date)}，${formatMoney(point.value, {
-                symbol: true,
-              })}`}
+              aria-label={
+                hideAmounts
+                  ? `${formatDateWithWeekday(point.date)}，金额已隐藏`
+                  : `${formatDateWithWeekday(point.date)}，${formatMoney(point.value, {
+                      symbol: true,
+                    })}`
+              }
             >
               <div className="bar-track">
                 <div className="bar-stack">
-                  {point.highlight && point.value > 0 ? (
+                  {point.highlight && point.value > 0 && !hideAmounts ? (
                     <span className="bar-peak">
                       {formatMoney(point.value, { symbol: true })}
                     </span>

@@ -12272,3 +12272,20 @@ html[data-theme="dark"] .bar-peak {
     animation: none;
   }
 }
+
+/* 本机存储写入失败：常驻告警条（覆盖在所有页面顶部，但低于弹层） */
+.app-storage-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 60;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px;
+  background: var(--danger, #b3261e);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+

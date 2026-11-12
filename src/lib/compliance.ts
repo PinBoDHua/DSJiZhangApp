@@ -9,9 +9,12 @@ export const PRIVACY_CONSENT_KEY = 'xinshi.privacyConsent';
 
 const env = import.meta.env as Record<string, string | undefined>;
 
-/** 商店隐私政策页地址；可用 VITE_PRIVACY_URL 覆盖。 */
-export const PRIVACY_URL =
-  env.VITE_PRIVACY_URL || 'https://pinbodhua.github.io/DSJiZhangApp/privacy-policy.html';
+/**
+ * 隐私政策地址。默认指向构建产物自带的离线政策页（public/privacy-policy.html 会被复制到
+ * dist 根目录，网页 / PWA / Android WebView 的 https://localhost/ 均可直接访问）；
+ * 上架商店前用 VITE_PRIVACY_URL 覆盖为可公开访问的 HTTPS 地址。
+ */
+export const PRIVACY_URL = env.VITE_PRIVACY_URL || 'privacy-policy.html';
 
 /** 支持邮箱；上线前用 VITE_SUPPORT_EMAIL 换成真实邮箱。 */
 export const SUPPORT_EMAIL = env.VITE_SUPPORT_EMAIL || 'support@xinshi.app';

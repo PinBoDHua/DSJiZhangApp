@@ -61,8 +61,11 @@ export function Health({ onBack, onNavigate }: HealthProps) {
     }
     const fixed = applySafeFixes(state, [issue.code]);
     if (fixed.fixed > 0) {
-      replaceState(fixed.state);
-      toast(`已解锁 ${fixed.fixed} 条记录，可以重新结算了`, 'success');
+      if (!replaceState(fixed.state)) {
+        toast('本机存储写入失败，操作未生效，请先导出备份', 'error');
+      } else {
+        toast(`已解锁 ${fixed.fixed} 条记录，可以重新结算了`, 'success');
+      }
     } else {
       toast('没有需要解锁的记录', 'info');
     }

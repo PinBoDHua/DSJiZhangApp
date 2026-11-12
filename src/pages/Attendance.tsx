@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import {
+  Archive,
   CalendarRange,
   ChevronLeft,
   ChevronRight,
@@ -61,9 +62,12 @@ export function AttendancePage({
   const canMoveNext = period.end < latestDate;
 
   const activeJobs = state.jobs.filter((job) => !job.archived);
-  const jobs = initialJobId
-    ? activeJobs.filter((job) => job.id === initialJobId)
-    : activeJobs;
+  // 从记录页按归档岗位筛选进来时，允许只读查看该岗位的康复勤，避免显示“还没有工作”的误导空态。
+  const initialJob = initialJobId
+    ? state.jobs.find((job) => job.id === initialJobId)
+    : undefined;
+  const jobs = initialJobId ? (initialJob ? [initialJob] : []) : activeJobs;
+  const archivedReadonly = Boolean(initialJob?.archived);
   const monthEntries = state.entries.filter(
     (entry) => entry.date >= period.start && entry.date <= period.end,
   );
@@ -181,7 +185,9 @@ export function AttendancePage({
     <>
       <SubPage
         title="月度考勤"
-        subtitle={`${jobs.length} 份工作 · 点格子补记工或标休息`}
+        subtitle={`${jobs.length} 份工作 · ${
+          archivedReadonly ? '已归档 · 只读查看' : '点格子补记工或标休息'
+        }`}
         onBack={onBack}
         action={
           <button
@@ -241,6 +247,13 @@ export function AttendancePage({
             <strong>{formatHours(summaryHours)}h</strong>
           </div>
         </section>
+
+        {archivedReadonly ? (
+          <p className="inline-notice">
+            <Archive size={15} />
+            这份工作已归档，考勤仅作查看；需要补记工或标休息请先到「工作管理」恢复工作。
+          </p>
+        ) : null}
 
         <div className="attendance-job-totals">
           {jobTotals.map((item) => (
@@ -307,14 +320,20 @@ export function AttendancePage({
                         ]
                           .filter(Boolean)
                           .join(' ')}
-                        onClick={() => setSelected({ jobId: job.id, date })}
+                        onClick={() => {
+                          // 归档岗位只读：不打开补记 / 标休息的弹层。
+                          if (archivedReadonly) return;
+                          setSelected({ jobId: job.id, date });
+                        }}
                         aria-label={`${formatDateShort(date)} ${job.name} ${
                           worked
                             ? `已记工 ${formatHours(cellHours)} 小时`
                             : rest
                               ? `休息 ${formatRestDays(restDayAmount(rest))} 天`
                               : '未记'
-                        }${locked ? '，已结算' : ''}`}
+                        }${locked ? '，已结算' : ''}${
+                          archivedReadonly ? '，已归档只读' : ''
+                        }`}
                       >
                         {worked ? (
                           <>

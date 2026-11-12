@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { formatDateTime, formatDateFull, formatTimeRange, todayISO } from '../lib/date';
 import { formatHours } from '../lib/money';
 import { payForEntry } from '../lib/pay';
+import { findRestOnDay } from '../lib/guards';
 import { getPhoto } from '../lib/photos';
 import { photoFileName } from '../lib/photoStamp';
 import { saveBlobFile } from '../lib/native';
@@ -120,6 +121,8 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
       toast('今天合计工时已经超过 24 小时，不能再复制', 'error');
       return;
     }
+    // addEntry 会把同工作同日的休息移入回收站：与 EntryEditor 一样提前告知，避免静默取消休息。
+    const restMoved = Boolean(findRestOnDay(state.restDays, entry.jobId, today));
     const created = addEntry({
       jobId: entry.jobId,
       date: today,
@@ -139,7 +142,9 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
       toast('今天所在的周期已经结算，不能复制', 'error');
       return;
     }
-    toast('已复制到今天，可去记录里调整');
+    toast(
+      restMoved ? '已复制到今天，这天的休息已移到回收站' : '已复制到今天，可去记录里调整',
+    );
     onClose();
   };
 

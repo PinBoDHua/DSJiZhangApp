@@ -83,6 +83,7 @@ export function AdvanceSheet({
                 step={0.01}
                 inputMode="decimal"
                 placeholder="0.00"
+                aria-label="借支金额"
                 autoFocus
               />
             </div>

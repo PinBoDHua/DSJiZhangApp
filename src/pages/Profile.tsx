@@ -13,7 +13,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import type { AppState, ThemeMode } from '../types';
+import type { AppState, ThemeMode, WeekStart } from '../types';
 import { useStore } from '../store';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Logo } from '../components/Logo';
@@ -21,8 +21,9 @@ import { Money } from '../components/Money';
 import { Segmented } from '../components/Segmented';
 import { Sheet } from '../components/Sheet';
 import { TrashSheet } from '../components/TrashSheet';
-import { formatMonthTitle, todayISO } from '../lib/date';
+import { formatMonthTitle, periodOf, todayISO } from '../lib/date';
 import { formatHours } from '../lib/money';
+import { findSettlementOverlap } from '../lib/guards';
 import { sumEntriesCapped } from '../lib/settlement';
 import {
   askNotificationPermission,
@@ -177,6 +178,11 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
         backupFileName(),
         buildExportPayload(state),
       );
+      // 旧系统走分享面板，用户可能取消：没落盘就不能把备份提醒重置为“刚备份过”。
+      if (result === 'shared') {
+        toast('已打开系统分享面板，请确认文件已保存', 'info');
+        return;
+      }
       markBackedUp();
       setBackupAt(getLastBackupAt());
       toast(
@@ -205,6 +211,10 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
     try {
       const text = await encryptBackup(state, exportPassword);
       const result = await saveTextFile(backupFileName(new Date(), true), text);
+      if (result === 'shared') {
+        toast('已打开系统分享面板，请确认文件已保存', 'info');
+        return;
+      }
       markBackedUp();
       setBackupAt(getLastBackupAt());
       setExportOpen(false);
@@ -272,7 +282,10 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
     setImportBusy(true);
     try {
       await saveSnapshot(state, 'before-import');
-      replaceState(next);
+      if (!replaceState(next)) {
+        toast('本机存储写入失败，操作未生效，请先导出备份', 'error');
+        return;
+      }
       toast('备份已导入，覆盖前账本已留快照');
     } catch (error) {
       toast(
@@ -404,6 +417,38 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             : '浏览器不支持'
           : '未开启';
 
+  // 周起始日会改变周结周期。已有周结单的岗位改完后，剩余工记的新周期可能与旧结算重叠而无法结算。
+  const changeWeekStartsOn = (next: WeekStart) => {
+    if (next === state.settings.weekStartsOn) return;
+    const blockingJob = state.jobs.find((job) => {
+      const jobSettlements = state.settlements.filter((item) => item.jobId === job.id);
+      if (jobSettlements.length === 0) return false;
+      const unsettledDates = Array.from(
+        new Set(
+          state.entries
+            .filter((entry) => entry.jobId === job.id && !entry.settlementId)
+            .map((entry) => entry.date),
+        ),
+      );
+      return unsettledDates.some(
+        (date) =>
+          findSettlementOverlap(
+            jobSettlements,
+            job.id,
+            periodOf(job.cycle, date, next),
+          ) !== undefined,
+      );
+    });
+    if (blockingJob) {
+      toast(
+        `「${blockingJob.name}」已有周结/月结记录，修改一周起始日会导致剩余工记无法结算；请先撤销相关结算后再改`,
+        'error',
+      );
+      return;
+    }
+    updateSettings({ weekStartsOn: next });
+  };
+
   return (
     <div className="page profile-page">
       <header className="page-heading">
@@ -518,9 +563,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             </span>
             <Segmented
               value={String(state.settings.weekStartsOn)}
-              onChange={(value) =>
-                updateSettings({ weekStartsOn: value === '0' ? 0 : 1 })
-              }
+              onChange={(value) => changeWeekStartsOn(value === '0' ? 0 : 1)}
               options={[
                 { value: '1', label: '周一' },
                 { value: '0', label: '周日' },
@@ -540,9 +583,22 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             <span className="settings-body">
               <strong>月度预算提醒</strong>
               <em>
-                {state.settings.budget?.enabled
-                  ? `${state.settings.budget.incomeTarget > 0 ? `收入目标 ¥${state.settings.budget.incomeTarget}` : '未设收入目标'}${state.settings.budget.hoursLimit > 0 ? ` · 工时上限 ${state.settings.budget.hoursLimit}h` : ''}`
-                  : '设置本月收入目标 / 工时上限，80% 时提醒'}
+                {state.settings.budget?.enabled ? (
+                  <>
+                    {state.settings.budget.incomeTarget > 0 ? (
+                      <>
+                        收入目标 <Money value={state.settings.budget.incomeTarget} />
+                      </>
+                    ) : (
+                      '未设收入目标'
+                    )}
+                    {state.settings.budget.hoursLimit > 0
+                      ? ` · 工时上限 ${state.settings.budget.hoursLimit}h`
+                      : ''}
+                  </>
+                ) : (
+                  '设置本月收入目标 / 工时上限，80% 时提醒'
+                )}
               </em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />

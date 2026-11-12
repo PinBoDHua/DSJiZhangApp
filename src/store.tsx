@@ -147,7 +147,14 @@ interface StoreValue {
   undoSettlement: (settlementId: string) => boolean;
   updateProfile: (patch: Partial<Profile>) => void;
   updateSettings: (patch: Partial<Settings>) => void;
-  replaceState: (state: AppState) => void;
+  /** 先同步落盘再切换内存状态；写入失败返回 false 且不会切换，避免“导入成功但重启回滚”。 */
+  replaceState: (state: AppState) => boolean;
+  /** 立刻把当前内存账本写入 localStorage；失败返回 false（用于删除照片等不可逆操作前）。 */
+  persistNow: () => boolean;
+  /** 账本身份序号：导入 / 恢复快照 / 清空 / 示例数据时递增，供依赖账本整包的 effect 重跑。 */
+  ledgerSeq: number;
+  /** 最近一次持久化失败（存储空间不足 / 隐私模式），为 true 时界面常驻告警。 */
+  storageError: boolean;
   resetAll: () => void;
   loadDemo: () => void;
   completeOnboarding: (name: string, input: NewJobInput) => void;
@@ -157,26 +164,53 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [initial] = useState(loadStateDetailed);
-  if (initial.failure) return <StorageRecovery failure={initial.failure} />;
-  return <StoreStateProvider initialState={initial.state}>{children}</StoreStateProvider>;
+  const [bypassed, setBypassed] = useState(false);
+  if (initial.failure && !bypassed) {
+    // 存储本身不可访问（隐私模式 / 策略禁用）时给出“仍然进入”的出口：
+    // 否则用户会被永远锁在恢复页，正常使用也被阻断。账本损坏仍必须人工恢复。
+    return (
+      <StorageRecovery
+        failure={initial.failure}
+        onContinue={
+          initial.failure.kind === 'unavailable' ? () => setBypassed(true) : undefined
+        }
+      />
+    );
+  }
+  return (
+    <StoreStateProvider
+      initialState={initial.state}
+      initialStorageError={Boolean(initial.failure)}
+    >
+      {children}
+    </StoreStateProvider>
+  );
 }
 
 function StoreStateProvider({
   children,
   initialState,
+  initialStorageError = false,
 }: {
   children: ReactNode;
   initialState: AppState | null;
+  initialStorageError?: boolean;
 }) {
   const [state, setState] = useState<AppState>(() => initialState ?? createEmptyState());
   const [toastState, setToastState] = useState<ToastState | null>(null);
+  const [ledgerSeq, setLedgerSeq] = useState(0);
+  const [storageError, setStorageError] = useState(initialStorageError);
   const toastTimer = useRef<number | null>(null);
   const toastQueue = useRef<ToastState[]>([]);
   const toastSeq = useRef(0);
   const currentToast = useRef<ToastState | null>(null);
   const stateRef = useRef(state);
   const storageWarned = useRef(false);
+  /** 有内存改动尚未落盘：此时收到其他标签页的 storage 事件先不回灌，避免覆盖新改动。 */
+  const pendingPersist = useRef(false);
   stateRef.current = state;
+
+  const bumpLedger = useCallback(() => setLedgerSeq((value) => value + 1), []);
 
   const dismissToast = useCallback(() => {
     if (toastTimer.current) {
@@ -194,8 +228,9 @@ function StoreStateProvider({
   const toast = useCallback(
     (message: string, tone: ToastTone = 'success', action?: ToastAction) => {
       const next: ToastState = { id: ++toastSeq.current, message, tone, action };
-      // 带「撤销」等动作的提示正在显示时，新提示先排队，避免把撤销入口顶掉。
-      if (currentToast.current?.action) {
+      // 带「撤销」等动作的提示正在显示、或队列里已有排队提示时，新提示先排队：
+      // 既不能把撤销入口顶掉，也不能让后到的提示插到已排队提示前面。
+      if (currentToast.current?.action || toastQueue.current.length > 0) {
         toastQueue.current.push(next);
         return;
       }
@@ -210,8 +245,12 @@ function StoreStateProvider({
   useEffect(() => {
     try {
       saveState(state);
+      pendingPersist.current = false;
       storageWarned.current = false;
+      setStorageError(false);
     } catch (error) {
+      pendingPersist.current = false;
+      setStorageError(true);
       console.warn('保存本地数据失败', error);
       if (!storageWarned.current) {
         storageWarned.current = true;
@@ -225,8 +264,12 @@ function StoreStateProvider({
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY && event.key !== null) return;
+      // 本窗口有已提交但尚未落盘的新改动时，先不接收远端状态：否则刚记的一笔
+      // 会被另一个窗口的旧状态覆盖，且本窗口的保存 effect 还会把旧状态写回去。
+      if (pendingPersist.current) return;
       const loaded = loadStateDetailed();
       if (loaded.failure) return;
+      // 另一个窗口清空账本时（key === null / 所有 key 被移除），这里也要同步成空账本。
       const next = loaded.state ?? createEmptyState();
       stateRef.current = next;
       setState(next);
@@ -260,6 +303,7 @@ function StoreStateProvider({
   const commit = useCallback((updater: (previous: AppState) => AppState) => {
     const next = updater(stateRef.current);
     stateRef.current = next;
+    pendingPersist.current = true;
     setState(next);
   }, []);
 
@@ -267,8 +311,11 @@ function StoreStateProvider({
   const persistNow = useCallback(() => {
     try {
       saveState(stateRef.current);
+      pendingPersist.current = false;
+      setStorageError(false);
       return true;
     } catch {
+      setStorageError(true);
       return false;
     }
   }, []);
@@ -991,12 +1038,26 @@ function StoreStateProvider({
 
   const replaceState = useCallback(
     (next: AppState) => {
-      commit(() => ({
+      const candidate: AppState = {
         ...next,
         onboardingDone: next.onboardingDone || next.jobs.length > 0,
-      }));
+      };
+      // 先落盘再切状态：localStorage 写失败时保持旧账本不变，否则会出现
+      // “提示已导入 / 已恢复，重启后回滚到旧账本”的假成功。
+      try {
+        saveState(candidate);
+      } catch {
+        setStorageError(true);
+        return false;
+      }
+      pendingPersist.current = false;
+      setStorageError(false);
+      stateRef.current = candidate;
+      setState(candidate);
+      bumpLedger();
+      return true;
     },
-    [commit],
+    [bumpLedger],
   );
 
   const resetAll = useCallback(() => {
@@ -1004,11 +1065,13 @@ function StoreStateProvider({
     clearReminderMark();
     void clearPhotos().catch(() => undefined);
     commit(() => createEmptyState());
-  }, [commit]);
+    bumpLedger();
+  }, [commit, bumpLedger]);
 
   const loadDemo = useCallback(() => {
     commit(() => createDemoState());
-  }, [commit]);
+    bumpLedger();
+  }, [commit, bumpLedger]);
 
   const completeOnboarding = useCallback((name: string, input: NewJobInput) => {
     const timestamp = nowISO();
@@ -1059,6 +1122,9 @@ function StoreStateProvider({
     updateProfile,
     updateSettings,
     replaceState,
+    persistNow,
+    ledgerSeq,
+    storageError,
     resetAll,
     loadDemo,
     completeOnboarding,

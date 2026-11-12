@@ -102,6 +102,8 @@ export async function runAutoBackup(
       const result = await saveTextFile(filename, buildExportPayload(state), undefined, {
         subdirectory: AUTO_BACKUP_SUBDIR,
       });
+      // Android 5–9 只能弹系统分享面板，用户可能取消：没真正落盘就不能记成“已备份”。
+      const shared = result === 'shared';
       // 清理旧备份失败不能把这次备份算作失败：文件已经写进去了，下次再清理即可。
       let pruned = 0;
       let pruneError: string | undefined;
@@ -123,8 +125,11 @@ export async function runAutoBackup(
         // 清理失败不是备份失败，不写进“上次失败”，只在下一次运行前继续尝试清理。
         lastError: undefined,
       });
-      markBackedUp(now);
-      return { ran: true, path: filename, pruned, warning: pruneError };
+      if (!shared) markBackedUp(now);
+      const warning = shared
+        ? '旧系统已打开系统分享面板，请确认本次备份已保存；旧备份需要手动清理'
+        : pruneError;
+      return { ran: true, path: filename, pruned, warning };
     } catch (error) {
       const message = error instanceof Error ? error.message : '自动备份失败';
       writeAutoBackupSettings({ lastError: message });

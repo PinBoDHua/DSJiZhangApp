@@ -132,7 +132,7 @@ export default function App() {
 }
 
 function AppContent() {
-  const { state, generateRecurring, toast } = useStore();
+  const { state, generateRecurring, toast, ledgerSeq, storageError } = useStore();
   const [tab, setTab] = useState<TabKey>('home');
   const [page, setPage] = useState<Page | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -140,6 +140,20 @@ function AppContent() {
   const [privacyOk, setPrivacyOk] = useState(() => hasPrivacyConsent());
   const [today, setToday] = useState(() => todayISO());
   const autoRecurringDay = useRef('');
+  // 安卓返回键要和页面内“返回”一致：数据与安全下的子页回数据与安全，而不是整页退到底部 Tab。
+  const backRef = useRef<() => void>(() => undefined);
+  backRef.current = () => {
+    if (!page) return;
+    if (page.type === 'snapshots') {
+      setPage(state.onboardingDone ? { type: 'dataSafety' } : null);
+      return;
+    }
+    if (page.type === 'health' || page.type === 'privacy') {
+      setPage({ type: 'dataSafety' });
+      return;
+    }
+    setPage(null);
+  };
   const currentMonth = today.slice(0, 7);
 
   // 跨天或从后台回来时刷新“今天”，否则自动补记、预算和今天卡片会停在前一天。
@@ -177,13 +191,14 @@ function AppContent() {
   useEffect(() => {
     if (!privacyOk || !state.onboardingDone) return;
     // 每个自然日只自动补一次；App 挂在后台跨天后再回来也能补记新的一天。
+    // 导入 / 恢复快照 / 清空会换掉整本账本（ledgerSeq 变化），必须像首次打开一样重跑。
     if (autoRecurringDay.current === today) return;
     autoRecurringDay.current = today;
     const result = generateRecurring({ automaticOnly: true, today });
     if (result.added > 0) {
       toast(`周期规则已补记 ${result.added} 笔${result.skipped > 0 ? `，跳过 ${result.skipped} 天` : ''}`);
     }
-  }, [privacyOk, state.onboardingDone, generateRecurring, today, toast]);
+  }, [privacyOk, state.onboardingDone, generateRecurring, today, toast, ledgerSeq]);
 
   useEffect(() => {
     if (!privacyOk || !state.onboardingDone || !budgetStatus?.alert) return;
@@ -230,7 +245,7 @@ function AppContent() {
 
   useEffect(() => {
     if (!page || page.type === 'jobEditor' || page.type === 'settlementDraft') return;
-    return pushNativeBack(() => setPage(null));
+    return pushNativeBack(() => backRef.current());
   }, [page]);
 
   useEffect(() => {
@@ -254,6 +269,12 @@ function AppContent() {
       />
     );
   }
+
+  const storageBanner = storageError ? (
+    <div className="app-storage-banner" role="alert">
+      本机存储写入失败，最近的改动可能没有保存。请先到「我的 → 数据与安全」导出备份，再清理存储空间。
+    </div>
+  ) : null;
 
   const openEntryEditor = (jobId?: string, date?: string) => {
     setEditor({ jobId, date });
@@ -420,6 +441,7 @@ function AppContent() {
   if (!state.onboardingDone) {
     return (
       <>
+        {storageBanner}
         <Onboarding onOpenSnapshots={() => setPage({ type: 'snapshots' })} />
         {page ? (
           <div className="app-shell">
@@ -432,6 +454,7 @@ function AppContent() {
 
   return (
     <div className="app-shell">
+      {storageBanner}
       {page ? (
         <Suspense fallback={<PageLoading screen />}>{renderPage()}</Suspense>
       ) : (

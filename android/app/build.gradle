@@ -10,10 +10,10 @@ if (keystorePropertiesFile.exists()) {
 // -Pxinshi.debuggable 让 release 包带 WebView 调试（仅本地排查用，发布包绝不能带）。
 def xinshiVersionCode = project.hasProperty('xinshi.versionCode')
     ? project.property('xinshi.versionCode').toString().toInteger()
-    : 1203
+    : 1204
 def xinshiVersionName = project.hasProperty('xinshi.versionName')
     ? project.property('xinshi.versionName').toString()
-    : "1.2.3"
+    : "1.2.4"
 def xinshiMinify = !project.hasProperty('xinshi.noMinify')
 def xinshiDebuggable = project.hasProperty('xinshi.debuggable')
 // 仅排查 R8：保留压缩，同时打开 WebView CDP；发布不能使用。
@@ -62,6 +62,31 @@ android {
             }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+// 发布签名守卫：只在真正产出 release 包时校验（debug 构建、单元测试、Android Studio 同步不受影响）。
+// 缺少 signing.properties 时明确失败，避免静默产出不可安装 / 不可上架的 unsigned release 包。
+def releaseArtifactTaskNames = [
+    'assembleRelease',
+    'bundleRelease',
+    'installRelease',
+    'packageRelease',
+    'packageReleaseBundle',
+] as Set
+def signingPropertiesFile = keystorePropertiesFile
+def appProject = project
+
+gradle.taskGraph.whenReady { graph ->
+    def releaseTask = graph.allTasks.find { task ->
+        task.project == appProject && releaseArtifactTaskNames.contains(task.name)
+    }
+    if (releaseTask != null && !signingPropertiesFile.exists()) {
+        throw new GradleException(
+            "缺少发布签名配置：${signingPropertiesFile} 不存在。\n" +
+            "请在 android/keystore/signing.properties 配置 storeFile / storePassword / keyAlias / keyPassword，" +
+            "然后重新执行 ${releaseTask.name}；不要分发未签名的 release 产物。"
+        )
     }
 }
 

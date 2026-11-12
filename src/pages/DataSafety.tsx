@@ -86,6 +86,11 @@ export function DataSafety({
         backupFileName(),
         buildExportPayload(state),
       );
+      // Android 5–9 走系统分享面板：用户取消时并没有文件落盘，不能记成已备份。
+      if (result === 'shared') {
+        toast('已打开系统分享面板，请确认文件已保存', 'info');
+        return;
+      }
       markBackedUp();
       setBackupAt(getLastBackupAt());
       toast(result === 'native' ? '备份已保存到「下载/Xinshi」' : '备份已导出', 'success');
@@ -115,7 +120,7 @@ export function DataSafety({
       setBackupAt(getLastBackupAt());
       if (result.error) toast(`自动备份失败：${result.error}`, 'error');
       else if (result.warning) {
-        toast(`自动备份已开启，但旧备份清理失败：${result.warning}`, 'info');
+        toast(`自动备份：${result.warning}`, 'info');
       } else {
         toast(`自动备份已开启${result.path ? `，已写入 ${result.path}` : ''}`, 'success');
       }

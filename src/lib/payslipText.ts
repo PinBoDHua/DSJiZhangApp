@@ -203,6 +203,13 @@ export async function downloadPayslipTextPdf(
         doc.setTextColor(111, 123, 114);
         doc.setFontSize(8);
         doc.text(`本页 ${pageRows.length} 笔 · 共 ${detailRows.length} 笔`, margin, 286);
+        if (index === 0) {
+          // 月薪逐日折算会舍入到分，明细逐笔相加可能与结算单基础工资差 1–2 分；
+          // 同日多段也只计一次基础工资：明确说明合计以应发净额为准，避免对账争议。
+          doc.text('明细金额为逐笔折算参考，合计以应发净额为准', pageWidth - margin, 286, {
+            align: 'right',
+          });
+        }
       });
     }
   }

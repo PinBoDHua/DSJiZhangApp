@@ -12,3 +12,19 @@ test-results-*
 *.apk
 release/
 android/keystore/
+
+# 密钥与本地环境配置：绝不允许入库（口令、私钥、签名配置）
+*.jks
+*.keystore
+signing.properties
+password.txt
+.env
+.env.*
+!.env.example
+
+# 本地 AI / IDE 工具缓存与截图产物（不属于源码）
+.qoder/
+.qoder-credits/
+.trae/
+.workbuddy/
+.screenshots/

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-path name="my_images" path="." />
-    <cache-path name="my_cache_images" path="." />
+    <!-- 仅暴露 Android 5–9 旧系统分享所需的 cacheDir/exports/，
+         与 SaveFilePlugin.shareViaLegacy 写入位置一致；不再暴露整个外部存储或 cache 根目录。 -->
+    <cache-path name="exports" path="exports/" />
 </paths>

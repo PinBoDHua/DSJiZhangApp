@@ -54,14 +54,26 @@ export function EntryEditor({
   onClose,
   onManageJobs,
 }: EntryEditorProps) {
-  const { state, addEntry, updateEntry, toast } = useStore();
+  const { state, addEntry, updateEntry, toast, persistNow } = useStore();
   const existing = entryId ? state.entries.find((entry) => entry.id === entryId) : undefined;
+  // 计时超过 24 小时时起止钟点无法反推真实时长：按单笔上限 24 小时带出，并转成手动工时模式。
+  const overlongTimer = Boolean(initialTimes?.hours !== undefined && initialTimes.hours >= 24);
   const initialTimerHours = initialTimes
-    ? hoursBetween(initialTimes.startTime, initialTimes.endTime, initialTimes.breakMinutes)
+    ? overlongTimer
+      ? 24
+      : hoursBetween(initialTimes.startTime, initialTimes.endTime, initialTimes.breakMinutes)
     : null;
   const selectableJobs = state.jobs.filter(
     (job) => !job.archived || job.id === existing?.jobId,
   );
+  // 外部（结算页 / 记录页）指定了工作，但该工作已归档或已删除：不能静默换成别的工作。
+  const requestedJob = initialJobId
+    ? state.jobs.find((job) => job.id === initialJobId)
+    : undefined;
+  const requestedJobMissing =
+    Boolean(initialJobId) &&
+    !existing &&
+    !selectableJobs.some((job) => job.id === initialJobId);
   const lastUsedJobId = [...state.entries].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   )[0]?.jobId;
@@ -88,7 +100,13 @@ export function EntryEditor({
     existing?.date ?? initialTimes?.date ?? initialDate ?? todayISO(),
   );
   const [timeMode, setTimeMode] = useState<TimeMode>(
-    existing ? (existing.startTime && existing.endTime ? 'range' : 'manual') : 'range',
+    existing
+      ? existing.startTime && existing.endTime
+        ? 'range'
+        : 'manual'
+      : overlongTimer
+        ? 'manual'
+        : 'range',
   );
   const [startTime, setStartTime] = useState(
     existing?.startTime ?? initialTimes?.startTime ?? preferredJob?.shift.startTime ?? '08:00',
@@ -173,6 +191,14 @@ export function EntryEditor({
       active = false;
     };
   }, [existing?.photoId]);
+
+  // 超过 24 小时的计时只在打开时提示一次（不受 StrictMode 双执行影响）。
+  const overlongToastRef = useRef(false);
+  useEffect(() => {
+    if (!overlongTimer || overlongToastRef.current) return;
+    overlongToastRef.current = true;
+    toast('计时超过 24 小时，已按 24 小时带出，请拆分核对', 'info');
+  }, [overlongTimer, toast]);
 
   const selectedJob: Job | undefined = selectableJobs.find((job) => job.id === jobId);
   const rule: PayRule | undefined =
@@ -404,6 +430,11 @@ export function EntryEditor({
       showError('加班时长超过 24 小时，确认一下');
       return;
     }
+    // 日薪 / 月薪的加班费按「加班时长 ≤ 总工时」计算，超过会被静默截断，这里先拦住。
+    if (isFixedDay && enteredOt > 0 && enteredOt > hours + 1e-9) {
+      showError('加班时长不能大于总工时');
+      return;
+    }
 
     const restMoved = Boolean(findRestOnDay(state.restDays, selectedJob.id, date));
     const nextPhotoId = photoTouched
@@ -487,7 +518,12 @@ export function EntryEditor({
             );
           }
         } else if (existing?.photoId) {
-          void deletePhoto(existing.photoId).catch(() => undefined);
+          // 先确认新账本已落盘，再删照片：否则重启后记录还在、照片却没了。
+          if (persistNow()) {
+            void deletePhoto(existing.photoId).catch(() => undefined);
+          } else {
+            toast('照片暂未删除，请先导出备份', 'error');
+          }
         }
       }
 
@@ -506,6 +542,27 @@ export function EntryEditor({
             icon={Briefcase}
             title="这笔记录不见了"
             description="它可能已经被删除。"
+            actionLabel="关闭"
+            onAction={onClose}
+          />
+        </div>
+      </Sheet>
+    );
+  }
+
+  if (requestedJobMissing) {
+    const archivedRequest = Boolean(requestedJob?.archived);
+    return (
+      <Sheet open title="记一笔" onClose={onClose}>
+        <div className="editor-empty">
+          <EmptyState
+            icon={Briefcase}
+            title="这份工作已归档或已删除，不能补记工"
+            description={
+              archivedRequest
+                ? '归档岗位不会出现在记工选择里。需要补记请先到「工作管理」恢复这份工作。'
+                : '它可能已经被彻底删除，无法再记录工时。'
+            }
             actionLabel="关闭"
             onAction={onClose}
           />
@@ -849,8 +906,8 @@ export function EntryEditor({
                 </div>
                 <p className="field-hint">
                   {isFixedMonthly
-                    ? '默认按班次带入，只影响统计，不影响固定月薪。'
-                    : '只影响统计，不影响日薪 / 月薪。'}
+                    ? '默认按班次带入，用于统计；加班时长不能超过总工时（固定月薪本身不受影响）。'
+                    : '用于统计，同时是加班时长上限；不参与日薪 / 月薪基础工资计算。'}
                 </p>
               </label>
             </>

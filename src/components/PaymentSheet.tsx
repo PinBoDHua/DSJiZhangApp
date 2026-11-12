@@ -102,6 +102,7 @@ export function PaymentSheet({ open, settlement, onClose }: PaymentSheetProps) {
                 step={0.01}
                 inputMode="decimal"
                 placeholder="0.00"
+                aria-label="已收总额"
                 autoFocus
               />
             </div>

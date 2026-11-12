@@ -45,9 +45,9 @@ import {
 import { formatHours } from '../lib/money';
 import { formatRestDays, totalRestDays } from '../lib/rest';
 import { cycleLabel, jobColor, rateLabel } from '../lib/meta';
-import { computeOutstanding, dailySeries, getSettlementOverview, sumEntries, sumEntriesCapped } from '../lib/settlement';
+import { dailySeries, getSettlementOverview, sumEntries, sumEntriesCapped } from '../lib/settlement';
 import { backupDueText, backupIsDue } from '../lib/backupStatus';
-import { daysUntilPayday } from '../lib/payment';
+import { daysUntilPayday, remainingAmountOf } from '../lib/payment';
 import { planStatusForJob, shortWeekday, formatWorkWeekdays } from '../lib/plan';
 import { makePlannedEntry, type PlannedEntryOptions } from '../lib/planEntries';
 import { monthlyBudgetStatus } from '../lib/budget';
@@ -98,8 +98,14 @@ export function Home({
   const monthEntries = state.entries.filter((entry) => periodContains(month, entry.date));
   const summary = sumEntriesCapped(monthEntries);
   const budgetStatus = monthlyBudgetStatus(state.settings.budget, monthEntries, today);
-  const outstanding = computeOutstanding(state);
+  // getSettlementOverview 内部已经算好同一批未结数据（overview.outstanding === computeOutstanding().net），
+  // 不再重复调用 computeOutstanding，避免大账本首页多算一遍。
   const overview = getSettlementOverview(state);
+  // 已结算但还没收到的钱：与「未结工钱」分开统计，避免结算后立刻显示“已结清”。
+  const receivable = state.settlements.reduce(
+    (sum, item) => sum + remainingAmountOf(item),
+    0,
+  );
   const activeJobs = state.jobs.filter((job) => !job.archived);
   const timerJobs = activeJobs.filter((job) => job.rule.payType !== 'piece');
   const todayEntries = state.entries
@@ -272,15 +278,16 @@ export function Home({
 
   const finishTimer = (timer: WorkTimer, endedAt: Date) => {
     const times = buildTimerTimes(timer.startedAt, endedAt);
+    // 起止钟点只能表示 0–24 小时；真实时长放在 hours 里，超过 24 小时交给工记页按上限带出。
+    const elapsedHours = times.hours ?? 0;
     let message = '计时结束，确认一下工时';
-    if (times.startTime === times.endTime) {
+    if (elapsedHours >= 24) {
+      message = '计时超过 24 小时，已按 24 小时带出，请拆分核对';
+    } else if (elapsedHours < 1 / 60) {
       const [hours, minutes] = times.startTime.split(':').map(Number);
       const total = (hours * 60 + minutes + 1) % 1440;
       times.endTime = `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
       message = '计时不足 1 分钟，已先按 1 分钟带出';
-    }
-    if (endedAt.getTime() - Date.parse(timer.startedAt) > 24 * 3600 * 1000) {
-      message = '计时超过 24 小时，请在工记里核对工时';
     }
     clearTimer();
     onFinishTimer(timer.jobId, times);
@@ -348,7 +355,10 @@ export function Home({
           <span className="backup-nudge-icon"><Target size={17} /></span>
           <span className="backup-nudge-copy">
             <strong>{budgetStatus.alert.tone === 'success' ? '本月目标已完成' : '本月预算提醒'}</strong>
-            <em>{budgetStatus.alert.message}</em>
+            <em>
+              {budgetStatus.alert.message}
+              {hasFixedMonthly ? '（固定月薪按整月估算）' : ''}
+            </em>
           </span>
           <ChevronRight size={16} />
         </button>
@@ -386,10 +396,15 @@ export function Home({
                 ? ` · 休 ${formatRestDays(monthRestTotal)} 天`
                 : ''}
           </span>
-          {outstanding.net !== 0 ? (
+          {overview.outstanding !== 0 ? (
             <button type="button" className="hero-pending" onClick={onGoSettlements}>
-              {outstanding.net < 0 ? '借支待抵' : '待结'}{' '}
-              <Money value={Math.abs(outstanding.net)} />
+              {overview.outstanding < 0 ? '借支待抵' : '待结'}{' '}
+              <Money value={Math.abs(overview.outstanding)} />
+              <ArrowUpRight size={13} />
+            </button>
+          ) : receivable > 0 ? (
+            <button type="button" className="hero-pending" onClick={onGoSettlements}>
+              已结算待收 <Money value={receivable} />
               <ArrowUpRight size={13} />
             </button>
           ) : (

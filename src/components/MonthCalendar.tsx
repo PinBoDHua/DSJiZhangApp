@@ -11,6 +11,7 @@ import { formatCompactMoney } from '../lib/money';
 import { formatRestDays, totalRestDays } from '../lib/rest';
 import { sumEntries } from '../lib/settlement';
 import { jobColor } from '../lib/meta';
+import { usePrivacy } from './Money';
 
 interface MonthCalendarProps {
   monthStart: string;
@@ -38,6 +39,8 @@ export function MonthCalendar({
   const offset = (parseISODate(monthStart).getDay() - weekStartsOn + 7) % 7;
   const cellsNeeded = Math.ceil((offset + totalDays) / 7) * 7;
   const today = todayISO();
+  // 金额隐私：日历按钮的读屏文案也不应读出当天合计金额。
+  const hideAmounts = usePrivacy();
   const byDate = new Map<string, Entry[]>();
   for (const entry of entries) {
     const list = byDate.get(entry.date);
@@ -100,7 +103,11 @@ export function MonthCalendar({
                   ? `，休息 ${formatRestDays(dayRestTotal)} 天`
                   : ''
               }${plannedWork ? '，计划上班' : ''}${
-                totals ? `，${formatCompactMoney(totals.total)} 元` : ''
+                totals && !hideAmounts
+                  ? `，${formatCompactMoney(totals.total)} 元`
+                  : totals
+                    ? '，金额已隐藏'
+                    : ''
               }`}
             >
               <span className="cal-day-num">{day}</span>

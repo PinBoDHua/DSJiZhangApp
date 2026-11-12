@@ -37,7 +37,8 @@ export function Settlements({
   const month = periodOf('monthly', todayISO(), state.settings.weekStartsOn);
   const monthSettlements = history.filter(
     (settlement) =>
-      settlement.periodStart <= month.end && settlement.periodEnd >= month.start,
+      // 按周期结束日归属月份：跨月周期只计入它结束的那个月，避免同一张单在两个月的应发/已收/待收里重复。
+      settlement.periodEnd >= month.start && settlement.periodEnd <= month.end,
   );
   const monthNet = monthSettlements.reduce((sum, item) => sum + item.net, 0);
   const monthPaid = monthSettlements.reduce((sum, item) => sum + paidAmountOf(item), 0);
@@ -47,7 +48,13 @@ export function Settlements({
   );
   const pendingJobs = overview.jobs.filter((item) => item.draft.entries.length > 0);
   const hasPending = overview.jobs.length > 0;
-  const clear = pendingJobs.length === 0 && overview.advanceTotal === 0;
+  // 已结算但还没收到的钱：不并入「未结工钱」，单独展示，避免结算后立刻显示“已结清”。
+  const settledRemaining = history.reduce(
+    (sum, item) => sum + remainingAmountOf(item),
+    0,
+  );
+  const clear =
+    pendingJobs.length === 0 && overview.advanceTotal === 0 && settledRemaining <= 0;
 
   const exportCsv = async () => {
     if (csvBusy) return;
@@ -79,7 +86,15 @@ export function Settlements({
 
       <section className={`receipt ${clear ? 'receipt--clear' : ''}`}>
         <div className="receipt-top">
-          <span>{clear ? '工钱状态' : overview.outstanding < 0 ? '借支待抵' : '未结工钱'}</span>
+          <span>
+            {clear
+              ? '工钱状态'
+              : overview.outstanding < 0
+                ? '借支待抵'
+                : pendingJobs.length > 0 || overview.outstanding !== 0
+                  ? '未结工钱'
+                  : '已结算待收'}
+          </span>
           <span className="receipt-badge">
             {clear ? <CheckCircle2 size={13} /> : null}
             {clear ? '全部结清' : '截至今天'}
@@ -90,7 +105,7 @@ export function Settlements({
             <strong>都结清了</strong>
             <p>每一笔工钱都有交代。</p>
           </div>
-        ) : (
+        ) : pendingJobs.length > 0 || overview.outstanding !== 0 ? (
           <>
             <Money value={Math.abs(overview.outstanding)} className="receipt-amount" />
             <p className="receipt-caption">
@@ -98,8 +113,13 @@ export function Settlements({
                 ? '借支还没抵完，记一笔工就能继续抵扣'
                 : pendingJobs.length > 0
                   ? `${pendingJobs.length} 份工作待结算`
-                  : '记一笔工就能结清'}
+                  : '有未结工钱，去「待结算」里核对'}
             </p>
+          </>
+        ) : (
+          <>
+            <Money value={settledRemaining} className="receipt-amount" />
+            <p className="receipt-caption">工钱已经结算，但还没收到款</p>
           </>
         )}
         <div className="receipt-divider" aria-hidden="true" />
@@ -119,6 +139,11 @@ export function Settlements({
             </strong>
           </div>
         </div>
+        {settledRemaining > 0 ? (
+          <p className="receipt-caption">
+            待收合计 <Money value={settledRemaining} /> · 可在结算历史里登记收款
+          </p>
+        ) : null}
       </section>
 
       <section className="month-settle-card">
@@ -219,8 +244,12 @@ export function Settlements({
         <section className="card clear-card">
           <EmptyState
             icon={CheckCircle2}
-            title="所有工钱都结清了"
-            description="新的工记会自动进入下一期结算。"
+            title={settledRemaining > 0 ? '所有工钱都结算了' : '所有工钱都结清了'}
+            description={
+              settledRemaining > 0
+                ? '还有结算单没收款，去下面的结算历史里登记收款。'
+                : '新的工记会自动进入下一期结算。'
+            }
             actionLabel="记一笔"
             onAction={onAddEntry}
             compact

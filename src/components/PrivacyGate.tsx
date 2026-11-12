@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Check, FileText, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { Logo, Wordmark } from './Logo';
 import { PrivacyPolicy } from './PrivacyPolicy';
 import { isNativeApp } from '../lib/native';
+import { pushNativeBack } from '../lib/nativeBack';
 import { PRIVACY_VERSION } from '../lib/compliance';
 
 interface PrivacyGateProps {
@@ -12,6 +13,12 @@ interface PrivacyGateProps {
 export function PrivacyGate({ onAgree }: PrivacyGateProps) {
   const [showPolicy, setShowPolicy] = useState(false);
   const [declined, setDeclined] = useState(false);
+
+  // 隐私政策子视图要接管 Android 返回键：否则会走全局兜底 minimizeApp，把 App 收进后台。
+  useEffect(() => {
+    if (!showPolicy) return;
+    return pushNativeBack(() => setShowPolicy(false));
+  }, [showPolicy]);
 
   const decline = () => {
     setDeclined(true);

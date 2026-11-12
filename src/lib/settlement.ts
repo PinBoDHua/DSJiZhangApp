@@ -10,6 +10,7 @@ import type {
   Totals,
 } from '../types';
 import {
+  comparePeriods,
   eachDay,
   endOfMonth,
   formatDateShort,
@@ -45,10 +46,26 @@ const EMPTY_TOTALS: Totals = {
   capAdjustment: 0,
 };
 
+/** 日薪 / 月薪同一天多段只计一次基础工资时，选哪条记录的规则 */
+export function dailyBaseEntryIds(entries: Entry[]): Set<string> {
+  // 取 createdAt 最新的快照（与下面月薪分组一致），不能依赖入参数组顺序：
+  // 结算前会把工记按日期排序（首见=最早快照），统计/首页直接用 state 顺序（首见=最新快照），
+  // 两边的“唯一日薪/月薪基数”会取到不同规则，同一天调价时相差一笔钱。
+  const latestByDay = new Map<string, Entry>();
+  for (const entry of entries) {
+    const payType = entry.rule.payType;
+    if (payType !== 'daily' && payType !== 'monthly') continue;
+    const key = `${payType}|${entry.jobId}|${entry.date}`;
+    const current = latestByDay.get(key);
+    if (!current || entry.createdAt >= current.createdAt) latestByDay.set(key, entry);
+  }
+  return new Set(Array.from(latestByDay.values()).map((entry) => entry.id));
+}
+
 /** 逐笔汇总（月薪按每日折算展示，不封顶） */
 export function sumEntries(entries: Entry[]): Totals {
   const days = new Set<string>();
-  const baseDays = new Set<string>();
+  const baseIds = dailyBaseEntryIds(entries);
   let base = 0;
   let otPay = 0;
   let bonus = 0;
@@ -61,9 +78,7 @@ export function sumEntries(entries: Entry[]): Totals {
     // 日薪 / 月薪同一天多段只计一次基础工资，与 sumEntriesCapped 的封顶口径保持一致。
     const payType = entry.rule.payType;
     const perDayBase = payType === 'daily' || payType === 'monthly';
-    const baseKey = `${payType}|${entry.jobId}|${entry.date}`;
-    const includeBase = !perDayBase || !baseDays.has(baseKey);
-    if (perDayBase) baseDays.add(baseKey);
+    const includeBase = !perDayBase || baseIds.has(entry.id);
     if (includeBase) base += pay.base;
     otPay += pay.otPay;
     bonus += pay.bonus;
@@ -90,18 +105,34 @@ export function sumEntries(entries: Entry[]): Totals {
   };
 }
 
+export interface SumEntriesOptions {
+  /**
+   * 是否允许「固定月薪整自然月直接发整月」。只有月结周期才应该为 true：
+   * 周结 / 日结的周期即使恰好覆盖了整个自然月（如 28 天的 2 月），
+   * 也必须按周期折算，否则一个周结周期会发出整月工资。
+   */
+  monthlyFullMonth?: boolean;
+}
+
+function isWholeCalendarMonth(period?: Period, options: SumEntriesOptions = {}): boolean {
+  if (options.monthlyFullMonth === false) return false;
+  if (!period) return true;
+  return period.start === startOfMonth(period.start) && period.end === endOfMonth(period.start);
+}
+
 /**
  * 汇总并按「月薪整月封顶」校正。
  * 月薪工作按 (月薪 / 计薪天数 × 当月出勤天数) 计算基础工资，超过整月月薪时封顶。
  * 传入非自然月结算周期时，固定月薪同样按实际出勤天数折算；未传周期保留月度汇总口径。
  */
-export function sumEntriesCapped(entries: Entry[], period?: Period): Totals {
+export function sumEntriesCapped(
+  entries: Entry[],
+  period?: Period,
+  options: SumEntriesOptions = {},
+): Totals {
   const monthlyGroups = new Map<string, Entry[]>();
   const regular: Entry[] = [];
-  const dailyBaseDays = new Set<string>();
-  const isWholeCalendarMonth =
-    !period ||
-    (period.start === startOfMonth(period.start) && period.end === endOfMonth(period.start));
+  const wholeCalendarMonth = isWholeCalendarMonth(period, options);
 
   for (const entry of entries) {
     if (entry.rule.payType === 'monthly') {
@@ -116,6 +147,7 @@ export function sumEntriesCapped(entries: Entry[], period?: Period): Totals {
 
   const totals: Totals = { ...EMPTY_TOTALS };
   const allDays = new Set<string>();
+  const regularBaseIds = dailyBaseEntryIds(regular);
 
   const consume = (entry: Entry, includeBase = true) => {
     const pay = payForEntry(entry);
@@ -129,9 +161,7 @@ export function sumEntriesCapped(entries: Entry[], period?: Period): Totals {
   };
 
   for (const entry of regular) {
-    const dailyKey = `${entry.jobId}|${entry.date}`;
-    const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
-    if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
+    const includeBase = entry.rule.payType !== 'daily' || regularBaseIds.has(entry.id);
     consume(entry, includeBase);
   }
 
@@ -159,7 +189,7 @@ export function sumEntriesCapped(entries: Entry[], period?: Period): Totals {
       ? rate
       : Math.max(...dailyRules.map((entry) => Math.max(0, entry.rule.rate)), 0);
     const fullFixedMonth =
-      sameTerms && first.rule.monthlyMode === 'fixed' && isWholeCalendarMonth;
+      sameTerms && first.rule.monthlyMode === 'fixed' && wholeCalendarMonth;
     const paidBase = fullFixedMonth ? rate : Math.min(rawBase, cap);
     totals.base += round2(paidBase);
     totals.capAdjustment += fullFixedMonth ? 0 : Math.max(0, rawBase - cap);
@@ -182,6 +212,49 @@ export function totalAdvanceAmount(advances: Advance[]): number {
   return round2(advances.reduce((sum, item) => sum + (item.amount || 0), 0));
 }
 
+/** 未结分析结果：一次扫描供「未结合计」和结算页共用，避免同一份账本被逐期算 2–3 遍 */
+interface UnsettledAnalysis {
+  totals: Totals;
+  advanceTotal: number;
+  net: number;
+  count: number;
+  summaries: Map<string, UnsettledJobSummary>;
+}
+
+// store 每次提交都会产生新的 state 对象，用 WeakMap 按对象身份缓存安全且不阻止 GC。
+const analysisCache = new WeakMap<AppState, UnsettledAnalysis>();
+
+function analyzeUnsettled(state: AppState): UnsettledAnalysis {
+  const cached = analysisCache.get(state);
+  if (cached) return cached;
+  const entries = state.entries.filter((entry) => !entry.settlementId);
+  // 工时 / 天数展示沿用整本汇总；金额必须按「岗位 × 结算周期」逐期折算，
+  // 否则固定月薪的周结 / 日结岗位会被按整自然月算成整月工资。
+  const totals = sumEntriesCapped(entries);
+  const advances = state.advances.filter((advance) => !advance.settlementId);
+  const advanceTotal = totalAdvanceAmount(advances);
+  const summaries = new Map<string, UnsettledJobSummary>();
+  let unsettledNet = 0;
+  for (const job of state.jobs) {
+    const summary = summarizeUnsettledJob(state, job);
+    summaries.set(job.id, summary);
+    unsettledNet += summary.total;
+  }
+  // 引用了不存在岗位的工记（旧账本 / 导入异常）也要算进未结金额，不能静默丢钱。
+  const knownJobIds = new Set(state.jobs.map((job) => job.id));
+  const orphans = entries.filter((entry) => !knownJobIds.has(entry.jobId));
+  if (orphans.length > 0) unsettledNet += sumEntriesCapped(orphans).total;
+  const analysis: UnsettledAnalysis = {
+    totals,
+    advanceTotal,
+    net: round2(unsettledNet - advanceTotal),
+    count: entries.length,
+    summaries,
+  };
+  analysisCache.set(state, analysis);
+  return analysis;
+}
+
 /** 全部未结工钱：未结算记录 + 未抵扣借支 */
 export function computeOutstanding(state: AppState): {
   totals: Totals;
@@ -189,15 +262,63 @@ export function computeOutstanding(state: AppState): {
   net: number;
   count: number;
 } {
-  const entries = state.entries.filter((entry) => !entry.settlementId);
-  const totals = sumEntriesCapped(entries);
-  const advances = state.advances.filter((advance) => !advance.settlementId);
-  const advanceTotal = totalAdvanceAmount(advances);
+  const { totals, advanceTotal, net, count } = analyzeUnsettled(state);
+  return { totals, advanceTotal, net, count };
+}
+
+export interface UnsettledJobSummary {
+  /** 所有未结周期的应发净额之和（含超休扣款，不含借支） */
+  total: number;
+  overRestDeduction: number;
+  periodCount: number;
+  firstPeriod: Period | null;
+  firstDraft: SettlementDraft | null;
+}
+
+/**
+ * 未结工钱按「岗位 × 结算周期」逐期汇总，与「核对结算」的本期应结同一口径。
+ * 周结 / 日结的固定月薪岗位尤其需要逐期折算，不能整月一次算完。
+ */
+export function summarizeUnsettledJob(
+  state: AppState,
+  job: Job,
+  options: { includeRestDeduction?: boolean } = {},
+): UnsettledJobSummary {
+  const jobEntries = state.entries.filter(
+    (entry) => entry.jobId === job.id && !entry.settlementId,
+  );
+  const periods = new Map<string, Period>();
+  for (const entry of jobEntries) {
+    const period = periodOf(job.cycle, entry.date, state.settings.weekStartsOn);
+    if (!periods.has(period.key)) periods.set(period.key, period);
+  }
+  const sorted = Array.from(periods.values()).sort(comparePeriods);
+  const restDays = options.includeRestDeduction === false ? [] : state.restDays;
+  let total = 0;
+  let overRestDeduction = 0;
+  let firstDraft: SettlementDraft | null = null;
+  for (const period of sorted) {
+    const draft = buildSettlementDraft(
+      job,
+      jobEntries,
+      [],
+      period,
+      0,
+      0,
+      restDays,
+      job.rule.overRestDeduct,
+    );
+    if (draft.entries.length === 0) continue;
+    if (!firstDraft) firstDraft = draft;
+    total += draft.net;
+    overRestDeduction += draft.overRestDeduction;
+  }
   return {
-    totals,
-    advanceTotal,
-    net: round2(totals.total - advanceTotal),
-    count: entries.length,
+    total: round2(total),
+    overRestDeduction: round2(overRestDeduction),
+    periodCount: sorted.length,
+    firstPeriod: sorted[0] ?? null,
+    firstDraft,
   };
 }
 
@@ -228,7 +349,9 @@ export function buildSettlementDraft(
     )
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const totals = sumEntriesCapped(jobEntries, period);
+  const totals = sumEntriesCapped(jobEntries, period, {
+    monthlyFullMonth: job.cycle === 'monthly',
+  });
   const advanceTotal = totalAdvanceAmount(includedAdvances);
   const safeBonus = round2(Math.max(0, extraBonus));
   const safeDeduction = round2(Math.max(0, extraDeduction));
@@ -348,7 +471,7 @@ export interface SettlementOverview {
 
 /** 结算页数据：每份工作从「最早未结周期」开始，逐期结清 */
 export function getSettlementOverview(state: AppState): SettlementOverview {
-  const outstanding = computeOutstanding(state);
+  const analysis = analyzeUnsettled(state);
   const jobs: JobSettlementOverview[] = [];
 
   for (const job of state.jobs) {
@@ -360,16 +483,24 @@ export function getSettlementOverview(state: AppState): SettlementOverview {
     );
     if (jobEntries.length === 0 && jobAdvances.length === 0) continue;
 
+    const summary =
+      analysis.summaries.get(job.id) ?? summarizeUnsettledJob(state, job);
     const dates = jobEntries.map((entry) => entry.date).sort();
     const anchor = dates[0] ?? todayISO();
-    const period = periodOf(job.cycle, anchor, state.settings.weekStartsOn);
-    const draft = buildSettlementDraft(job, state.entries, state.advances, period);
-    const other = new Set(
-      jobEntries
-        .filter((entry) => !periodContains(period, entry.date))
-        .map((entry) => periodOf(job.cycle, entry.date, state.settings.weekStartsOn).key),
+    const period =
+      summary.firstPeriod ?? periodOf(job.cycle, anchor, state.settings.weekStartsOn);
+    // 预览必须和提交时同一口径：带上休息天数、超休开关和借支（summarizeUnsettledJob
+    // 的 total 不含借支，不能把它的 firstDraft 直接当预览，否则列表会少扣一笔借支）。
+    const draft = buildSettlementDraft(
+      job,
+      state.entries,
+      state.advances,
+      period,
+      0,
+      0,
+      state.restDays,
+      job.rule.overRestDeduct,
     );
-    const total = sumEntriesCapped(jobEntries).total;
     const advanceTotal = totalAdvanceAmount(jobAdvances);
 
     jobs.push({
@@ -377,9 +508,9 @@ export function getSettlementOverview(state: AppState): SettlementOverview {
       period,
       draft,
       entryCount: jobEntries.length,
-      otherPeriods: other.size,
+      otherPeriods: Math.max(0, summary.periodCount - 1),
       advanceTotal,
-      outstanding: round2(total - advanceTotal),
+      outstanding: round2(summary.total - advanceTotal),
     });
   }
 
@@ -387,9 +518,9 @@ export function getSettlementOverview(state: AppState): SettlementOverview {
 
   return {
     jobs,
-    totals: outstanding.totals,
-    advanceTotal: outstanding.advanceTotal,
-    outstanding: outstanding.net,
+    totals: analysis.totals,
+    advanceTotal: analysis.advanceTotal,
+    outstanding: analysis.net,
   };
 }
 
@@ -502,13 +633,13 @@ export interface DailyPoint {
 
 export function dailySeries(entries: Entry[], start: string, end: string): DailyPoint[] {
   const map = new Map<string, DailyPoint>();
-  const dailyBaseDays = new Set<string>();
   const monthlyGroups = new Map<string, Entry[]>();
   for (const day of eachDay(start, end)) {
     map.set(day, { date: day, earnings: 0, hours: 0 });
   }
   // 先按窗口过滤：窗口外的同月月薪记录会参与分摊，稀释窗口内每日金额。
   const inWindow = entries.filter((entry) => entry.date >= start && entry.date <= end);
+  const baseIds = dailyBaseEntryIds(inWindow);
   for (const entry of inWindow) {
     const point = map.get(entry.date);
     if (!point) continue;
@@ -520,9 +651,7 @@ export function dailySeries(entries: Entry[], start: string, end: string): Daily
       continue;
     }
     const pay = payForEntry(entry);
-    const dailyKey = `${entry.jobId}|${entry.date}`;
-    const includeBase = entry.rule.payType !== 'daily' || !dailyBaseDays.has(dailyKey);
-    if (entry.rule.payType === 'daily') dailyBaseDays.add(dailyKey);
+    const includeBase = entry.rule.payType !== 'daily' || baseIds.has(entry.id);
     point.earnings = round2(point.earnings + pay.total - (includeBase ? 0 : pay.base));
     point.hours = round2(point.hours + (entry.hours || 0));
   }

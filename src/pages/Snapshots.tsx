@@ -3,6 +3,7 @@ import { Camera, HardDrive, History, RotateCcw, Trash2 } from 'lucide-react';
 import { SubPage } from '../components/SubPage';
 import { EmptyState } from '../components/EmptyState';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Money, usePrivacy } from '../components/Money';
 import { useStore } from '../store';
 import type { AppState } from '../types';
 import { formatDateTime } from '../lib/date';
@@ -28,6 +29,7 @@ interface SnapshotsProps {
 
 export function Snapshots({ onBack }: SnapshotsProps) {
   const { state, replaceState, toast } = useStore();
+  const hiddenAmounts = usePrivacy();
   const [metas, setMetas] = useState<SnapshotMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [available, setAvailable] = useState(true);
@@ -95,10 +97,18 @@ export function Snapshots({ onBack }: SnapshotsProps) {
     setBusy(true);
     try {
       await saveSnapshot(previous, 'before-restore');
-      replaceState(pendingRestore.state);
+      // replaceState 会先落盘再切换：写入失败时必须明确失败，不能提示“已恢复”然后重启回滚。
+      if (!replaceState(pendingRestore.state)) {
+        toast('本机存储写入失败，操作未生效，请先导出备份', 'error');
+        return;
+      }
       toast(`已恢复到 ${formatDateTime(pendingRestore.meta.at)}`, 'success', {
         label: '撤销',
-        onClick: () => replaceState(previous),
+        onClick: () => {
+          if (!replaceState(previous)) {
+            toast('本机存储写入失败，操作未生效，请先导出备份', 'error');
+          }
+        },
       });
       setPendingRestore(null);
       await refresh();
@@ -196,8 +206,8 @@ export function Snapshots({ onBack }: SnapshotsProps) {
                 </span>
               </div>
               <p className="snap-item-meta">
-                {meta.manifest.entries} 笔工记 · {formatHours(meta.manifest.hours)}h · 工记合计 ¥
-                {formatMoney(meta.manifest.entryTotal)} · {formatBytes(meta.bytes)}
+                {meta.manifest.entries} 笔工记 · {formatHours(meta.manifest.hours)}h · 工记合计{' '}
+                <Money value={meta.manifest.entryTotal} /> · {formatBytes(meta.bytes)}
               </p>
               <div className="snap-item-actions">
                 <button
@@ -239,7 +249,8 @@ export function Snapshots({ onBack }: SnapshotsProps) {
                   <div className="snap-diff-row" key={row.key}>
                     <span>{row.label}</span>
                     <span>
-                      {formatDiff(row.before, row.unit)} → {formatDiff(row.after, row.unit)}
+                      {formatDiff(row.before, row.unit, hiddenAmounts)} →{' '}
+                      {formatDiff(row.after, row.unit, hiddenAmounts)}
                     </span>
                   </div>
                 ))}
@@ -265,8 +276,12 @@ export function Snapshots({ onBack }: SnapshotsProps) {
   );
 }
 
-function formatDiff(value: number, unit: 'count' | 'hours' | 'money'): string {
-  if (unit === 'money') return `¥${formatMoney(value)}`;
+function formatDiff(
+  value: number,
+  unit: 'count' | 'hours' | 'money',
+  hidden = false,
+): string {
+  if (unit === 'money') return hidden ? '¥••••' : `¥${formatMoney(value)}`;
   if (unit === 'hours') return `${formatHours(value)}h`;
   return String(value);
 }

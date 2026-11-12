@@ -29,11 +29,15 @@ export function Sheet({
   const closeRef = useRef(onClose);
   const sheetRef = useRef<HTMLDivElement>(null);
   closeRef.current = onClose;
-  useModalFocus(open, sheetRef);
 
   // 关闭时先播一段下滑淡出再卸载；打开 / 焦点 / 滚动锁仍由 open 即时驱动。
   const [visible, setVisible] = useState(open);
   const [closing, setClosing] = useState(false);
+
+  // 受控打开时 visible 要等下一帧才为 true：用 `open && visible` 作为焦点管理条件，
+  // 否则首次打开的 commit 里弹层还没渲染、sheetRef 仍是 null，焦点陷阱会静默失效。
+  // 关闭时 open 先变 false，焦点立即归还触发元素；淡出动画继续由 visible 驱动。
+  useModalFocus(open && visible, sheetRef);
 
   useEffect(() => {
     if (open) {
