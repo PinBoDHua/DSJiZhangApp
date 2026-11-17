@@ -8,9 +8,12 @@ import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -68,16 +71,28 @@ public class MainActivity extends BridgeActivity {
 
                     @Override
                     public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
-                        XinshiApp.mark("webview:renderProcessGone didCrash=" + (detail != null && detail.didCrash()));
-                        XinshiApp.export();
-                        rendererCrashCount++;
-                        mainHandler.removeCallbacks(resetRendererCrashCount);
+                        boolean didCrash = detail != null && detail.didCrash();
+                        XinshiApp.mark("webview:renderProcessGone didCrash=" + didCrash);
                         try {
                             destroyWebView(view);
                         } catch (Throwable error) {
                             showCrashScreen(error);
                             return true;
                         }
+                        if (!didCrash) {
+                            // 系统低内存回收（LMK）不是崩溃：不计数、不导出诊断，直接重建 WebView（AND-08）。
+                            XinshiApp.mark("webview:renderer recycled by system, recreate");
+                            try {
+                                recreate();
+                            } catch (Throwable error) {
+                                showCrashScreen(error);
+                            }
+                            return true;
+                        }
+                        // 真崩溃才计数与导出（export 内部还会按构建类型二次守卫，正式包不写公共目录）。
+                        XinshiApp.export();
+                        rendererCrashCount++;
+                        mainHandler.removeCallbacks(resetRendererCrashCount);
                         if (rendererCrashCount > 1) {
                             showCrashScreen(new IllegalStateException("WebView 渲染进程反复崩溃"));
                             return true;
@@ -162,20 +177,35 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    /** 原生崩溃页：把启动日志与堆栈直接显示在屏幕上，方便截图反馈。 */
+    /** 原生崩溃页：显示截断后的启动日志与堆栈，并提供「重启应用 / 退出」出口（AND-09）。 */
     private void showCrashScreen(Throwable error) {
         XinshiApp.crash(Thread.currentThread(), error);
+        // 兜底返回回调：崩溃页的 WebView 可能已被销毁，AppPlugin 的 JS 返回回调仍活着，
+        // 这里在返回分发器栈顶加一个原生回调拦住返回键，避免事件继续发进死 WebView。
+        // 用无 LifecycleOwner 重载：崩溃页可能出现在 onCreate 未完成时，此回调需始终生效。
+        getOnBackPressedDispatcher().addCallback(new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                exitApp();
+            }
+        });
         StringBuilder text = new StringBuilder();
         text.append("薪时启动失败（诊断页）\n")
             .append("设备：").append(android.os.Build.MANUFACTURER).append(' ')
             .append(android.os.Build.MODEL)
             .append("  Android ").append(android.os.Build.VERSION.RELEASE)
             .append(" (API ").append(android.os.Build.VERSION.SDK_INT).append(")\n");
-        text.append("\n----- 启动节点 -----\n").append(XinshiApp.readLog());
-        text.append("\n----- 崩溃堆栈 -----\n");
+        text.append("\n----- 启动节点（仅尾部日志） -----\n").append(XinshiApp.readLog());
+        text.append("\n----- 崩溃堆栈（过长会截断） -----\n");
         java.io.StringWriter writer = new java.io.StringWriter();
         error.printStackTrace(new java.io.PrintWriter(writer));
-        text.append(writer);
+        String stack = writer.toString();
+        int maxStackChars = 24 * 1024;
+        if (stack.length() > maxStackChars) {
+            text.append(stack, 0, maxStackChars).append("\n...（堆栈过长已截断）");
+        } else {
+            text.append(stack);
+        }
 
         ScrollView scroll = new ScrollView(this);
         TextView view = new TextView(this);
@@ -188,6 +218,52 @@ public class MainActivity extends BridgeActivity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ));
-        setContentView(scroll);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.addView(scroll, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(padding, padding, padding, padding);
+        Button restart = new Button(this);
+        restart.setText("重启应用");
+        restart.setOnClickListener((v) -> {
+            try {
+                recreate();
+            } catch (Throwable restartError) {
+                exitApp();
+            }
+        });
+        Button exit = new Button(this);
+        exit.setText("退出");
+        exit.setOnClickListener((v) -> exitApp());
+        actions.addView(restart, new LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        ));
+        actions.addView(exit, new LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        ));
+        root.addView(actions, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        setContentView(root);
+    }
+
+    /** 崩溃页后备出口：优先结束整个任务栈，避免用户被困在诊断页。 */
+    private void exitApp() {
+        try {
+            finishAffinity();
+        } catch (Throwable ignored) {
+            finish();
+        }
     }
 }

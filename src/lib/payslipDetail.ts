@@ -20,17 +20,27 @@ export function buildPayslipDetailRows(
   entries: Entry[],
 ): PayslipDetailRow[] {
   const ids = new Set(settlement.entryIds);
-  return entries
+  const found = new Set<string>();
+  const rows: PayslipDetailRow[] = entries
     .filter((entry) => ids.has(entry.id) && entry.jobId === settlement.jobId)
     .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt))
-    .map((entry) => ({
-      id: entry.id,
-      date: entry.date,
-      label: `${formatDateShort(entry.date)} ${weekdayShort(entry.date)}`,
-      hours: round2(entry.hours || 0),
-      amount: round2(payForEntry(entry).total),
-      note: entry.note,
-    }));
+    .map((entry) => {
+      found.add(entry.id);
+      return {
+        id: entry.id,
+        date: entry.date,
+        label: `${formatDateShort(entry.date)} ${weekdayShort(entry.date)}`,
+        hours: round2(entry.hours || 0),
+        amount: round2(payForEntry(entry).total),
+        note: entry.note,
+      };
+    });
+  // 结算单引用的工记可能已删除或导入缺失：显式标注一行，而不是静默少行导致明细与净额对不上。
+  for (const id of settlement.entryIds) {
+    if (found.has(id)) continue;
+    rows.push({ id, date: '', label: '（工记已删除）', hours: 0, amount: 0 });
+  }
+  return rows;
 }
 
 export function chunkPayslipRows(

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Camera, LockKeyhole } from 'lucide-react';
 import type { Entry, Job } from '../types';
 import { formatDateShort, formatTimeRange, weekdayShort } from '../lib/date';
@@ -29,7 +30,7 @@ interface EntryRowProps {
   showNote?: boolean;
 }
 
-export function EntryRow({ entry, job, onClick, showDate = false, showNote = false }: EntryRowProps) {
+function EntryRowBase({ entry, job, onClick, showDate = false, showNote = false }: EntryRowProps) {
   const pay = payForEntry(entry);
   const settled = Boolean(entry.settlementId);
   const date = formatDateShort(entry.date);
@@ -72,3 +73,6 @@ export function EntryRow({ entry, job, onClick, showDate = false, showNote = fal
     </button>
   );
 }
+
+// 记录 / 搜索页动辄上百行：store 每次 toast 都会重渲染整页，memo 能省掉无关行的 render。
+export const EntryRow = memo(EntryRowBase);

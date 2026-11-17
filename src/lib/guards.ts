@@ -30,7 +30,10 @@ export function findRestOnDay(
   return restDays.find((rest) => rest.jobId === jobId && rest.date === date);
 }
 
-/** 结算周期是否与已有结算重叠；首尾相接算不重叠 */
+/**
+ * 结算周期是否与已有结算重叠。实现用 <= 判共享边界日：日结「同一天」周期必须能检出重复结算，
+ * 因此不能改成严格 <（导入的任意区间单共享边界日也会被判重叠，属保守拦截）。
+ */
 export function findSettlementOverlap(
   settlements: Settlement[],
   jobId: string,

@@ -8,7 +8,8 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.2'
-        classpath 'com.google.gms:google-services:4.4.0'
+        // 本项目不使用 Firebase / 推送：app 层已移除 google-services 插件（AND-20），
+        // 模板残留的 google-services classpath 是死配置，删除以免误判还在用。
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files

@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { seedPrivacyConsent } from './lib/e2e-config.mjs';
 import { mkdir } from 'node:fs/promises';
 
 const BASE = 'http://127.0.0.1:4173';
@@ -17,7 +18,7 @@ const context = await browser.newContext({
   acceptDownloads: true,
 });
 const page = await context.newPage();
-await page.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
+await seedPrivacyConsent(page);
 const errors = [];
 page.on('console', (message) => {
   if (message.type() === 'error') errors.push(`[console] ${message.text()}`);

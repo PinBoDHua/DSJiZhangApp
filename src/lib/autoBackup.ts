@@ -55,6 +55,59 @@ export function writeAutoBackupSettings(patch: Partial<AutoBackupSettings>): Aut
   return next;
 }
 
+/** 失败退避记录（独立键，不改 AutoBackupSettings 结构，避免跨模块类型联动） */
+export const AUTO_BACKUP_FAILURE_KEY = 'xinshi.autoBackupFailures';
+/** 同一自然日连续失败达到这个次数后，当天不再重试 */
+export const AUTO_BACKUP_MAX_FAILURES_PER_DAY = 3;
+
+export interface AutoBackupFailureState {
+  /** 自然日（本地时区） */
+  date: string;
+  count: number;
+  lastError?: string;
+}
+
+export function readAutoBackupFailure(): AutoBackupFailureState | null {
+  try {
+    const raw = localStorage.getItem(AUTO_BACKUP_FAILURE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AutoBackupFailureState>;
+    if (typeof parsed.date !== 'string') return null;
+    const count = Number.isFinite(parsed.count) ? Math.max(0, Number(parsed.count)) : 0;
+    return {
+      date: parsed.date,
+      count,
+      lastError: typeof parsed.lastError === 'string' ? parsed.lastError : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeAutoBackupFailure(failure: AutoBackupFailureState | null): void {
+  try {
+    if (failure) localStorage.setItem(AUTO_BACKUP_FAILURE_KEY, JSON.stringify(failure));
+    else localStorage.removeItem(AUTO_BACKUP_FAILURE_KEY);
+  } catch {
+    // 本地存储不可用时退避失效，但不能阻断备份流程
+  }
+}
+
+/** 同一自然日连续失败 >= 3 次后当天停摆，次日自动恢复。 */
+function isFailureBackoffActive(now: Date): boolean {
+  const failure = readAutoBackupFailure();
+  if (!failure) return false;
+  if (failure.date !== localDateKey(now)) return false;
+  return failure.count >= AUTO_BACKUP_MAX_FAILURES_PER_DAY;
+}
+
+function recordAutoBackupFailure(now: Date, message: string): void {
+  const date = localDateKey(now);
+  const previous = readAutoBackupFailure();
+  const count = previous && previous.date === date ? previous.count + 1 : 1;
+  writeAutoBackupFailure({ date, count, lastError: message });
+}
+
 export function autoBackupFileName(now = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${AUTO_BACKUP_PREFIX}${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
@@ -69,6 +122,8 @@ export function shouldRunAutoBackup(
   if (options.native === false) return false;
   if (state.entries.length === 0) return false;
   const now = options.now ?? new Date();
+  // 原生桥持续失败（如 45s 超时）时不要每记一笔就重试整包导出：同一天失败 3 次后停到次日。
+  if (isFailureBackoffActive(now)) return false;
   if (!settings.lastRunAt) return true;
   const last = new Date(settings.lastRunAt);
   if (Number.isNaN(last.getTime())) return true;
@@ -125,6 +180,8 @@ export async function runAutoBackup(
         // 清理失败不是备份失败，不写进“上次失败”，只在下一次运行前继续尝试清理。
         lastError: undefined,
       });
+      // 本次成功即清零失败退避记录。
+      writeAutoBackupFailure(null);
       if (!shared) markBackedUp(now);
       const warning = shared
         ? '旧系统已打开系统分享面板，请确认本次备份已保存；旧备份需要手动清理'
@@ -132,6 +189,7 @@ export async function runAutoBackup(
       return { ran: true, path: filename, pruned, warning };
     } catch (error) {
       const message = error instanceof Error ? error.message : '自动备份失败';
+      recordAutoBackupFailure(now, message);
       writeAutoBackupSettings({ lastError: message });
       return { ran: false, error: message };
     } finally {

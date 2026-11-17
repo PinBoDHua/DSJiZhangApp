@@ -4,14 +4,17 @@
 
 - 包名：`com.xinshi.app`
 - 应用名：`薪时`
-- versionCode / versionName：`1201` / `1.2.1`（可用 `-Pxinshi.versionCode=1202 -Pxinshi.versionName=1.2.2` 覆盖）
+- versionCode / versionName：`1204` / `1.2.4`（可用 `-Pxinshi.versionCode=1205 -Pxinshi.versionName=1.2.5` 覆盖）
+- 工具链：Node ≥ 20（`package.json` engines）、pnpm 11.21.0（`packageManager` 字段）；版本不一致时 CI / 新机器会直接提示。
 - minSdk 22 / compileSdk 36 / targetSdk 36；文件导出使用 MediaStore，建议 Android 10+（API 29+）。
 - release 开启 R8 + `shrinkResources`，APK 约 **3.3MB**；混淆 mapping 在 `app/build/outputs/mapping/release/mapping.txt`，发布时归档。
 - 上架合规：
   - **不申请 INTERNET 权限**，应用内没有上传接口；
   - `allowBackup=false`，关闭系统云备份，备份由应用内完成；
+  - `android:dataExtractionRules` 挂 `res/xml/data_extraction_rules.xml`，云备份与 Android 12+ 换机迁移（D2D）均排除全部应用数据域，防止账本被 OEM 迁移助手整体拷走；
   - 只保留 `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`WAKE_LOCK` 三个用户可见权限（另有 AndroidX 自动生成的应用私有签名权限）；
   - 首次启动隐私政策弹窗，未同意不进入；隐私政策页在「我的 → 数据与安全」。
+  - 崩溃诊断默认只写应用私有目录（filesDir），正式包不写公共下载目录；仅 `-Pxinshi.diag` 诊断构建才会导出到 `Download/Xinshi/`（Android 5–9 为应用外部私有目录）。
 - 原生能力：
   - 状态栏深绿 + 浅色图标；
   - Android 12 启动屏纸色背景 + 品牌图标；
@@ -25,6 +28,20 @@
 ## 构建
 
 前置：JDK 17、Android SDK（platform 36、build-tools 36）、Gradle 8.14.3、AGP 8.13.2。
+
+### Fresh clone 流程（重要）
+
+仓库不包含 Node 依赖与 Capacitor 生成物（`capacitor-cordova-android-plugins` 被 gitignore），
+直接打开 `android/` 做 Gradle sync 会失败。新机器请按顺序执行：
+
+```bash
+pnpm install
+pnpm build                    # 生成 dist/（Web 资源）
+pnpm exec cap sync android    # 生成 capacitor-cordova-android-plugins、写入 assets/public、重写 capacitor.settings.gradle
+cd android && ./gradlew assembleDebug   # Windows 用 gradlew.bat
+```
+
+升级 @capacitor/* 依赖后必须重新 `cap sync`，否则 `capacitor.settings.gradle` 里的 .pnpm 精确路径会失效。
 
 ```bash
 pnpm install
@@ -88,9 +105,14 @@ gradlew.bat assembleRelease "-Pxinshi.debuggable=true"
 随后用 `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` 配合 `scripts/android-v080-check.mjs` 驱动。
 测试完再构建不带该参数的正式包覆盖安装即可。
 
+> ⚠️ 自本版起 Gradle 守卫会**直接中止**带 `-Pxinshi.debuggable` / `-Pxinshi.webViewDebug` 的 release 产物任务
+> （assembleRelease / bundleRelease 等）：这两个开关会让正式签名包 debuggable=true（run-as 可读整本账、
+> WebView CDP 开启），只能本地排查，不能分发。排查请改用 debug 构建。
+
 - APK：`app/build/outputs/apk/release/app-release.apk`
 - AAB：`app/build/outputs/bundle/release/app-release.aab`
-- 复制到 `release/xinshi-v1.0.0.apk` / `release/xinshi-v1.0.0.aab`。
+- 复制到 `release/xinshi-v1.0.0.apk` / `release/xinshi-v1.0.0.aab`（只从 `release/` 取带版本号 + SHA-256 登记的成品；
+  `android/aligned.apk` 这类 zipalign 中间产物已删除，不要从 `android/` 根目录拿 APK 分发）。
 - 校验：
 
 ```bash

@@ -3,7 +3,9 @@
  * 只在需要时调用 WebCrypto；不可用时由调用方降级。
  */
 
-export const PBKDF2_ITERATIONS = 250_000;
+// 迭代次数随加密包一起写入（旧包按包内值解密），因此升级只影响新导出的加密备份 / 搬家包；
+// 600000 对齐 OWASP 2023 对 PBKDF2-SHA256 的建议下限（审计 D19）。
+export const PBKDF2_ITERATIONS = 600_000;
 export const SALT_BYTES = 16;
 export const IV_BYTES = 12;
 

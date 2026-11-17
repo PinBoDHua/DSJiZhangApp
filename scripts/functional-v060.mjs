@@ -1,9 +1,10 @@
 import { chromium } from 'playwright-core';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { E2E_BASE_URL, E2E_BROWSER_PATH, PRIVACY_VERSION, seedPrivacyConsent } from './lib/e2e-config.mjs';
 
-const BASE = 'http://127.0.0.1:4173';
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const BASE = E2E_BASE_URL;
+const EDGE = E2E_BROWSER_PATH;
 const OUT = 'test-results-v060';
 await mkdir(OUT, { recursive: true });
 

@@ -15,6 +15,7 @@ import {
 } from '../lib/payment';
 import { buildSettlementCsv } from '../lib/csv';
 import { saveTextFile } from '../lib/native';
+import { saveFeedback } from '../lib/fileFeedback';
 import { getSettlementOverview } from '../lib/settlement';
 
 interface SettlementsProps {
@@ -69,7 +70,8 @@ export function Settlements({
         buildSettlementCsv(monthSettlements),
         'text/csv;charset=utf-8',
       );
-      toast(result === 'native' ? 'CSV 已保存到「下载/Xinshi」' : 'CSV 已下载');
+      const feedback = saveFeedback(result, '工资流水 CSV');
+      toast(feedback.message, feedback.tone);
     } catch {
       toast('CSV 导出失败，请稍后再试', 'error');
     } finally {

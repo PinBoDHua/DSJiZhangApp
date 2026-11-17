@@ -40,4 +40,20 @@ describe('本地账本损坏保护', () => {
     vi.stubGlobal('localStorage', new MemoryStorage());
     expect(loadStateDetailed()).toEqual({ state: null, failure: null });
   });
+
+  it('存储本身不可访问时按 unavailable 分流，不误判成账本损坏（A2）', () => {
+    const storage = {
+      getItem() {
+        throw new DOMException('拒绝访问', 'SecurityError');
+      },
+      setItem() {
+        throw new DOMException('拒绝访问', 'SecurityError');
+      },
+      removeItem() {},
+    };
+    vi.stubGlobal('localStorage', storage);
+    const result = loadStateDetailed();
+    expect(result.state).toBeNull();
+    expect(result.failure).toMatchObject({ key: STORAGE_KEY, raw: '', kind: 'unavailable' });
+  });
 });

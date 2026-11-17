@@ -269,12 +269,22 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       setError('单价要大于 0');
       return;
     }
-    const parsedStandard = toAmount(standardHours, 8);
-    if (!(parsedStandard > 0)) {
-      setError('标准工时要大于 0');
+    if (parsedRate > 1_000_000) {
+      setError('单价不能超过 1,000,000');
       return;
     }
-    const parsedExpected = Math.max(1, Math.round(toAmount(expectedDays, 22)));
+    // UI-29：max 属性拦不住提交，save() 按导入上限同口径校验（standardHours ≤ 24 / expectedDays ≤ 31）。
+    const parsedStandard = toAmount(standardHours, 8);
+    if (!(parsedStandard > 0) || parsedStandard > 24) {
+      setError('标准工时需在 0–24 小时之间');
+      return;
+    }
+    const rawExpected = Math.round(toAmount(expectedDays, 22));
+    if (rawExpected < 1 || rawExpected > 31) {
+      setError('月计薪天数需在 1–31 天之间');
+      return;
+    }
+    const parsedExpected = rawExpected;
     const parsedUnit = (unitLabel.trim() || '件').slice(0, 8);
     if (isPiece && !parsedUnit) {
       setError('请填写计件单位，比如 件 / 米 / 平方');
@@ -304,6 +314,15 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       setError('加班倍率不能小于 1');
       return;
     }
+    if (!isPiece && otEnabled && (weekday > 10 || weekend > 10 || holiday > 10)) {
+      setError('加班倍率不能超过 10');
+      return;
+    }
+    const parsedOverRestRate = Math.max(0, toAmount(overRestDailyRate));
+    if (isFixedMonthly && !isFlexibleRest && overRestDeduct && parsedOverRestRate > 1_000_000) {
+      setError('超休每天扣款不能超过 1,000,000');
+      return;
+    }
     const rule: PayRule = {
       payType,
       rate: parsedRate,
@@ -314,9 +333,7 @@ export function JobEditor({ jobId, template, onBack }: JobEditorProps) {
       restPolicy: isFixedMonthly ? restPolicy : 'quota',
       overRestDeduct: isFixedMonthly && !isFlexibleRest ? overRestDeduct : false,
       overRestDailyRate:
-        isFixedMonthly && !isFlexibleRest && overRestDeduct
-          ? Math.max(0, toAmount(overRestDailyRate))
-          : 0,
+        isFixedMonthly && !isFlexibleRest && overRestDeduct ? parsedOverRestRate : 0,
       unitLabel: parsedUnit,
       otEnabled: isPiece ? false : otEnabled,
       weekdayOT: weekday,

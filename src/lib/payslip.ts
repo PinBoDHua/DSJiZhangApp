@@ -1,6 +1,6 @@
 import type { Settlement } from '../types';
 import { formatDateTime } from './date';
-import { formatMoney, splitMoney } from './money';
+import { formatMoney, round2, splitMoney } from './money';
 import { saveBlobFile } from './native';
 import {
   DEFAULT_PAYSLIP_OPTIONS,
@@ -142,7 +142,21 @@ export function buildPayslipRows(
   if (options.showAdvance) {
     rows.push({ label: '借支抵扣', value: settlement.advanceTotal, negative: true });
   }
-  return rows.filter((row) => row.value > 0);
+  const visible = rows.filter((row) => row.value > 0);
+  // 隐藏分项后可见行加总可能对不上净额（超休 / 借支被隐藏时）。补一行「其他」汇总，
+  // 让工资条的可见行合计与应发净额一致，避免对账争议。
+  const explained = round2(
+    visible.reduce((sum, row) => sum + (row.negative ? -row.value : row.value), 0),
+  );
+  const diff = round2(settlement.net - explained);
+  if (Math.abs(diff) > 0.004) {
+    visible.push({
+      label: '其他（含借支/超休）',
+      value: Math.abs(diff),
+      negative: diff < 0,
+    });
+  }
+  return visible;
 }
 
 export async function createPayslipBlob(

@@ -95,8 +95,12 @@ export function loadStateDetailed(): LoadStateResult {
       // 绝不能顺手整本回写：读-改-写没有 CAS，会把别的窗口刚保存的新状态覆盖掉。
       if (LEGACY_STORAGE_KEYS.includes(key)) {
         try {
-          saveState(state);
-          localStorage.removeItem(key);
+          // 双窗口同时冷启动迁移：先再读一次主键，另一个标签页已经写好新账本就放弃回写，
+          // 避免用同一份 v6 旧账覆盖对方刚保存的改动。
+          if (localStorage.getItem(STORAGE_KEY) === null) {
+            saveState(state);
+            localStorage.removeItem(key);
+          }
         } catch (error) {
           // 已校验的账本仍可只读加载；保存失败由 Store 的持久化提示继续告知。
           console.warn('迁移本地数据失败，但已加载', error);
@@ -196,6 +200,44 @@ function asBoolean(value: unknown, fallback = false): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+/* 导入字段上限：与录入界面 / store 侧校验保持一致，手改的备份不能把离谱数值写进账本。 */
+const IMPORT_LIMITS = {
+  /** 时薪 / 日薪 / 月薪 / 计件单价 */
+  rate: 1_000_000,
+  /** 标准工时 / 月计薪天数 / 加班倍率 */
+  standardHours: 24,
+  expectedDays: 31,
+  otMultiplier: 10,
+  /** 借支、工记奖金扣款、周期规则奖金扣款 */
+  money: 1_000_000,
+  /** 结算单分项与净额（允许负数方向） */
+  settlementMoney: 1_000_000_000,
+  /** 计件数量 */
+  quantity: 1_000_000,
+} as const;
+
+/** 与界面 maxLength 对齐的字符串上限，避免数 MB 文本撑爆 localStorage。 */
+const STRING_LIMITS = {
+  jobName: 20,
+  employer: 24,
+  entryNote: 80,
+  restNote: 30,
+  advanceNote: 40,
+  settlementNote: 60,
+  profileName: 12,
+  paymentNote: 60,
+} as const;
+
+function clampValue(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/** 时间戳字段：非法值回退，避免畸形 createdAt 扭曲同日多段日薪的「最新快照」排序。 */
+function asTimestamp(value: unknown, fallback: string): string {
+  const text = asString(value);
+  return text && Number.isFinite(Date.parse(text)) ? text : fallback;
+}
+
 export function isValidDate(value: unknown): value is string {
   const text = asString(value);
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -261,9 +303,17 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
   const raw = isRecord(value) ? value : {};
   const base = fallback;
   const payType = pick(raw.payType, PAY_TYPES, base?.payType ?? 'hourly');
-  const rate = Math.max(0, asNumber(raw.rate, base?.rate ?? 0));
-  const standardHours = Math.max(0.5, asNumber(raw.standardHours, base?.standardHours ?? 8));
-  const expectedDays = Math.max(1, asNumber(raw.expectedDays, base?.expectedDays ?? 22));
+  const rate = clampValue(asNumber(raw.rate, base?.rate ?? 0), 0, IMPORT_LIMITS.rate);
+  const standardHours = clampValue(
+    asNumber(raw.standardHours, base?.standardHours ?? 8),
+    0.5,
+    IMPORT_LIMITS.standardHours,
+  );
+  const expectedDays = clampValue(
+    asNumber(raw.expectedDays, base?.expectedDays ?? 22),
+    1,
+    IMPORT_LIMITS.expectedDays,
+  );
   const monthlyMode = pick(raw.monthlyMode, MONTHLY_MODES, base?.monthlyMode ?? 'prorated');
   const restDaysPerMonth = Math.max(
     0,
@@ -275,15 +325,28 @@ function normalizeRule(value: unknown, fallback?: PayRule): PayRule {
     base?.restPolicy ?? 'quota',
   );
   const overRestDeduct = asBoolean(raw.overRestDeduct, base?.overRestDeduct ?? false);
-  const overRestDailyRate = Math.max(
-    0,
+  const overRestDailyRate = clampValue(
     asNumber(raw.overRestDailyRate, base?.overRestDailyRate ?? 0),
+    0,
+    IMPORT_LIMITS.rate,
   );
   const unitLabelRaw = asString(raw.unitLabel, base?.unitLabel ?? '件').trim();
   const unitLabel = (unitLabelRaw || '件').slice(0, 8);
-  const weekdayOT = Math.max(1, asNumber(raw.weekdayOT, base?.weekdayOT ?? 1.5));
-  const weekendOT = Math.max(1, asNumber(raw.weekendOT, base?.weekendOT ?? 2));
-  const holidayOT = Math.max(1, asNumber(raw.holidayOT, base?.holidayOT ?? 3));
+  const weekdayOT = clampValue(
+    asNumber(raw.weekdayOT, base?.weekdayOT ?? 1.5),
+    1,
+    IMPORT_LIMITS.otMultiplier,
+  );
+  const weekendOT = clampValue(
+    asNumber(raw.weekendOT, base?.weekendOT ?? 2),
+    1,
+    IMPORT_LIMITS.otMultiplier,
+  );
+  const holidayOT = clampValue(
+    asNumber(raw.holidayOT, base?.holidayOT ?? 3),
+    1,
+    IMPORT_LIMITS.otMultiplier,
+  );
   return {
     payType,
     rate,
@@ -320,7 +383,7 @@ function normalizeShift(value: unknown): Job['shift'] {
 function normalizeJob(value: unknown): Job {
   const raw = requireObject(value, '工作数据');
   const id = asString(raw.id);
-  const name = asString(raw.name).trim();
+  const name = asString(raw.name).trim().slice(0, STRING_LIMITS.jobName);
   if (!id) throw new Error('工作数据缺少 ID');
   if (!name) throw new Error('存在没有名称的工作');
   const weekdays = Array.isArray(raw.workWeekdays)
@@ -335,7 +398,7 @@ function normalizeJob(value: unknown): Job {
   return {
     id,
     name,
-    employer: asString(raw.employer) || undefined,
+    employer: asString(raw.employer).trim().slice(0, STRING_LIMITS.employer) || undefined,
     color: pick(raw.color, COLORS, 'pine'),
     rule: normalizeRule(raw.rule),
     shift: normalizeShift(raw.shift),
@@ -346,7 +409,7 @@ function normalizeJob(value: unknown): Job {
       raw.payday === undefined
         ? undefined
         : Math.max(1, Math.min(31, Math.round(asNumber(raw.payday, 1)))),
-    createdAt: asString(raw.createdAt, nowISO()),
+    createdAt: asTimestamp(raw.createdAt, nowISO()),
   };
 }
 
@@ -365,10 +428,9 @@ function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): En
   if (!id) throw new Error('工记数据缺少 ID');
   const job = jobs.get(jobId);
   if (!job) throw new Error('工记引用了不存在的工作');
-  const createdAt = asString(raw.createdAt, now);
+  const createdAt = asTimestamp(raw.createdAt, now);
   // 与录入 / 周期记工同一组上限：手改或第三方生成的备份不能把 1000 小时记进账本。
-  const clamp = (input: unknown, max: number) =>
-    Math.min(max, Math.max(0, asNumber(input)));
+  const hours = clampValue(asNumber(raw.hours), 0, 24);
   return {
     id,
     jobId,
@@ -376,19 +438,20 @@ function normalizeEntry(value: unknown, jobs: Map<string, Job>, now: string): En
     startTime: asTime(raw.startTime),
     endTime: asTime(raw.endTime),
     breakMinutes: Math.round(Math.min(1440, Math.max(0, asNumber(raw.breakMinutes)))),
-    hours: clamp(raw.hours, 24),
-    quantity: clamp(raw.quantity, 1_000_000),
-    otHours: clamp(raw.otHours, 24),
-    bonus: clamp(raw.bonus, 1_000_000),
-    deduction: clamp(raw.deduction, 1_000_000),
+    hours,
+    quantity: clampValue(asNumber(raw.quantity), 0, IMPORT_LIMITS.quantity),
+    // C7 只在录入界面限制「加班时长不能大于总工时」，手改备份同样要裁到不超过总工时。
+    otHours: Math.min(hours, clampValue(asNumber(raw.otHours), 0, 24)),
+    bonus: clampValue(asNumber(raw.bonus), 0, IMPORT_LIMITS.money),
+    deduction: clampValue(asNumber(raw.deduction), 0, IMPORT_LIMITS.money),
     holiday: asBoolean(raw.holiday),
-    note: asString(raw.note) || undefined,
+    note: asString(raw.note).slice(0, STRING_LIMITS.entryNote) || undefined,
     photoId: asString(raw.photoId).trim() || undefined,
     recurringRuleId: asString(raw.recurringRuleId).trim() || undefined,
     rule: normalizeRule(raw.rule, job.rule),
     settlementId: asString(raw.settlementId) || undefined,
     createdAt,
-    updatedAt: asString(raw.updatedAt, createdAt),
+    updatedAt: asTimestamp(raw.updatedAt, createdAt),
   };
 }
 
@@ -402,10 +465,10 @@ function normalizeAdvance(value: unknown, jobs: Map<string, Job>, now: string): 
     id,
     jobId,
     date: asDate(raw.date),
-    amount: Math.max(0, asNumber(raw.amount)),
-    note: asString(raw.note) || undefined,
+    amount: clampValue(asNumber(raw.amount), 0, IMPORT_LIMITS.money),
+    note: asString(raw.note).slice(0, STRING_LIMITS.advanceNote) || undefined,
     settlementId: asString(raw.settlementId) || undefined,
-    createdAt: asString(raw.createdAt, now),
+    createdAt: asTimestamp(raw.createdAt, now),
   };
 }
 
@@ -420,8 +483,8 @@ function normalizeRestDay(value: unknown, jobs: Map<string, Job>, now: string): 
     jobId,
     date: asDate(raw.date),
     days: raw.days === 0.5 ? 0.5 : 1,
-    note: asString(raw.note) || undefined,
-    createdAt: asString(raw.createdAt, now),
+    note: asString(raw.note).slice(0, STRING_LIMITS.restNote) || undefined,
+    createdAt: asTimestamp(raw.createdAt, now),
   };
 }
 
@@ -490,8 +553,12 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
   if (!id) throw new Error('结算数据缺少 ID');
   const job = jobs.get(jobId);
   if (!job) throw new Error('结算引用了不存在的工作');
-  const net = asNumber(raw.net);
-  const paidAmount = Math.max(0, asNumber(raw.paidAmount));
+  const net = clampValue(
+    asNumber(raw.net),
+    -IMPORT_LIMITS.settlementMoney,
+    IMPORT_LIMITS.settlementMoney,
+  );
+  const paidAmount = clampValue(asNumber(raw.paidAmount), 0, IMPORT_LIMITS.settlementMoney);
   const periodStart = asDate(raw.periodStart);
   const periodEnd = asDate(raw.periodEnd);
   if (periodStart > periodEnd) throw new Error('结算开始日期不能晚于结束日期，无法导入');
@@ -514,7 +581,8 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
   return {
     id,
     jobId,
-    jobName: asString(raw.jobName, job.name),
+    jobName:
+      asString(raw.jobName, job.name).trim().slice(0, STRING_LIMITS.jobName) || job.name,
     cycle: pick(raw.cycle, CYCLES, job.cycle),
     periodStart,
     periodEnd,
@@ -522,36 +590,77 @@ function normalizeSettlement(value: unknown, jobs: Map<string, Job>, now: string
     monthlyMode: raw.monthlyMode
       ? pick(raw.monthlyMode, MONTHLY_MODES, job.rule.monthlyMode)
       : undefined,
-    quantity: raw.quantity === undefined ? undefined : Math.max(0, asNumber(raw.quantity)),
-    unitLabel: raw.unitLabel ? asString(raw.unitLabel) : undefined,
-    restDays: raw.restDays === undefined ? undefined : Math.max(0, asNumber(raw.restDays)),
+    quantity:
+      raw.quantity === undefined
+        ? undefined
+        : clampValue(asNumber(raw.quantity), 0, IMPORT_LIMITS.quantity),
+    unitLabel: raw.unitLabel
+      ? asString(raw.unitLabel).trim().slice(0, 8) || undefined
+      : undefined,
+    restDays:
+      raw.restDays === undefined ? undefined : clampValue(asNumber(raw.restDays), 0, 31),
     restDates,
-    base: asNumber(raw.base),
-    otPay: asNumber(raw.otPay),
-    bonus: asNumber(raw.bonus),
-    deduction: asNumber(raw.deduction),
+    base: clampValue(
+      asNumber(raw.base),
+      -IMPORT_LIMITS.settlementMoney,
+      IMPORT_LIMITS.settlementMoney,
+    ),
+    otPay: clampValue(
+      asNumber(raw.otPay),
+      -IMPORT_LIMITS.settlementMoney,
+      IMPORT_LIMITS.settlementMoney,
+    ),
+    bonus: clampValue(
+      asNumber(raw.bonus),
+      -IMPORT_LIMITS.settlementMoney,
+      IMPORT_LIMITS.settlementMoney,
+    ),
+    deduction: clampValue(
+      asNumber(raw.deduction),
+      -IMPORT_LIMITS.settlementMoney,
+      IMPORT_LIMITS.settlementMoney,
+    ),
     overRestDays:
-      raw.overRestDays === undefined ? undefined : Math.max(0, asNumber(raw.overRestDays)),
+      raw.overRestDays === undefined
+        ? undefined
+        : clampValue(asNumber(raw.overRestDays), 0, 31),
     overRestDeduction:
       raw.overRestDeduction === undefined
         ? undefined
-        : Math.max(0, asNumber(raw.overRestDeduction)),
-    advanceTotal: asNumber(raw.advanceTotal),
-    extraBonus: asNumber(raw.extraBonus),
-    extraDeduction: asNumber(raw.extraDeduction),
+        : clampValue(asNumber(raw.overRestDeduction), 0, IMPORT_LIMITS.settlementMoney),
+    advanceTotal: clampValue(
+      asNumber(raw.advanceTotal),
+      -IMPORT_LIMITS.settlementMoney,
+      IMPORT_LIMITS.settlementMoney,
+    ),
+    extraBonus: clampValue(
+      asNumber(raw.extraBonus),
+      -IMPORT_LIMITS.settlementMoney,
+      IMPORT_LIMITS.settlementMoney,
+    ),
+    extraDeduction: clampValue(
+      asNumber(raw.extraDeduction),
+      -IMPORT_LIMITS.settlementMoney,
+      IMPORT_LIMITS.settlementMoney,
+    ),
     net,
-    hours: asNumber(raw.hours),
-    days: asNumber(raw.days),
-    otHours: asNumber(raw.otHours),
-    entryIds: Array.isArray(raw.entryIds) ? raw.entryIds.map(String) : [],
-    advanceIds: Array.isArray(raw.advanceIds) ? raw.advanceIds.map(String) : [],
-    note: asString(raw.note) || undefined,
-    createdAt: asString(raw.createdAt, now),
+    hours: clampValue(asNumber(raw.hours), 0, IMPORT_LIMITS.quantity),
+    days: clampValue(asNumber(raw.days), 0, IMPORT_LIMITS.quantity),
+    otHours: clampValue(asNumber(raw.otHours), 0, IMPORT_LIMITS.quantity),
+    // 同一 ID 在 entryIds 里重复出现会让体检误判「重复结算」，落库前先去重。
+    entryIds: Array.isArray(raw.entryIds)
+      ? Array.from(new Set(raw.entryIds.map(String)))
+      : [],
+    advanceIds: Array.isArray(raw.advanceIds)
+      ? Array.from(new Set(raw.advanceIds.map(String)))
+      : [],
+    note: asString(raw.note).slice(0, STRING_LIMITS.settlementNote) || undefined,
+    createdAt: asTimestamp(raw.createdAt, now),
     paymentStatus,
     paidAmount,
     paidAt: raw.paidAt ? asDate(raw.paidAt) : undefined,
-    paymentMethod: asString(raw.paymentMethod) || undefined,
-    paymentNote: asString(raw.paymentNote) || undefined,
+    paymentMethod: asString(raw.paymentMethod).slice(0, 20) || undefined,
+    paymentNote: asString(raw.paymentNote).slice(0, STRING_LIMITS.paymentNote) || undefined,
   };
 }
 
@@ -581,7 +690,7 @@ function normalizeRecurringRule(
   const startDate = asDate(raw.startDate);
   const endDate = raw.endDate ? asDate(raw.endDate) : undefined;
   if (endDate && endDate < startDate) throw new Error('周期记工结束日期早于开始日期');
-  const createdAt = asString(raw.createdAt, now);
+  const createdAt = asTimestamp(raw.createdAt, now);
   return {
     id,
     jobId,
@@ -592,8 +701,8 @@ function normalizeRecurringRule(
     endDate,
     hours: Math.max(0, Math.min(24, asNumber(raw.hours))),
     quantity: Math.max(0, Math.min(1_000_000, asNumber(raw.quantity))),
-    bonus: Math.max(0, asNumber(raw.bonus)),
-    deduction: Math.max(0, asNumber(raw.deduction)),
+    bonus: clampValue(asNumber(raw.bonus), 0, IMPORT_LIMITS.money),
+    deduction: clampValue(asNumber(raw.deduction), 0, IMPORT_LIMITS.money),
     note: asString(raw.note).trim().slice(0, 80) || undefined,
     enabled: asBoolean(raw.enabled, true),
     auto: asBoolean(raw.auto, true),
@@ -601,13 +710,30 @@ function normalizeRecurringRule(
       ? raw.lastProcessedDate
       : undefined,
     createdAt,
-    updatedAt: asString(raw.updatedAt, createdAt),
+    updatedAt: asTimestamp(raw.updatedAt, createdAt),
   };
 }
 
 export interface ValidateImportOptions {
   /** 用户主动导入备份时解锁指向不存在结算的工记 / 借支；本机读取保留给账本体检处理 */
   unlockOrphans?: boolean;
+  /**
+   * 主动导入备份时拒绝「日期落在已结算周期内、但自身没有锁定」的工记：
+   * 这类记录会计入未结合计，却因周期重叠永远无法再结算。本机读取与快照恢复不开，
+   * 交给账本体检提示，避免一次历史数据不一致就把用户锁死在恢复页。
+   */
+  rejectUnsettledInPeriod?: boolean;
+  /** 非阻断的规范化提示（重复照片引用剥离等），调用方可用于 toast */
+  onWarning?: (message: string) => void;
+}
+
+/** schema 版本统一按整数校验：字符串 "8" 或裸 state 的 version 都不能绕过高版本拒绝。 */
+function assertSchemaVersion(value: unknown, label: string): void {
+  if (value === undefined) return;
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new Error(label + '格式不正确，无法导入');
+  }
+  if (value > SCHEMA_VERSION) throw new Error('备份来自更新版本的薪时，请升级后再导入');
 }
 
 export function validateImport(
@@ -624,11 +750,13 @@ export function validateImport(
   if (wrapper && 'app' in wrapper && wrapper.app !== EXPORT_APP) {
     throw new Error('这不是薪时的备份文件');
   }
-  if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 7) {
-    throw new Error('备份来自更新版本的薪时，请升级后再导入');
+  if (wrapper && wrapper.version !== undefined) {
+    assertSchemaVersion(wrapper.version, '备份版本号');
   }
   const raw = wrapper && isRecord(wrapper.data) ? wrapper.data : parsed;
   if (!isRecord(raw)) throw new Error('备份内容格式不正确');
+  // 裸 state 备份没有外层版本号，同样不能放行更高 schema，否则未知字段会被静默丢弃。
+  assertSchemaVersion(raw.version, '备份数据版本号');
 
   const now = nowISO();
   const jobsRaw = raw.jobs;
@@ -665,11 +793,25 @@ export function validateImport(
 
   const entryIds = new Set<string>();
   const entries: Entry[] = [];
+  // 照片不可再生：两条工记共用一个 photoId 时，删一条会连带删掉另一条的照片。
+  // 这里保留第一条、剥离后续重复引用并给出提示，不阻断整份备份的恢复。
+  const photoIds = new Set<string>();
+  const stripSharedPhoto = (entry: Entry, label: string): Entry => {
+    if (!entry.photoId) return entry;
+    if (!photoIds.has(entry.photoId)) {
+      photoIds.add(entry.photoId);
+      return entry;
+    }
+    options.onWarning?.(
+      label + '「' + entry.id + '」与前面的工记共用同一张照片，已移除重复的照片引用',
+    );
+    return { ...entry, photoId: undefined };
+  };
   for (const item of entriesRaw) {
     const entry = normalizeEntry(item, jobMap, now);
     if (entryIds.has(entry.id)) throw new Error('工记数据存在重复 ID');
     entryIds.add(entry.id);
-    entries.push(entry);
+    entries.push(stripSharedPhoto(entry, '工记'));
   }
 
   const restDaysRaw = raw.restDays;
@@ -781,6 +923,24 @@ export function validateImport(
     }
   }
 
+  // 主动导入时拒绝「日期落在已结算周期内却没锁定」的工记：它会计入未结合计，
+  // 又因周期重叠永远无法结算，属于导入后无法自愈的状态（本机读取交给体检提示）。
+  if (options.rejectUnsettledInPeriod) {
+    const covered = entries.find((entry) => {
+      if (entry.settlementId) return false;
+      const siblings = settlementsByJob.get(entry.jobId) ?? [];
+      return siblings.some(
+        (settlement) =>
+          entry.date >= settlement.periodStart && entry.date <= settlement.periodEnd,
+      );
+    });
+    if (covered) {
+      throw new Error(
+        '工记「' + covered.id + '」的日期落在已结算周期内但没有锁定，导入后将永远无法结算',
+      );
+    }
+  }
+
   // 结算单被删掉后留下的锁定引用：主动导入时解锁，本机读取保留给账本体检处理
   const repairedEntries = options.unlockOrphans
     ? entries.map((entry) =>
@@ -801,8 +961,12 @@ export function validateImport(
   const trashedEntries: TrashedEntry[] = [];
   for (const item of Array.isArray(raw.trashedEntries) ? raw.trashedEntries : []) {
     const trashed = normalizeTrashedEntry(item, knownJobs, now);
-    if (!trashed || trashedEntryIds.has(trashed.entry.id)) continue;
+    if (!trashed) continue;
+    // active 与回收站跨集合重复 ID：恢复路径虽然幂等，但彻底删除会按回收站条目删照片，
+    // 与 trashedJobs 同口径跳过，避免同一 ID 同时出现在两个集合里。
+    if (trashedEntryIds.has(trashed.entry.id) || entryIds.has(trashed.entry.id)) continue;
     trashedEntryIds.add(trashed.entry.id);
+    trashed.entry = stripSharedPhoto(trashed.entry, '回收站工记');
     trashedEntries.push(trashed);
   }
 
@@ -813,7 +977,13 @@ export function validateImport(
     const trashed = normalizeTrashedRest(item, knownJobs, now);
     if (!trashed) continue;
     const key = `${trashed.restDay.jobId}|${trashed.restDay.date}`;
-    if (trashedRestIds.has(trashed.restDay.id) || trashedRestKeys.has(key)) continue;
+    if (
+      trashedRestIds.has(trashed.restDay.id) ||
+      restDayIds.has(trashed.restDay.id) ||
+      trashedRestKeys.has(key)
+    ) {
+      continue;
+    }
     trashedRestIds.add(trashed.restDay.id);
     trashedRestKeys.add(key);
     trashedRests.push(trashed);
@@ -823,7 +993,10 @@ export function validateImport(
   const trashedAdvances: TrashedAdvance[] = [];
   for (const item of Array.isArray(raw.trashedAdvances) ? raw.trashedAdvances : []) {
     const trashed = normalizeTrashedAdvance(item, knownJobs, now);
-    if (!trashed || trashedAdvanceIds.has(trashed.advance.id)) continue;
+    if (!trashed) continue;
+    if (trashedAdvanceIds.has(trashed.advance.id) || advanceIds.has(trashed.advance.id)) {
+      continue;
+    }
     trashedAdvanceIds.add(trashed.advance.id);
     trashedAdvances.push(trashed);
   }
@@ -846,7 +1019,7 @@ export function validateImport(
   return {
     version: 7,
     profile: {
-      name: asString(profileRaw.name),
+      name: asString(profileRaw.name).trim().slice(0, STRING_LIMITS.profileName),
       hideAmounts: asBoolean(profileRaw.hideAmounts),
     },
     settings: { weekStartsOn, theme, reminder, ...(budget ? { budget } : {}) },
@@ -862,6 +1035,6 @@ export function validateImport(
     ...(recurringRules.length > 0 ? { recurringRules } : {}),
     activeTimer,
     onboardingDone: asBoolean(raw.onboardingDone, jobs.length > 0),
-    createdAt: asString(raw.createdAt, now),
+    createdAt: asTimestamp(raw.createdAt, now),
   };
 }

@@ -147,3 +147,47 @@ describe('批量补记常用模板', () => {
     );
   });
 });
+describe('模板满额与导入校验（PAY-25）', () => {
+  it('满额时返回被挤掉的模板，替换同名模板时不挤掉别人', () => {
+    let templates: BatchTemplate[] = [];
+    let evicted: BatchTemplate | undefined;
+    for (let index = 0; index < 9; index += 1) {
+      const result = upsertBatchTemplate(templates, {
+        name: `满额${index}`,
+        hours: 6,
+        bonus: 0,
+        deduction: 0,
+        note: '',
+      });
+      templates = result.templates;
+      evicted = result.evicted;
+    }
+    expect(templates).toHaveLength(8);
+    // 第 9 个保存时挤掉了最旧的「满额0」，页面可据此提示替换而不是静默丢弃。
+    expect(evicted?.name).toBe('满额0');
+
+    const replaced = upsertBatchTemplate(templates, {
+      name: '满额8',
+      hours: 8,
+      bonus: 0,
+      deduction: 0,
+      note: '',
+    });
+    expect(replaced.evicted).toBeUndefined();
+    expect(replaced.templates).toHaveLength(8);
+  });
+
+  it('导入校验 app 字段必须是 xinshi', () => {
+    expect(() =>
+      parseBatchTemplateFile(
+        '{"app":"other","kind":"batch-templates","version":1,"templates":[]}',
+      ),
+    ).toThrow('这不是薪时批量模板文件');
+    expect(() =>
+      parseBatchTemplateFile(
+        '{"app":"xinshi","kind":"batch-templates","version":1,"templates":[{"name":"A","hours":6}]}',
+      ),
+    ).not.toThrow();
+  });
+});
+

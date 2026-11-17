@@ -2,10 +2,11 @@ import { chromium } from 'playwright-core';
 import { readFileSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { E2E_BASE_URL, E2E_BROWSER_PATH, PRIVACY_VERSION, seedPrivacyConsent } from './lib/e2e-config.mjs';
 
 const APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
-const BASE = 'http://127.0.0.1:4173';
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const BASE = E2E_BASE_URL;
+const EDGE = E2E_BROWSER_PATH;
 const OUT = 'test-results-v120';
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.launch({ executablePath: EDGE, headless: true });
@@ -16,7 +17,7 @@ const context = await browser.newContext({
   serviceWorkers: 'block',
   acceptDownloads: true,
 });
-await context.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
+await seedPrivacyConsent(context);
 const page = await context.newPage();
 const errors = [];
 page.on('console', (message) => {
@@ -128,10 +129,10 @@ await step('周期页和统计页 320px 无横向溢出', async () => {
 });
 
 const brokenContext = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
-await brokenContext.addInitScript(() => {
-  localStorage.setItem('xinshi.privacyConsent', '2026-11-05');
+await brokenContext.addInitScript((version) => {
+  localStorage.setItem('xinshi.privacyConsent', version);
   localStorage.setItem('xinshi.state.v7', '{broken-original');
-});
+}, PRIVACY_VERSION);
 const broken = await brokenContext.newPage();
 await step('损坏账本停止写入并可导出原文', async () => {
   await broken.goto(BASE, { waitUntil: 'networkidle' });

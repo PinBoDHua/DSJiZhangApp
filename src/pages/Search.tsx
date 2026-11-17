@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search as SearchIcon, SearchX, X } from 'lucide-react';
 import { useStore } from '../store';
 import { EntryRow } from '../components/EntryRow';
@@ -15,41 +15,56 @@ import {
 import { formatHours } from '../lib/money';
 import { searchEntries, tokenizeQuery } from '../lib/search';
 import { sumEntries } from '../lib/settlement';
+import { settledEntryIds } from '../lib/pagePay';
 
 interface SearchProps {
   onBack: () => void;
   onOpenEntry: (entryId: string) => void;
 }
 
+// 千条级账本下宽泛搜索可能命中很多：先渲染前 100 条，其余点「查看更多」（UI-09 轻量保护）。
+const SEARCH_PAGE_SIZE = 100;
+
 export function Search({ onBack, onOpenEntry }: SearchProps) {
   const { state } = useStore();
   const [query, setQuery] = useState('');
   const [jobId, setJobId] = useState('all');
+  const [limit, setLimit] = useState(SEARCH_PAGE_SIZE);
   const terms = tokenizeQuery(query);
   const jobsWithEntries = useMemo(
     () => state.jobs.filter((job) => state.entries.some((entry) => entry.jobId === job.id)),
     [state.jobs, state.entries],
   );
+  // PAY-27：已结算判定与 Excel / 汇总同口径，取结算单 entryIds 并集。
+  const settledIds = useMemo(
+    () => settledEntryIds(state.settlements),
+    [state.settlements],
+  );
   const results = useMemo(
     () =>
       searchEntries(state.entries, state.jobs, query, {
         jobId: jobId === 'all' ? undefined : jobId,
+        settledEntryIds: settledIds,
       }),
-    [state.entries, state.jobs, query, jobId],
+    [state.entries, state.jobs, query, jobId, settledIds],
   );
   const totals = useMemo(
     () => sumEntries(results.map((result) => result.entry)),
     [results],
   );
+  // 查询 / 岗位变化时回到第一页。
+  useEffect(() => {
+    setLimit(SEARCH_PAGE_SIZE);
+  }, [query, jobId]);
   const groups = useMemo(() => {
     const map = new Map<string, typeof results>();
-    for (const result of results) {
+    for (const result of results.slice(0, limit)) {
       const list = map.get(result.entry.date);
       if (list) list.push(result);
       else map.set(result.entry.date, [result]);
     }
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [results]);
+  }, [results, limit]);
   const quickDates = useMemo(() => {
     const dates = Array.from(new Set([todayISO(), ...state.entries.map((entry) => entry.date)]))
       .sort((a, b) => b.localeCompare(a))
@@ -101,6 +116,7 @@ export function Search({ onBack, onOpenEntry }: SearchProps) {
             type="button"
             className={`filter-chip ${jobId === 'all' ? 'is-active' : ''}`}
             onClick={() => setJobId('all')}
+            aria-pressed={jobId === 'all'}
           >
             全部
           </button>
@@ -110,6 +126,7 @@ export function Search({ onBack, onOpenEntry }: SearchProps) {
               key={job.id}
               className={`filter-chip ${jobId === job.id ? 'is-active' : ''}`}
               onClick={() => setJobId(job.id)}
+              aria-pressed={jobId === job.id}
             >
               <JobDot color={job.color} size={7} />
               {job.name}
@@ -182,6 +199,11 @@ export function Search({ onBack, onOpenEntry }: SearchProps) {
               <strong>{formatHours(totals.hours)}h</strong>
             </div>
           </section>
+          {results.length > limit ? (
+            <p className="search-tip" aria-live="polite">
+              命中 {results.length} 笔，先显示前 {limit} 笔；点下方「查看更多」继续。
+            </p>
+          ) : null}
           <div className="record-groups">
             {groups.map(([date, dayResults]) => {
               const dayTotals = sumEntries(dayResults.map((result) => result.entry));
@@ -218,6 +240,15 @@ export function Search({ onBack, onOpenEntry }: SearchProps) {
               );
             })}
           </div>
+          {results.length > limit ? (
+            <button
+              type="button"
+              className="btn btn--soft btn--block"
+              onClick={() => setLimit((current) => current + SEARCH_PAGE_SIZE)}
+            >
+              查看更多（还有 {results.length - limit} 笔）
+            </button>
+          ) : null}
           <p className="stats-footnote">
             折算合计按每笔工记的规则计算；固定月薪的实际发放以结算页为准。
           </p>

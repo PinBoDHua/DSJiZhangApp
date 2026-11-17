@@ -16,6 +16,12 @@ import { EXPORT_APP, SCHEMA_VERSION, validateImport } from './storage';
 
 export const MOVE_FORMAT = 'move';
 export const MOVE_FORMAT_VERSION = 1;
+/**
+ * 校验码口径版本：
+ * - 1（旧包缺省）：对 JSON.stringify 原文（依赖键序）计算，读包时继续兼容；
+ * - 2：递归排序键后重建再计算，第三方工具重排键序后不会误判成「已损坏」。
+ */
+export const MOVE_CHECKSUM_VERSION = 2;
 
 export interface MoveSource {
   appVersion: string;
@@ -46,6 +52,8 @@ export interface MovePackageHeader {
   source: MoveSource;
   manifest: LedgerManifest;
   checksum: string;
+  /** 校验码口径版本；旧包缺省按 1 处理 */
+  checksumVersion?: number;
   passwordHint?: string;
   payload: MovePayload;
 }
@@ -71,12 +79,34 @@ function currentPlatform(): 'android' | 'web' {
   return capacitor?.isNativePlatform?.() ? 'android' : 'web';
 }
 
-function checksumInput(header: Pick<MovePackageHeader, 'schemaVersion' | 'manifest' | 'payload'>) {
-  return JSON.stringify({
+/** 递归排序对象键后重建 JSON：新口径的校验码不再依赖原始键序。 */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return '[' + value.map((item) => canonicalJson(item)).join(',') + ']';
+  }
+  if (isRecord(value)) {
+    const keys = Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort();
+    return (
+      '{' +
+      keys.map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') +
+      '}'
+    );
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function checksumInput(
+  header: Pick<MovePackageHeader, 'schemaVersion' | 'manifest' | 'payload'>,
+  canonical = false,
+): string {
+  const core = {
     schemaVersion: header.schemaVersion,
     manifest: header.manifest,
     payload: header.payload,
-  });
+  };
+  return canonical ? canonicalJson(core) : JSON.stringify(core);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,6 +172,14 @@ function parseHeader(value: unknown): MovePackageHeader {
   if (!checksum || !/^(sha256|fnv1a):[0-9a-f]+$/i.test(checksum)) {
     throw new Error('搬家包缺少校验码');
   }
+  let checksumVersion: number | undefined;
+  if (value.checksumVersion !== undefined) {
+    const parsed = asNumber(value.checksumVersion);
+    if (parsed === null || !Number.isInteger(parsed) || parsed < 1) {
+      throw new Error('搬家包校验算法版本不正确');
+    }
+    checksumVersion = parsed;
+  }
   if (!isRecord(value.payload)) throw new Error('搬家包缺少数据内容');
   const payload = value.payload as unknown as MovePayload;
   if ('plain' in payload) {
@@ -171,6 +209,7 @@ function parseHeader(value: unknown): MovePackageHeader {
     source,
     manifest,
     checksum,
+    checksumVersion,
     passwordHint,
     payload,
   };
@@ -195,23 +234,31 @@ export function parseMovePackage(text: string): MovePackageHeader {
   return parseHeader(parsed);
 }
 
-async function verifyChecksum(header: MovePackageHeader): Promise<void> {
-  const [alg, expected] = header.checksum.split(':', 2);
-  if (alg !== 'sha256' && alg !== 'fnv1a') throw new Error('搬家包校验算法不受支持');
-  const input = checksumInput(header);
-  let actualHex: string;
+async function digestHex(input: string, alg: 'sha256' | 'fnv1a'): Promise<string> {
   if (alg === 'fnv1a') {
     // fnv1a 包来自不支持 SHA-256 的旧环境；新设备必须仍按原算法校验，
     // 否则旧→新搬家会被「当前环境无法验证」卡死。
-    actualHex = fnv1aHex(input, 16);
-  } else {
-    const digest = await digestText(input);
-    if (digest.alg !== 'sha256') throw new Error('当前环境无法验证该搬家包的校验码');
-    actualHex = digest.hex;
+    return fnv1aHex(input, 16);
   }
-  if (actualHex.toLowerCase() !== expected.toLowerCase()) {
-    throw new Error('搬家包校验失败，文件可能已损坏或被修改');
+  const digest = await digestText(input);
+  if (digest.alg !== 'sha256') throw new Error('当前环境无法验证该搬家包的校验码');
+  return digest.hex;
+}
+
+async function verifyChecksum(header: MovePackageHeader): Promise<void> {
+  const [alg, expected] = header.checksum.split(':', 2);
+  if (alg !== 'sha256' && alg !== 'fnv1a') throw new Error('搬家包校验算法不受支持');
+  // 新口径只按排序键校验；旧包（缺 version 字段）先按旧口径、再尝试新口径，
+  // 这样被第三方 sort_keys 重排过的旧包也不会被误判成损坏。
+  const inputs =
+    (header.checksumVersion ?? 1) >= MOVE_CHECKSUM_VERSION
+      ? [checksumInput(header, true)]
+      : [checksumInput(header, false), checksumInput(header, true)];
+  for (const input of inputs) {
+    const actualHex = await digestHex(input, alg);
+    if (actualHex.toLowerCase() === expected.toLowerCase()) return;
   }
+  throw new Error('搬家包校验失败，文件可能已损坏或被修改');
 }
 
 export async function buildMovePackage(
@@ -259,11 +306,12 @@ export async function buildMovePackage(
     manifest,
     payload,
   };
-  const digest = await digestText(checksumInput(withoutChecksum));
+  const digest = await digestText(checksumInput(withoutChecksum, true));
   const header: MovePackageHeader = {
     app: EXPORT_APP,
     format: MOVE_FORMAT,
     formatVersion: MOVE_FORMAT_VERSION,
+    checksumVersion: MOVE_CHECKSUM_VERSION,
     schemaVersion,
     exportedAt: (options.now ?? new Date()).toISOString(),
     source: {

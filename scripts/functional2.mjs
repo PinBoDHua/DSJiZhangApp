@@ -1,8 +1,9 @@
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
+import { E2E_BASE_URL, E2E_BROWSER_PATH, PRIVACY_VERSION, seedPrivacyConsent } from './lib/e2e-config.mjs';
 
-const BASE = 'http://127.0.0.1:4173';
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const BASE = E2E_BASE_URL;
+const EDGE = E2E_BROWSER_PATH;
 
 const browser = await chromium.launch({ executablePath: EDGE, headless: true });
 const context = await browser.newContext({
@@ -13,7 +14,7 @@ const context = await browser.newContext({
 });
 const page = await context.newPage();
 await page.clock.install({ time: new Date('2026-11-06T09:00:00+08:00') });
-await page.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
+await seedPrivacyConsent(page);
 const errors = [];
 page.on('console', (message) => {
   if (message.type() === 'error') errors.push(`[console] ${message.text()}`);

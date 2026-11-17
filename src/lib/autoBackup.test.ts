@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AUTO_BACKUP_FAILURE_KEY,
   DEFAULT_AUTO_BACKUP,
   autoBackupFileName,
+  readAutoBackupFailure,
   readAutoBackupSettings,
   runAutoBackup,
   shouldRunAutoBackup,
   writeAutoBackupSettings,
 } from './autoBackup';
+import { backupDueText, markBackedUp } from './backupStatus';
 import { makeEntry, makeJob, makeState } from './testFixtures';
 
 vi.mock('./native', () => ({
@@ -111,5 +114,60 @@ describe('自动备份设置与调度', () => {
     expect(globalThis.localStorage.getItem('xinshi.lastBackup')).toBeNull();
     // 但当日不应反复弹分享面板，lastRunAt 仍推进。
     expect(readAutoBackupSettings().lastRunAt).toBeTruthy();
+  });
+
+  it('原生桥连续失败 3 次后当天停止重试，次日自动恢复并清零记录', async () => {
+    writeAutoBackupSettings({ enabled: true, keep: 14 });
+    // 模拟 saveFile 的 45s 超时：runAutoBackup 必须释放 running 单例，否则后续不再重试。
+    vi.mocked(saveTextFile).mockRejectedValue(new Error('保存文件超时，请重试'));
+    const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
+    const day = new Date(2026, 10, 7, 9, 0, 0);
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await runAutoBackup(state, { native: true, now: day });
+      expect(result.ran).toBe(false);
+      expect(result.error).toContain('超时');
+    }
+    expect(readAutoBackupFailure()).toMatchObject({ date: '2026-11-07', count: 3 });
+
+    // 当天不再重试：不应再次调用原生桥。
+    const callsBefore = vi.mocked(saveTextFile).mock.calls.length;
+    const blocked = await runAutoBackup(state, {
+      native: true,
+      now: new Date(2026, 10, 7, 18, 0, 0),
+    });
+    expect(blocked.ran).toBe(false);
+    expect(blocked.error).toBeUndefined();
+    expect(vi.mocked(saveTextFile).mock.calls.length).toBe(callsBefore);
+
+    // 次日恢复，成功后失败记录清零。
+    vi.mocked(saveTextFile).mockResolvedValue('native');
+    const nextDay = await runAutoBackup(state, {
+      native: true,
+      now: new Date(2026, 10, 8, 9, 0, 0),
+    });
+    expect(nextDay.ran).toBe(true);
+    expect(readAutoBackupFailure()).toBeNull();
+  });
+
+  it('失败退避只影响同一自然日', () => {
+    const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
+    globalThis.localStorage.setItem(
+      AUTO_BACKUP_FAILURE_KEY,
+      JSON.stringify({ date: '2026-11-07', count: 9, lastError: '挂起' }),
+    );
+    const settings = { enabled: true, keep: 14 };
+    expect(
+      shouldRunAutoBackup(settings, state, { native: true, now: new Date(2026, 10, 7, 12, 0, 0) }),
+    ).toBe(false);
+    expect(
+      shouldRunAutoBackup(settings, state, { native: true, now: new Date(2026, 10, 8, 12, 0, 0) }),
+    ).toBe(true);
+  });
+
+  it('24 小时内备份的提醒文案不再写“今天”', () => {
+    markBackedUp(new Date());
+    const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
+    expect(backupDueText(state)).toBe('24 小时内已备份');
   });
 });

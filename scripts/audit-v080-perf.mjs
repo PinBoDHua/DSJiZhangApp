@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { PRIVACY_VERSION } from './lib/e2e-config.mjs';
 import { mkdir } from 'node:fs/promises';
 
 const BASE = 'http://127.0.0.1:4173';
@@ -98,7 +99,7 @@ async function run(label, entryCount) {
       localStorage.setItem('xinshi.theme', 'light');
       localStorage.setItem('xinshi.state.v7', stateJson);
     },
-    { stateJson: JSON.stringify(state), consent: '2026-11-05' },
+    { stateJson: JSON.stringify(state), consent: PRIVACY_VERSION },
   );
   const page = await context.newPage();
   const start = Date.now();

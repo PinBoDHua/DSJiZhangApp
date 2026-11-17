@@ -4,6 +4,7 @@ import { BottomNav, type TabKey } from './components/BottomNav';
 import { Fab } from './components/Fab';
 import { EntryDetail } from './components/EntryDetail';
 import { PageLoading } from './components/PageLoading';
+import { PageErrorBoundary } from './components/ErrorBoundary';
 import { Home } from './pages/Home';
 import { EntryEditor } from './pages/EntryEditor';
 import { Onboarding } from './pages/Onboarding';
@@ -140,10 +141,18 @@ function AppContent() {
   const [privacyOk, setPrivacyOk] = useState(() => hasPrivacyConsent());
   const [today, setToday] = useState(() => todayISO());
   const autoRecurringDay = useRef('');
+  // 账本被整体替换（导入 / 恢复快照 / 清空）时 ledgerSeq 变化，需要重置自动补记标记。
+  const autoRecurringLedgerSeq = useRef(ledgerSeq);
   // 安卓返回键要和页面内“返回”一致：数据与安全下的子页回数据与安全，而不是整页退到底部 Tab。
   const backRef = useRef<() => void>(() => undefined);
   backRef.current = () => {
     if (!page) return;
+    if (page.type === 'settlementRecord') {
+      // UI-26：和对内返回一致，切回结算 Tab，而不是停在首页。
+      setPage(null);
+      setTab('settlements');
+      return;
+    }
     if (page.type === 'snapshots') {
       setPage(state.onboardingDone ? { type: 'dataSafety' } : null);
       return;
@@ -191,7 +200,11 @@ function AppContent() {
   useEffect(() => {
     if (!privacyOk || !state.onboardingDone) return;
     // 每个自然日只自动补一次；App 挂在后台跨天后再回来也能补记新的一天。
-    // 导入 / 恢复快照 / 清空会换掉整本账本（ledgerSeq 变化），必须像首次打开一样重跑。
+    // 导入 / 恢复快照 / 清空会换掉整本账本（ledgerSeq 变化），必须像首次打开一样重跑（UI-03）。
+    if (autoRecurringLedgerSeq.current !== ledgerSeq) {
+      autoRecurringLedgerSeq.current = ledgerSeq;
+      autoRecurringDay.current = '';
+    }
     if (autoRecurringDay.current === today) return;
     autoRecurringDay.current = today;
     const result = generateRecurring({ automaticOnly: true, today });
@@ -373,6 +386,7 @@ function AppContent() {
         <AttendancePage
           initialJobId={page.jobId}
           onBack={() => setPage(null)}
+          onOpenJobs={openJobs}
           onAddEntry={(jobId, date) => openEntryEditor(jobId, date)}
           onOpenEntry={openEntryDetail}
         />
@@ -445,7 +459,14 @@ function AppContent() {
         <Onboarding onOpenSnapshots={() => setPage({ type: 'snapshots' })} />
         {page ? (
           <div className="app-shell">
-            <Suspense fallback={<PageLoading screen />}>{renderPage()}</Suspense>
+            <PageErrorBoundary
+              onReset={() => {
+                setPage(null);
+                setTab('home');
+              }}
+            >
+              <Suspense fallback={<PageLoading screen />}>{renderPage()}</Suspense>
+            </PageErrorBoundary>
           </div>
         ) : null}
       </>
@@ -456,11 +477,15 @@ function AppContent() {
     <div className="app-shell">
       {storageBanner}
       {page ? (
-        <Suspense fallback={<PageLoading screen />}>{renderPage()}</Suspense>
+        <PageErrorBoundary onReset={() => setPage(null)}>
+          <Suspense fallback={<PageLoading screen />}>{renderPage()}</Suspense>
+        </PageErrorBoundary>
       ) : (
         <>
           <main className="app-main">
-            <Suspense fallback={<PageLoading />}>{renderTab()}</Suspense>
+            <PageErrorBoundary onReset={() => setTab('home')}>
+              <Suspense fallback={<PageLoading />}>{renderTab()}</Suspense>
+            </PageErrorBoundary>
           </main>
           {tab === 'home' ? <Fab onClick={() => openEntryEditor()} /> : null}
           <BottomNav

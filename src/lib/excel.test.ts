@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildLedgerSheets, excelFileName } from './excel';
+import { baseRule } from './testFixtures';
 import { makeAdvance, makeEntry, makeJob, makeRestDay, makeSettlement, makeState } from './testFixtures';
 
 describe('Excel 对账表', () => {
@@ -31,6 +32,8 @@ describe('Excel 对账表', () => {
     expect(sheets.map((sheet) => sheet.name)).toEqual(['工记明细', '月度汇总', '结算单', '借支']);
     expect(sheets[0].rows).toHaveLength(3);
     expect(sheets[0].rows[0][0]).toBe('日期');
+    expect(sheets[0].rows[0][11]).toBe('基础工资(单日仅计一次)');
+    expect(sheets[0].rows[0][15]).toBe('合计(单笔折算参考)');
     expect(sheets[0].rows[1][0]).toBe('2026-11-02');
     expect(sheets[0].rows[1][15]).toMatchObject({ value: 200, style: 'money' });
     expect(sheets[0].rows[2][7]).toMatchObject({ value: 6, style: 'hours' });
@@ -98,3 +101,81 @@ describe('Excel 对账表', () => {
     expect(open?.[2]).toBe(1);
   });
 });
+describe('未结预估与明细口径（PAY-06）', () => {
+  const fixedRule = {
+    ...baseRule,
+    payType: 'monthly' as const,
+    rate: 3500,
+    expectedDays: 22,
+    monthlyMode: 'fixed' as const,
+    otEnabled: false,
+  };
+
+  it('未结（预估）行按岗位 × 结算周期逐期汇总，并扣未结借支', () => {
+    const job = makeJob({ cycle: 'weekly', rule: fixedRule });
+    const state = makeState({
+      jobs: [job],
+      entries: [
+        makeEntry({ id: 'w-1', jobId: job.id, date: '2026-11-03', hours: 6, rule: fixedRule }),
+        makeEntry({ id: 'w-2', jobId: job.id, date: '2026-11-04', hours: 6, rule: fixedRule }),
+      ],
+      advances: [makeAdvance({ id: 'adv-1', jobId: job.id, date: '2026-11-01', amount: 100 })],
+    });
+    const summary = buildLedgerSheets(state)[1].rows;
+    const open = summary.find((row) => row[14] === '未结（预估）');
+    // 一周 2 天 = 318.18（不再是整月 3500），借支 100 抵扣后应发 218.18。
+    expect(open?.[6]).toMatchObject({ value: 318.18, style: 'money' });
+    expect(open?.[11]).toMatchObject({ value: 100, style: 'money' });
+    expect(open?.[13]).toMatchObject({ value: 218.18, style: 'money' });
+  });
+
+  it('明细表同日多段日薪只计一次基础工资', () => {
+    const dailyRule = { ...baseRule, payType: 'daily' as const, rate: 300, otEnabled: false };
+    const job = makeJob({ cycle: 'weekly', rule: dailyRule });
+    const state = makeState({
+      jobs: [job],
+      entries: [
+        makeEntry({ id: 'd-1', jobId: job.id, date: '2026-11-03', hours: 4, rule: dailyRule }),
+        makeEntry({
+          id: 'd-2',
+          jobId: job.id,
+          date: '2026-11-03',
+          hours: 4,
+          createdAt: '2026-11-03T13:00:00.000Z',
+          rule: dailyRule,
+        }),
+      ],
+    });
+    const detail = buildLedgerSheets(state)[0].rows.slice(1);
+    const baseSum = detail.reduce(
+      (sum, row) => sum + (typeof row[11] === 'object' && row[11] ? Number(row[11].value) : 0),
+      0,
+    );
+    const totalSum = detail.reduce(
+      (sum, row) => sum + (typeof row[15] === 'object' && row[15] ? Number(row[15].value) : 0),
+      0,
+    );
+    expect(baseSum).toBe(300);
+    expect(totalSum).toBe(300);
+  });
+
+  it('旧结算单只有 restDates 时按休息记录求和，半天不再算整天', () => {
+    const settlement = makeSettlement({
+      id: 'settlement-old',
+      restDates: ['2026-11-03', '2026-11-04'],
+      entryIds: [],
+    });
+    const state = makeState({
+      jobs: [makeJob()],
+      settlements: [settlement],
+      restDays: [
+        makeRestDay({ id: 'r-half', date: '2026-11-03', days: 0.5 }),
+        makeRestDay({ id: 'r-full', date: '2026-11-04', days: 1 }),
+      ],
+    });
+    const summary = buildLedgerSheets(state)[1].rows;
+    const settled = summary.find((row) => row[14] === '已结');
+    expect(settled?.[3]).toBe(1.5);
+  });
+});
+

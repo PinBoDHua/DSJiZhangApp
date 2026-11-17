@@ -35,11 +35,38 @@ export function PaymentSheet({ open, settlement, onClose }: PaymentSheetProps) {
 
   const paidValue = toAmount(amount);
   const remaining = remainingAmountOf(settlement);
-  const previewStatus =
-    paidValue <= 0 ? '待发' : paidValue >= settlement.net ? '已发' : '部分发放';
+  // PAY-07：净额 ≤ 0（无需收款 / 倒欠）不走收款输入，直接标记已结清。
+  const noPaymentNeeded = settlement.net <= 0;
+  const previewStatus = noPaymentNeeded
+    ? '无需收款'
+    : paidValue <= 0
+      ? '待发'
+      : paidValue >= settlement.net
+        ? '已发'
+        : '部分发放';
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (noPaymentNeeded) {
+      if (!date) {
+        setError('请选择日期');
+        return;
+      }
+      const ok = setSettlementPayment(settlement.id, {
+        paidAmount: 0,
+        paidAt: date,
+        method,
+        note,
+      });
+      if (!ok) {
+        setError('标记失败，请重试');
+        return;
+      }
+      // toast 与落库同源：store 对 net≤0 直接落 paid（PAY-07 / D30）。
+      toast('已标记为结清（本期无需收款）');
+      onClose();
+      return;
+    }
     if (paidValue < 0) {
       setError('已收金额不能小于 0');
       return;
@@ -86,6 +113,17 @@ export function PaymentSheet({ open, settlement, onClose }: PaymentSheetProps) {
             </div>
           </div>
 
+          {noPaymentNeeded ? (
+            <p className="field-hint" role="note">
+              {settlement.net < 0 ? (
+                <>
+                  本期为倒欠 <Money value={-settlement.net} />，无需收款；确认后标记为已结清。
+                </>
+              ) : (
+                '本期应发为 0，无需收款；确认后标记为已结清。'
+              )}
+            </p>
+          ) : (
           <div className="advance-amount">
             <span>已收总额（含之前）</span>
             <div className="big-money-input">
@@ -117,6 +155,7 @@ export function PaymentSheet({ open, settlement, onClose }: PaymentSheetProps) {
               <span>当前：{previewStatus}</span>
             </div>
           </div>
+          )}
 
           <label className="field">
             <span className="field-label">收款日期</span>
@@ -132,21 +171,24 @@ export function PaymentSheet({ open, settlement, onClose }: PaymentSheetProps) {
             </div>
           </label>
 
-          <div className="field">
-            <span className="field-label">收款方式</span>
-            <div className="job-picker payment-methods">
-              {METHODS.map((item) => (
-                <button
-                  type="button"
-                  key={item}
-                  className={`job-choice ${method === item ? 'is-active' : ''}`}
-                  onClick={() => setMethod(item)}
-                >
-                  {item}
-                </button>
-              ))}
+          {noPaymentNeeded ? null : (
+            <div className="field">
+              <span className="field-label">收款方式</span>
+              <div className="job-picker payment-methods">
+                {METHODS.map((item) => (
+                  <button
+                    type="button"
+                    key={item}
+                    className={`job-choice ${method === item ? 'is-active' : ''}`}
+                    aria-pressed={method === item}
+                    onClick={() => setMethod(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <label className="field">
             <span className="field-label">备注（选填）</span>
@@ -166,7 +208,7 @@ export function PaymentSheet({ open, settlement, onClose }: PaymentSheetProps) {
             取消
           </button>
           <button type="submit" className="btn btn--primary">
-            保存收款
+            {noPaymentNeeded ? '标记已结清' : '保存收款'}
           </button>
         </div>
       </form>

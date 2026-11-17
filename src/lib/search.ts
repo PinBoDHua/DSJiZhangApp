@@ -19,6 +19,11 @@ export interface EntrySearchResult {
 export interface EntrySearchOptions {
   /** 只看某份工作 */
   jobId?: string;
+  /**
+   * 已结算工记 id 集合（来自结算单 entryIds）。传入后与 Excel / 汇总同口径：
+   * 孤儿 settlementId（结算单已删）算未结算；不传时回退看 entry.settlementId。
+   */
+  settledEntryIds?: Iterable<string>;
 }
 
 /** 把用户输入拆成关键词；空查询返回空数组。 */
@@ -66,8 +71,15 @@ function amountHaystack(total: number): string {
 }
 
 /** 单个工记的搜索文本：岗位、雇主、备注、日期、金额、工时。 */
-export function entryHaystack(entry: Entry, job?: Job): string {
+export function entryHaystack(
+  entry: Entry,
+  job?: Job,
+  settledEntryIds?: ReadonlySet<string>,
+): string {
   const total = payForEntry(entry).total;
+  const settled = settledEntryIds
+    ? settledEntryIds.has(entry.id)
+    : Boolean(entry.settlementId);
   const hours = formatHours(entry.hours || 0);
   return [
     job?.name ?? '',
@@ -81,7 +93,7 @@ export function entryHaystack(entry: Entry, job?: Job): string {
     entry.otHours > 0 ? '加班' : '',
     entry.bonus > 0 ? '奖金' : '',
     entry.deduction > 0 ? '扣款' : '',
-    entry.settlementId ? '已结算' : '未结算',
+    settled ? '已结算' : '未结算',
   ]
     .join(' ')
     .toLowerCase();
@@ -97,11 +109,14 @@ export function searchEntries(
   const terms = tokenizeQuery(query);
   if (terms.length === 0) return [];
   const jobMap = new Map(jobs.map((job) => [job.id, job]));
+  const settledEntryIds = options.settledEntryIds
+    ? new Set(options.settledEntryIds)
+    : undefined;
   const results: EntrySearchResult[] = [];
   for (const entry of entries) {
     if (options.jobId && entry.jobId !== options.jobId) continue;
     const job = jobMap.get(entry.jobId);
-    const haystack = entryHaystack(entry, job);
+    const haystack = entryHaystack(entry, job, settledEntryIds);
     if (!terms.every((term) => haystack.includes(term))) continue;
     results.push({ entry, job, total: payForEntry(entry).total });
   }

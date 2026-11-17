@@ -27,4 +27,11 @@ describe('休息天数', () => {
     expect(formatRestDays(1.5)).toBe('1.5');
     expect(formatRestDays(0.5)).toBe('0.5');
   });
+
+  it('0 / 负数天数的异常记录不虚增休息与超休扣款', () => {
+    expect(restDayAmount(rest(0))).toBe(0);
+    expect(restDayAmount(rest(-1))).toBe(0);
+    expect(totalRestDays([rest(), rest(0)])).toBe(1);
+    expect(totalRestDays([rest(0.5), rest(0.5)])).toBe(1);
+  });
 });

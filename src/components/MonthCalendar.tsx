@@ -9,7 +9,7 @@ import {
 } from '../lib/date';
 import { formatCompactMoney } from '../lib/money';
 import { formatRestDays, totalRestDays } from '../lib/rest';
-import { sumEntries } from '../lib/settlement';
+import { dailySeries } from '../lib/settlement';
 import { jobColor } from '../lib/meta';
 import { usePrivacy } from './Money';
 
@@ -55,6 +55,14 @@ export function MonthCalendar({
   }
   const jobMap = new Map(jobs.map((job) => [job.id, job]));
   const plannedSet = new Set(plannedWorkDates);
+  const periodEnd = addDays(monthStart, totalDays - 1);
+  // 逐日金额与记录页月合计 / 结算同源（PAY-05）：月薪按封顶后分摊，避免日历格合计超过整月工资。
+  const earningsByDate = new Map(
+    dailySeries(entries, monthStart, periodEnd, { periodShareCap: true }).map((point) => [
+      point.date,
+      point.earnings,
+    ]),
+  );
 
   return (
     <div className="calendar">
@@ -75,7 +83,7 @@ export function MonthCalendar({
           const dayRest = restByDate.get(date) ?? [];
           const dayRestTotal = totalRestDays(dayRest);
           const plannedWork = plannedSet.has(date) && dayRest.length === 0;
-          const totals = dayEntries.length > 0 ? sumEntries(dayEntries) : null;
+          const dayEarnings = dayEntries.length > 0 ? earningsByDate.get(date) ?? 0 : null;
           const colors = Array.from(
             new Set(
               dayEntries.map((entry) => jobMap.get(entry.jobId)?.color ?? 'pine'),
@@ -103,9 +111,9 @@ export function MonthCalendar({
                   ? `，休息 ${formatRestDays(dayRestTotal)} 天`
                   : ''
               }${plannedWork ? '，计划上班' : ''}${
-                totals && !hideAmounts
-                  ? `，${formatCompactMoney(totals.total)} 元`
-                  : totals
+                dayEarnings !== null && !hideAmounts
+                  ? `，${formatCompactMoney(dayEarnings)} 元`
+                  : dayEarnings !== null
                     ? '，金额已隐藏'
                     : ''
               }`}

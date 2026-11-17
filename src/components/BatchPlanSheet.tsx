@@ -3,6 +3,7 @@ import { Check, ClipboardList } from 'lucide-react';
 import type { Entry, Job, RestDay, Settlement } from '../types';
 import { useStore } from '../store';
 import { saveTextFile } from '../lib/native';
+import { saveFeedback } from '../lib/fileFeedback';
 import {
   addDays,
   eachDay,
@@ -130,9 +131,9 @@ export function BatchPlanSheet({
   );
 
   const validRange = Boolean(start && end && end >= start);
-  const available = validRange
-    ? eachDay(start, end).filter((date) => isCandidate(date))
-    : [];
+  // 本弹层常挂在首页：关闭时不逐日扫排班候选（UI-42）。
+  const available =
+    open && validRange ? eachDay(start, end).filter((date) => isCandidate(date)) : [];
   const availableSet = new Set(available);
   const sorted = [...selected].sort();
   const outOfRange = sorted.filter((date) => !availableSet.has(date));
@@ -267,6 +268,10 @@ export function BatchPlanSheet({
     });
     setTemplates(result.templates);
     setTemplateId(result.saved.id);
+    // PAY-25：模板满 8 个时不再静默丢弃最旧的，明确告知被替换的是哪一个。
+    if (result.evicted) {
+      toast(`模板已满 8 个，已替换最旧的模板「${result.evicted.name}」`, 'info');
+    }
   };
 
   const removeTemplate = () => {
@@ -281,11 +286,8 @@ export function BatchPlanSheet({
         `薪时批量模板-${today}.json`,
         serializeBatchTemplates(templates),
       );
-      toast(
-        result === 'native'
-          ? '模板已保存到下载目录'
-          : '模板文件已生成',
-      );
+      const feedback = saveFeedback(result, '批量模板');
+      toast(feedback.message, feedback.tone);
     } catch (error) {
       toast(
         error instanceof Error ? error.message : '模板导出失败',
@@ -513,6 +515,7 @@ export function BatchPlanSheet({
             type="file"
             accept="application/json,.json"
             className="visually-hidden"
+            tabIndex={-1}
             onChange={(event) => importTemplates(event.target.files?.[0])}
           />
         </div>

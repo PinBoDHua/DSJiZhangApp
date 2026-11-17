@@ -3,6 +3,7 @@ import type { Job } from '../types';
 import { Sheet } from './Sheet';
 import { JobDot } from './JobDot';
 import { cycleLabel, rateLabel } from '../lib/meta';
+import { Money, usePrivacy } from './Money';
 
 interface TimerSheetProps {
   open: boolean;
@@ -12,6 +13,8 @@ interface TimerSheetProps {
 }
 
 export function TimerSheet({ open, jobs, onClose, onStart }: TimerSheetProps) {
+  // UI-05：隐藏金额时单价也不能明文出现在计时弹层里。
+  const hideAmounts = usePrivacy();
   return (
     <Sheet open={open} title="开始计时" subtitle="选一份工作，结束时会自动带出上下班时间" onClose={onClose}>
       <div className="sheet-body timer-sheet-body">
@@ -29,8 +32,12 @@ export function TimerSheet({ open, jobs, onClose, onStart }: TimerSheetProps) {
               <span className="timer-job-copy">
                 <strong>{job.name}</strong>
                 <em>
-                  {rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)} ·{' '}
-                  {cycleLabel(job.cycle)}
+                  {hideAmounts ? (
+                    <Money value={job.rule.rate} />
+                  ) : (
+                    rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)
+                  )}{' '}
+                  · {cycleLabel(job.cycle)}
                 </em>
               </span>
               <span className="timer-job-play">

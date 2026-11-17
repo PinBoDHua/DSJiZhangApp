@@ -11,7 +11,8 @@
   --ink: #17251f;
   --ink-soft: #34433a;
   --muted: #6f7b72;
-  --muted-2: #98a198;
+  /* 功能小字（上班/下班、已结算、回收站剩余天数等）需达 WCAG AA 4.5:1（审计 UI-13）。 */
+  --muted-2: #616e67;
   --line: #e6e0d2;
   --line-strong: #d7cfbd;
   --primary: #14563d;
@@ -425,9 +426,10 @@ ul {
   background: var(--surface-muted);
 }
 
+/* 小图标按钮最小 36px；回收站的危险操作在后文单列到 44px（审计 UI-41）。 */
 .icon-button--small {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
   color: var(--muted);
 }
@@ -1697,7 +1699,7 @@ button.switch {
 }
 
 .entry-row-amount small {
-  color: var(--muted-2);
+  color: var(--muted);
   font-size: 8.5px;
 }
 
@@ -3199,7 +3201,7 @@ button.switch {
 .attendance-cell {
   position: relative;
   display: flex;
-  min-height: 42px;
+  min-height: 44px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -3418,7 +3420,7 @@ button.switch {
 }
 
 .settle-entry-amount small {
-  color: var(--muted-2);
+  color: var(--muted);
   font-size: 8px;
 }
 
@@ -5630,13 +5632,13 @@ html[data-theme="dark"] .longterm-template {
 }
 
 .plan-grid > span {
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .plan-day {
   position: relative;
   display: flex;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
@@ -7845,7 +7847,7 @@ html[data-theme="dark"] {
   --ink: #f0f3ea;
   --ink-soft: #ced8cd;
   --muted: #94a096;
-  --muted-2: #6d7b72;
+  --muted-2: #8f9b92;
   --line: #2b3a32;
   --line-strong: #3c4e43;
   --primary: #5caa80;
@@ -9165,7 +9167,7 @@ html[data-theme="dark"] .snap-diff {
   --ink: #17251f;
   --ink-soft: #36473e;
   --muted: #5f6f66;
-  --muted-2: #67746c;
+  --muted-2: #616e67;
   --line: #e1e8e3;
   --line-strong: #cbd7cf;
   --primary: #146b4b;
@@ -9738,7 +9740,7 @@ body {
 }
 
 .time-box span {
-  color: var(--muted-2);
+  color: var(--muted);
   font-size: 8.5px;
 }
 
@@ -10469,8 +10471,8 @@ html[data-theme='dark'] .heat-day.is-today {
 }
 
 .hero-eye {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
 }
 
 .hero-pending {
@@ -10487,8 +10489,8 @@ html[data-theme='dark'] .heat-day.is-today {
 }
 
 .toast-close {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
 }
 
 .toast-action {
@@ -10547,6 +10549,12 @@ html[data-theme='dark'] .heat-day.is-today {
 .icon-button--small {
   width: 36px;
   height: 36px;
+}
+
+/* 回收站「恢复 / 彻底删除」是相邻的危险操作，单独提到 44px 减少误触（审计 UI-41）。 */
+.trash-row .icon-button--small {
+  width: 44px;
+  height: 44px;
 }
 
 /* 软键盘：抽屉与确认框贴在可视视口底部，保存按钮不被键盘盖住 */
@@ -10641,7 +10649,7 @@ html[data-theme='dark'] .heat-day.is-today {
 }
 
 .trash-meta {
-  color: var(--muted-2);
+  color: var(--muted);
   font-size: 9.5px;
 }
 
@@ -10983,8 +10991,8 @@ html[data-theme="dark"] .detail-photo span {
 }
 
 .hero-eye {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   background: rgba(255, 255, 255, 0.1);
   color: var(--hero-ink);
 }
@@ -11562,7 +11570,7 @@ html[data-theme="dark"] .detail-photo span {
 }
 
 html[data-theme="dark"] {
-  --muted-2: #91a198;
+  --muted-2: #8f9b92;
   --hero-start: #123c2b;
   --hero-end: #18543b;
 }
@@ -11631,8 +11639,8 @@ html[data-theme="dark"] .today-strip.is-done .today-icon {
 }
 
 .toast-close {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
 }
 
 @media (max-width: 380px) {
@@ -12289,3 +12297,14 @@ html[data-theme="dark"] .bar-peak {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
 }
 
+/* UI-06：隐藏金额只影响 App 内展示，导出 / 分享仍是明文，入口处需要醒目提示 */
+.export-plaintext-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--danger-soft);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}

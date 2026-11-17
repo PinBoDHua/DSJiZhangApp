@@ -305,6 +305,10 @@ export interface SettlementDraft {
   days: number;
   otHours: number;
   capAdjustment: number;
+  /** 本期按周期折算后的超休额度（天），仅供页面展示；非整月周期只提示不自动扣 */
+  overRestQuotaDays?: number;
+  /** 是否按整月口径自动扣超休：非整月周期为 false（只提示，不扣款），由页面决定展示方式 */
+  overRestAutoDeduction?: boolean;
   entryIds: string[];
   advanceIds: string[];
 }

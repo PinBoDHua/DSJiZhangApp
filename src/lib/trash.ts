@@ -29,6 +29,8 @@ export interface TrashRow {
   /** 金额损失预览；工作 / 休息没有金额 */
   amount: number | null;
   hours: number | null;
+  /** 未舍入的原始工时：恢复前的 24 小时校验要用精确值，界面仍显示 hours */
+  exactHours?: number;
   restDays: number | null;
   /** 工记是否带考勤照片（照片本体仍在本机） */
   hasPhoto?: boolean;
@@ -121,6 +123,7 @@ export function buildTrashRows(state: AppState, now = Date.now()): TrashRow[] {
       remainingDays: trashRemainingDays(item.deletedAt, now),
       amount: payForEntry(entry).total,
       hours: round2(entry.hours || 0),
+      exactHours: entry.hours || 0,
       restDays: null,
       hasPhoto: Boolean(entry.photoId),
     });
@@ -253,7 +256,10 @@ export function trashRestoreBlockReason(
     const sameDay = state.entries
       .filter((entry) => entry.date === date)
       .reduce((sum, entry) => sum + (entry.hours || 0), 0);
-    if (sameDay + (row.hours ?? 0) > 24) return '这天合计会超过 24 小时';
+    // 用未舍入的原始工时复核：15.67 + 8.3349 实际超过 24，账面的 15.67 + 8.33 却放行。
+    if (sameDay + (row.exactHours ?? row.hours ?? 0) > 24) {
+      return '这天合计会超过 24 小时';
+    }
   }
 
   if (row.kind === 'rest') {

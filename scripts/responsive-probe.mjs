@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { seedPrivacyConsent } from './lib/e2e-config.mjs';
 
 const BASE = 'http://127.0.0.1:4173';
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
@@ -14,7 +15,7 @@ const context = await browser.newContext({
   isMobile: true,
   serviceWorkers: 'block',
 });
-await context.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
+await seedPrivacyConsent(context);
 const page = await context.newPage();
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: /先看看示例数据/ }).click();

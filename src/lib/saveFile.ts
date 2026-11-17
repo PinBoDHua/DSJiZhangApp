@@ -23,6 +23,26 @@ interface SaveFilePlugin {
 
 const SaveFile = registerPlugin<SaveFilePlugin>('SaveFile');
 const MAX_NATIVE_SAVE_BYTES = 32 * 1024 * 1024;
+/** 原生桥超时：插件挂起时不能永久占住自动备份的 running 单例 */
+const NATIVE_BRIDGE_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs = NATIVE_BRIDGE_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('保存文件超时，请重试'));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -48,12 +68,14 @@ export async function saveFileToDownloads(
     throw new Error('文件超过 32 MB，已停止直接保存以避免手机内存不足');
   }
   const data = await blobToBase64(blob);
-  const result = await SaveFile.save({
-    filename,
-    mimeType: blob.type || 'application/octet-stream',
-    data,
-    subdir: options.subdirectory,
-  });
+  const result = await withTimeout(
+    SaveFile.save({
+      filename,
+      mimeType: blob.type || 'application/octet-stream',
+      data,
+      subdir: options.subdirectory,
+    }),
+  );
   return { path: result.path, shared: Boolean(result.shared) };
 }
 
@@ -63,6 +85,6 @@ export async function pruneDownloadFiles(
   keep: number,
   subdirectory?: string,
 ): Promise<number> {
-  const result = await SaveFile.prune({ prefix, keep, subdir: subdirectory });
+  const result = await withTimeout(SaveFile.prune({ prefix, keep, subdir: subdirectory }));
   return result.deleted;
 }

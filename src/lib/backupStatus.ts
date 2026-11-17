@@ -40,6 +40,7 @@ export function backupIsDue(state: AppState, now = Date.now()): boolean {
 export function backupDueText(state: AppState, now = Date.now()): string {
   const days = daysSinceBackup(now);
   if (days === null) return '还没有导出过备份';
-  if (days === 0) return '今天已备份';
+  // daysSinceBackup 按 24 小时整除取整，不是自然日：文案不能写“今天”。
+  if (days === 0) return '24 小时内已备份';
   return `已 ${days} 天没有备份`;
 }

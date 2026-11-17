@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   Camera,
@@ -8,6 +8,7 @@ import {
   FileText,
   HardDrive,
   History,
+  RefreshCw,
   ShieldCheck,
   Smartphone,
   Trash2,
@@ -25,6 +26,7 @@ import { buildEntryCsv, buildSettlementCsv } from '../lib/csv';
 import { buildLedgerXlsx, excelFileName } from '../lib/excel';
 import { xlsxBlob } from '../lib/xlsx';
 import { isNativeApp, saveBlobFile, saveTextFile } from '../lib/native';
+import { saveFeedback } from '../lib/fileFeedback';
 import {
   readAutoBackupSettings,
   runAutoBackup,
@@ -64,19 +66,36 @@ export function DataSafety({
   const [clearOpen, setClearOpen] = useState(false);
   const native = isNativeApp();
 
-  const refresh = useCallback(async () => {
+  // 快照列表是异步 IndexedDB 查询：用序号守卫避免先发后至的旧结果覆盖新结果（UI-30）。
+  const snapshotSeq = useRef(0);
+  const loadSnapshots = useCallback(async () => {
+    const seq = ++snapshotSeq.current;
+    try {
+      const list = await listSnapshots();
+      if (seq === snapshotSeq.current) setSnapshots(list);
+    } catch {
+      if (seq === snapshotSeq.current) setSnapshots([]);
+    }
+  }, []);
+
+  const refresh = useCallback(() => {
     setBackupAt(getLastBackupAt());
     setAuto(readAutoBackupSettings());
     setReport(checkLedger(state, { lastBackupAt: getLastBackupAt() }));
-    try {
-      setSnapshots(await listSnapshots());
-    } catch {
-      setSnapshots([]);
-    }
-  }, [state]);
+    void loadSnapshots();
+    // 只依赖体检 / 快照真正读取的账本字段：toast 等无关 state 变化不再重跑全账本体检。
+  }, [
+    state.jobs,
+    state.trashedJobs,
+    state.entries,
+    state.advances,
+    state.restDays,
+    state.settlements,
+    loadSnapshots,
+  ]);
 
   useEffect(() => {
-    void refresh();
+    refresh();
   }, [refresh]);
 
   const quickBackup = async () => {
@@ -87,13 +106,14 @@ export function DataSafety({
         buildExportPayload(state),
       );
       // Android 5–9 走系统分享面板：用户取消时并没有文件落盘，不能记成已备份。
-      if (result === 'shared') {
-        toast('已打开系统分享面板，请确认文件已保存', 'info');
+      const feedback = saveFeedback(result, '账本备份');
+      if (!feedback.backedUp) {
+        toast(feedback.message, feedback.tone);
         return;
       }
       markBackedUp();
       setBackupAt(getLastBackupAt());
-      toast(result === 'native' ? '备份已保存到「下载/Xinshi」' : '备份已导出', 'success');
+      toast(feedback.message, 'success');
     } catch {
       toast('备份失败，请稍后再试', 'error');
     } finally {
@@ -133,8 +153,13 @@ export function DataSafety({
     setBusy(true);
     try {
       const saved = await saveSnapshot(state, 'manual');
-      toast(saved ? '已拍下本机快照' : '内容和上一张快照一样', saved ? 'success' : 'info');
-      setSnapshots(await listSnapshots());
+      if (!saved) toast('内容和上一张快照一样', 'info');
+      else {
+        toast('已拍下本机快照', 'success');
+        // D17：快照本体已写入，仅旧快照清理失败，不能静默吞掉。
+        if (saved.warning) toast(`旧快照清理失败：${saved.warning}`, 'info');
+      }
+      void loadSnapshots();
     } catch (error) {
       toast(error instanceof Error ? error.message : '拍快照失败', 'error');
     } finally {
@@ -146,8 +171,9 @@ export function DataSafety({
     setBusy(true);
     try {
       const data = await buildLedgerXlsx(state);
-      await saveBlobFile(xlsxBlob(data), excelFileName());
-      toast('Excel 对账表已导出', 'success');
+      const result = await saveBlobFile(xlsxBlob(data), excelFileName());
+      const feedback = saveFeedback(result, 'Excel 对账表');
+      toast(feedback.message, feedback.tone);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Excel 导出失败', 'error');
     } finally {
@@ -163,12 +189,8 @@ export function DataSafety({
         buildEntryCsv(state.entries, state.jobs),
         'text/csv;charset=utf-8',
       );
-      toast(
-        result === 'native'
-          ? '完整工记 CSV 已保存到「下载/Xinshi」'
-          : '完整工记 CSV 已导出',
-        'success',
-      );
+      const feedback = saveFeedback(result, '完整工记 CSV');
+      toast(feedback.message, feedback.tone);
     } catch (error) {
       toast(error instanceof Error ? error.message : '工记 CSV 导出失败', 'error');
     } finally {
@@ -179,12 +201,13 @@ export function DataSafety({
   const exportSettlementCsv = async () => {
     setBusy(true);
     try {
-      await saveTextFile(
+      const result = await saveTextFile(
         `薪时结算流水-${todayISO()}.csv`,
         buildSettlementCsv(state.settlements),
         'text/csv;charset=utf-8',
       );
-      toast('结算流水 CSV 已导出', 'success');
+      const feedback = saveFeedback(result, '结算流水 CSV');
+      toast(feedback.message, feedback.tone);
     } catch {
       toast('CSV 导出失败', 'error');
     } finally {
@@ -197,10 +220,12 @@ export function DataSafety({
     setClearOpen(false);
     setBusy(true);
     try {
-      await saveSnapshot(state, 'before-clear');
+      const backup = await saveSnapshot(state, 'before-clear');
+      // D17：清空前快照已写入成功，仅旧快照清理失败时提示，不取消清空。
+      if (backup?.warning) toast(`旧快照清理失败：${backup.warning}`, 'info');
       resetAll();
       toast('数据已清空，可在本机时光机找回清空前快照', 'info');
-      await refresh();
+      refresh();
     } catch (error) {
       toast(
         error instanceof Error
@@ -220,7 +245,22 @@ export function DataSafety({
   const healthText = report ? healthBadgeText(report) : '检查中…';
 
   return (
-    <SubPage title="数据与安全" subtitle="账本只在本机，底要自己留" onBack={onBack}>
+    <SubPage
+      title="数据与安全"
+      subtitle="账本只在本机，底要自己留"
+      onBack={onBack}
+      action={
+        <button
+          type="button"
+          className="btn btn--soft btn--sm"
+          onClick={refresh}
+          disabled={busy}
+        >
+          <RefreshCw size={14} />
+          重新检查
+        </button>
+      }
+    >
       <div className="safety-hero">
         <div className="safety-hero-head">
           <span className="safety-hero-icon">

@@ -4,6 +4,7 @@ import {
   buildSettlementDraft,
   commitSettlement,
   computeOutstanding,
+  dailyBaseSeries,
   dailySeries,
   getSettlementOverview,
   makeSettlement,
@@ -706,7 +707,7 @@ describe('结算汇总', () => {
     expect(draft.net).toBe(3420.45);
   });
 
-  it('固定月薪非整月周期按占比折算超休额度，不再整月重置', () => {
+  it('非整月周期只提示折算额度、不自动扣超休（PAY-02 精确值）', () => {
     const fixedJob = job({
       cycle: 'weekly',
       rule: rule({
@@ -719,7 +720,7 @@ describe('结算汇总', () => {
         otEnabled: false,
       }),
     });
-    // 一周 7 天、11 月 30 天 → 额度约 5×7/30≈1.17；休 3 天应判超休（旧逻辑 3<5 不扣）。
+    // 一周 7 天、11 月 30 天 → 折算额度 5×7/30≈1.17，仅用于展示。
     const restDays: RestDay[] = [2, 3, 4].map((day) => ({
       id: `rest-${day}`,
       jobId: 'job-1',
@@ -734,9 +735,12 @@ describe('结算汇总', () => {
       0,
       0,
       restDays,
+      true,
     );
-    expect(draft.overRestDays).toBeGreaterThan(0);
-    expect(draft.overRestDeduction).toBeGreaterThan(0);
+    expect(draft.overRestQuotaDays).toBe(1.17);
+    expect(draft.overRestAutoDeduction).toBe(false);
+    expect(draft.overRestDays).toBe(0);
+    expect(draft.overRestDeduction).toBe(0);
   });
 
   it('全部未结金额扣除借支', () => {
@@ -859,7 +863,8 @@ describe('工资与结算回归', () => {
       [],
       periodOf('daily', '2026-11-04', 1),
     );
-    expect(dailyDraft.base).toBe(159.09);
+    // 日结一期只有 1 天：PAY-01 封顶按 1/30 折算为 116.67，而不是按 expectedDays 的 159.09。
+    expect(dailyDraft.base).toBe(116.67);
 
     const partialMonth = {
       ...periodOf('monthly', '2026-11-04', 1),
@@ -876,7 +881,8 @@ describe('工资与结算回归', () => {
       [],
       partialMonth,
     );
-    expect(cappedDraft.base).toBe(3500);
+    // 导入的「11/01–11/25」非整月周期：封顶按 25/30 折算为 2916.67（PAY-01），不再是整月 3500。
+    expect(cappedDraft.base).toBe(2916.67);
     expect(cappedDraft.capAdjustment).toBeGreaterThan(0);
   });
 
@@ -956,3 +962,217 @@ describe('工资与结算回归', () => {
     expect(initial.advances[0].settlementId).toBeUndefined();
   });
 });
+
+describe('PAY-01 / 02 / 05 / 09 / 10 / 12 计薪口径回归', () => {
+  const fixedRule = rule({
+    payType: 'monthly',
+    rate: 3500,
+    expectedDays: 22,
+    monthlyMode: 'fixed',
+    otEnabled: false,
+  });
+  const novemberEntries = (days: number, patch: Partial<Entry> = {}): Entry[] =>
+    Array.from({ length: days }, (_, index) =>
+      entry({
+        id: `nov-${index + 1}`,
+        date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+        hours: 6,
+        rule: fixedRule,
+        ...patch,
+      }),
+    );
+
+  it('固定月薪周结 30 天全勤：多期合计回到整月月薪 3500（修复前 4772.74）', () => {
+    const weeklyJob = job({ cycle: 'weekly', rule: fixedRule });
+    const entries = novemberEntries(30);
+    const periods = new Map<string, ReturnType<typeof periodOf>>();
+    for (const item of entries) {
+      const period = periodOf('weekly', item.date, 1);
+      periods.set(period.key, period);
+    }
+    let total = 0;
+    for (const period of periods.values()) {
+      total += buildSettlementDraft(weeklyJob, entries, [], period).base;
+    }
+    // 4 个整周 × (3500×7/30) + 2 个跨月周 × (3500×1/30)，期间独立舍入共 2 分漂移。
+    expect(round2(total)).toBe(3500.02);
+    // 对照：同一批工记按整月结算仍是 3500（修复前周结按整月封顶，合计 4772.74）。
+    const monthlyJob = job({ cycle: 'monthly', rule: fixedRule });
+    const monthlyDraft = buildSettlementDraft(
+      monthlyJob,
+      entries,
+      [],
+      periodOf('monthly', '2026-11-15', 1),
+    );
+    expect(monthlyDraft.base).toBe(3500);
+  });
+
+  it('月休 5 天分三周休：周结各期超休扣款均为 0（修复前合计 264.10）', () => {
+    const weeklyJob = job({
+      cycle: 'weekly',
+      rule: { ...fixedRule, restDaysPerMonth: 5, overRestDeduct: true },
+    });
+    const entries: Entry[] = [
+      entry({ id: 'w1-1', date: '2026-11-05', hours: 6, rule: weeklyJob.rule }),
+      entry({ id: 'w1-2', date: '2026-11-06', hours: 6, rule: weeklyJob.rule }),
+      entry({ id: 'w2-1', date: '2026-11-12', hours: 6, rule: weeklyJob.rule }),
+      entry({ id: 'w2-2', date: '2026-11-13', hours: 6, rule: weeklyJob.rule }),
+      entry({ id: 'w3-1', date: '2026-11-19', hours: 6, rule: weeklyJob.rule }),
+    ];
+    const restDays: RestDay[] = ['2026-11-03', '2026-11-04', '2026-11-10', '2026-11-11', '2026-11-17'].map(
+      (date, index) => ({
+        id: `pay02-rest-${index}`,
+        jobId: weeklyJob.id,
+        date,
+        createdAt: `${date}T12:00:00.000Z`,
+      }),
+    );
+    const drafts = ['2026-11-04', '2026-11-11', '2026-11-18'].map((anchor) =>
+      buildSettlementDraft(
+        weeklyJob,
+        entries,
+        [],
+        periodOf('weekly', anchor, 1),
+        0,
+        0,
+        restDays,
+        true,
+      ),
+    );
+    expect(drafts.map((draft) => draft.overRestDays)).toEqual([0, 0, 0]);
+    expect(drafts.map((draft) => draft.overRestDeduction)).toEqual([0, 0, 0]);
+    expect(drafts.every((draft) => draft.overRestAutoDeduction === false)).toBe(true);
+
+    // 整月周期仍按原口径扣：休 6 天、额度 5 天 → 超休 1 天 = 3500/22 = 159.09。
+    const monthlyJob = job({
+      cycle: 'monthly',
+      rule: { ...fixedRule, restDaysPerMonth: 5, overRestDeduct: true },
+    });
+    const monthlyRest: RestDay[] = Array.from({ length: 6 }, (_, index) => ({
+      id: `monthly-rest-${index}`,
+      jobId: monthlyJob.id,
+      date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+      createdAt: '2026-11-01T12:00:00.000Z',
+    }));
+    const monthlyDraft = buildSettlementDraft(
+      monthlyJob,
+      [entry({ id: 'monthly-work', date: '2026-11-20', hours: 6, rule: monthlyJob.rule })],
+      [],
+      periodOf('monthly', '2026-11-15', 1),
+      0,
+      0,
+      monthlyRest,
+      true,
+    );
+    expect(monthlyDraft.overRestAutoDeduction).toBe(true);
+    expect(monthlyDraft.overRestDays).toBe(1);
+    expect(monthlyDraft.overRestDeduction).toBe(159.09);
+  });
+
+  it('超休扣款先乘后舍入：0.0667 天扣 10.61 而不是 11.14（PAY-09）', () => {
+    const fractionalQuotaJob = job({
+      cycle: 'monthly',
+      rule: {
+        ...fixedRule,
+        restDaysPerMonth: 4.9333,
+        overRestDeduct: true,
+      },
+    });
+    const restDays: RestDay[] = Array.from({ length: 5 }, (_, index) => ({
+      id: `fraction-rest-${index}`,
+      jobId: fractionalQuotaJob.id,
+      date: `2026-11-0${index + 1}`,
+      createdAt: '2026-11-01T12:00:00.000Z',
+    }));
+    const draft = buildSettlementDraft(
+      fractionalQuotaJob,
+      [entry({ id: 'fraction-work', date: '2026-11-20', hours: 6, rule: fractionalQuotaJob.rule })],
+      [],
+      periodOf('monthly', '2026-11-15', 1),
+      0,
+      0,
+      restDays,
+      true,
+    );
+    // 展示天数按分舍入成 0.07；扣款用未舍入的 0.0667 天 × 159.09 = 10.61。
+    expect(draft.overRestDays).toBe(0.07);
+    expect(draft.overRestDeduction).toBe(10.61);
+  });
+
+  it('createdAt 并列时按 id 字典序取最新快照，与入参顺序无关（PAY-10）', () => {
+    const dailyRule = rule({ payType: 'daily', rate: 300, otEnabled: false });
+    const raisedRule = { ...dailyRule, rate: 320 };
+    const older = entry({
+      id: 'tie-a',
+      date: '2026-11-04',
+      hours: 4,
+      rule: dailyRule,
+      createdAt: '2026-11-04T12:00:00.000Z',
+    });
+    const newer = entry({
+      id: 'tie-b',
+      date: '2026-11-04',
+      hours: 4,
+      rule: raisedRule,
+      createdAt: '2026-11-04T12:00:00.000Z',
+    });
+    expect(sumEntriesCapped([older, newer]).base).toBe(320);
+    expect(sumEntriesCapped([newer, older]).base).toBe(320);
+    expect(dailySeries([older, newer], '2026-11-04', '2026-11-04')[0].earnings).toBe(320);
+    expect(dailySeries([newer, older], '2026-11-04', '2026-11-04')[0].earnings).toBe(320);
+  });
+
+  it('孤儿工记按自然月各自封顶，跨月不共享一个月薪额度（PAY-12）', () => {
+    const orphanRule = { ...fixedRule };
+    const entries = ['2026-10-03', '2026-10-04', '2026-11-03', '2026-11-04'].map(
+      (date, index) =>
+        entry({
+          id: `orphan-${index}`,
+          jobId: 'job-gone',
+          date,
+          hours: 6,
+          rule: orphanRule,
+        }),
+    );
+    const outstanding = computeOutstanding(state({ jobs: [], entries }));
+    // 每个自然月各按整月口径 3500，合计 7000；不会因为整本汇总少算一个月。
+    expect(outstanding.net).toBe(7000);
+    expect(outstanding.totals.days).toBe(4);
+  });
+
+  it('封顶后按日分摊合计等于整月封顶总额（PAY-05 同源 helper）', () => {
+    const entries = novemberEntries(25);
+    const period = periodOf('monthly', '2026-11-15', 1);
+    const shares = dailyBaseSeries(entries, period);
+    expect(round2(shares.reduce((sum, share) => sum + share.base, 0))).toBe(
+      sumEntriesCapped(entries, period).base,
+    );
+    const series = dailySeries(entries, period.start, period.end);
+    expect(round2(series.reduce((sum, point) => sum + point.earnings, 0))).toBe(
+      sumEntriesCapped(entries, period).total,
+    );
+  });
+
+  it('结算周期显式开 periodShareCap 时按周期占比封顶，与结算单一致', () => {
+    const week = periodOf('weekly', '2026-11-04', 1);
+    const entries = ['02', '03', '04', '05', '06', '07', '08'].map((day, index) =>
+      entry({
+        id: `week-${index}`,
+        date: `2026-11-${day}`,
+        hours: 6,
+        rule: fixedRule,
+      }),
+    );
+    const shares = dailyBaseSeries(entries, week, { periodShareCap: true });
+    // 7 天全勤 raw = 7×3500/22 = 1113.64，封顶 = 3500×7/30 = 816.67。
+    expect(round2(shares.reduce((sum, share) => sum + share.base, 0))).toBe(816.67);
+    const draft = buildSettlementDraft(
+      job({ cycle: 'weekly', rule: fixedRule }),
+      entries,
+      [],
+      week,
+    );
+    expect(draft.base).toBe(816.67);
+  });
+});
+

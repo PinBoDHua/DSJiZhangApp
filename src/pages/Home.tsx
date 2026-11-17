@@ -19,7 +19,7 @@ import { useStore } from '../store';
 import { EntryRow } from '../components/EntryRow';
 import { JobDot } from '../components/JobDot';
 import { Logo, Wordmark } from '../components/Logo';
-import { Money } from '../components/Money';
+import { Money, usePrivacy } from '../components/Money';
 import { BarChart } from '../components/BarChart';
 import { EmptyState } from '../components/EmptyState';
 import { TimerLive } from '../components/TimerLive';
@@ -51,6 +51,7 @@ import { daysUntilPayday, remainingAmountOf } from '../lib/payment';
 import { planStatusForJob, shortWeekday, formatWorkWeekdays } from '../lib/plan';
 import { makePlannedEntry, type PlannedEntryOptions } from '../lib/planEntries';
 import { monthlyBudgetStatus } from '../lib/budget';
+import { exceedsDailyHours, fixedMonthlyWholeMonth } from '../lib/pagePay';
 
 const PLAN_JOB_KEY = 'xinshi.planJobId';
 
@@ -86,6 +87,7 @@ export function Home({
   onFinishTimer,
 }: HomeProps) {
   const { state, updateProfile, startTimer, clearTimer, toast, addEntry } = useStore();
+  const hideAmounts = usePrivacy();
   const [timerSheetOpen, setTimerSheetOpen] = useState(false);
   const [cancelTimerOpen, setCancelTimerOpen] = useState(false);
   const [restSheetOpen, setRestSheetOpen] = useState(false);
@@ -143,6 +145,23 @@ export function Home({
   const hasFixedMonthly = state.entries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
   );
+  // PAY-21：周结 / 日结的固定月薪按周期折算，不能宣称按整月发放。
+  const wholeMonthPayout = fixedMonthlyWholeMonth(
+    state.entries
+      .filter((entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed')
+      .map((entry) => state.jobs.find((job) => job.id === entry.jobId)?.cycle),
+  );
+  // UI-04：岗位卡「已结清」要和首页 hero 同口径，把已结算待收也算进来。
+  const receivableByJob = new Map<string, number>();
+  for (const settlement of state.settlements) {
+    const remaining = remainingAmountOf(settlement);
+    if (remaining > 0) {
+      receivableByJob.set(
+        settlement.jobId,
+        (receivableByJob.get(settlement.jobId) ?? 0) + remaining,
+      );
+    }
+  }
   const restJobId =
     todayRestDays[0]?.jobId ??
     fixedMonthlyJob?.id ??
@@ -210,7 +229,7 @@ export function Home({
       const dayHours = state.entries
         .filter((entry) => entry.date === item.date)
         .reduce((sum, entry) => sum + entry.hours, 0);
-      if (dayHours + input.hours > 24) {
+      if (exceedsDailyHours(dayHours, input.hours)) {
         skipped += 1;
         continue;
       }
@@ -278,12 +297,10 @@ export function Home({
 
   const finishTimer = (timer: WorkTimer, endedAt: Date) => {
     const times = buildTimerTimes(timer.startedAt, endedAt);
-    // 起止钟点只能表示 0–24 小时；真实时长放在 hours 里，超过 24 小时交给工记页按上限带出。
+    // 起止钟点只能表示 0–24 小时；超过 24 小时的提示只在工记编辑器里弹一次（UI-27）。
     const elapsedHours = times.hours ?? 0;
     let message = '计时结束，确认一下工时';
-    if (elapsedHours >= 24) {
-      message = '计时超过 24 小时，已按 24 小时带出，请拆分核对';
-    } else if (elapsedHours < 1 / 60) {
+    if (elapsedHours < 1 / 60) {
       const [hours, minutes] = times.startTime.split(':').map(Number);
       const total = (hours * 60 + minutes + 1) % 1440;
       times.endTime = `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
@@ -357,7 +374,11 @@ export function Home({
             <strong>{budgetStatus.alert.tone === 'success' ? '本月目标已完成' : '本月预算提醒'}</strong>
             <em>
               {budgetStatus.alert.message}
-              {hasFixedMonthly ? '（固定月薪按整月估算）' : ''}
+              {hasFixedMonthly
+                ? wholeMonthPayout
+                  ? '（固定月薪按整月估算）'
+                  : '（固定月薪按周期折算估算）'
+                : ''}
             </em>
           </span>
           <ChevronRight size={16} />
@@ -621,6 +642,7 @@ export function Home({
                   type="button"
                   key={job.id}
                   className={job.id === planJob.id ? 'is-active' : ''}
+                  aria-pressed={job.id === planJob.id}
                   onClick={() => setPlanJobId(job.id)}
                 >
                   {job.name}
@@ -679,7 +701,13 @@ export function Home({
         <div className="section-head section-head--tight">
           <div>
             <h2>近 7 天</h2>
-            <p>{hasFixedMonthly ? '固定月薪按日折算参考' : '每天挣了多少'}</p>
+            <p>
+              {hasFixedMonthly
+                ? wholeMonthPayout
+                  ? '固定月薪按日折算参考'
+                  : '固定月薪按周期折算参考'
+                : '每天挣了多少'}
+            </p>
           </div>
           <div className="trend-total">
             <span>{hasFixedMonthly ? '折算合计' : '合计'}</span>
@@ -690,7 +718,11 @@ export function Home({
           <>
             <BarChart data={series} height={126} labelEvery={1} />
             {hasFixedMonthly ? (
-              <p className="calc-note">固定月薪实际按整月发放，图表仅按日折算展示。</p>
+              <p className="calc-note">
+                {wholeMonthPayout
+                  ? '固定月薪实际按整月发放，图表仅按日折算展示。'
+                  : '固定月薪实际按结算周期折算发放，图表仅按日折算展示。'}
+              </p>
             ) : null}
           </>
         ) : (
@@ -732,14 +764,25 @@ export function Home({
                     <span>{job.name}</span>
                   </div>
                   <p className="job-card-rate">
-                    {rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)} ·{' '}
-                    {cycleLabel(job.cycle)}
+                    {hideAmounts ? (
+                      <Money value={job.rule.rate} />
+                    ) : (
+                      rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)
+                    )}{' '}
+                    · {cycleLabel(job.cycle)}
                   </p>
                   {pending && pending.outstanding !== 0 ? (
                     <div className="job-card-pending">
                       <span>{pending.outstanding < 0 ? '借支待抵' : '待结'}</span>
                       <strong>
                         <Money value={Math.abs(pending.outstanding)} />
+                      </strong>
+                    </div>
+                  ) : (receivableByJob.get(job.id) ?? 0) > 0 ? (
+                    <div className="job-card-pending">
+                      <span>已结算待收</span>
+                      <strong>
+                        <Money value={receivableByJob.get(job.id) ?? 0} />
                       </strong>
                     </div>
                   ) : (

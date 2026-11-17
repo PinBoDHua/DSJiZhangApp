@@ -27,15 +27,27 @@ if (import.meta.env.PROD && !nativeShell && 'serviceWorker' in navigator) {
 }
 
 // 新版部署后旧页面的懒加载 chunk 可能 404：自动刷新一次拿新页面；30 秒内不重复刷新，避免死循环。
-window.addEventListener('vite:preloadError', (event) => {
-  event.preventDefault();
+let preloadReloadAt = 0;
+
+function markPreloadReload(): boolean {
+  const now = Date.now();
   try {
     const last = Number(sessionStorage.getItem('xinshi.preloadReload') || 0);
-    if (Date.now() - last < 30_000) return;
-    sessionStorage.setItem('xinshi.preloadReload', String(Date.now()));
+    if (now - last < 30_000) return false;
+    sessionStorage.setItem('xinshi.preloadReload', String(now));
+    preloadReloadAt = now;
+    return true;
   } catch {
-    // sessionStorage 不可用时仍刷新一次
+    // sessionStorage 不可用（隐私模式等）时用内存变量节流，避免每次错误都整页刷新
+    if (now - preloadReloadAt < 30_000) return false;
+    preloadReloadAt = now;
+    return true;
   }
+}
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  if (!markPreloadReload()) return;
   window.location.reload();
 });
 

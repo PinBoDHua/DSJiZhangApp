@@ -25,9 +25,12 @@ import java.util.Date;
 import java.util.Locale;
 
 /**
- * 启动阶段诊断：记录 Application / Activity / WebView 的关键节点，
- * 崩溃时把堆栈一起写进 Download/Xinshi/xinshi-diag.txt，方便真机排查。
- * 不联网、不上传，文件只写在本机。
+ * 启动阶段诊断：记录 Application / Activity / WebView 的关键节点，日志只写应用私有目录
+ * （filesDir），供原生崩溃页与调试排查使用。
+ * 只有调试构建或显式诊断构建（-Pxinshi.diag → BuildConfig.XINSHI_DIAG）才会把日志导出到
+ * 公共目录（Android 10+：Download/Xinshi/xinshi-diag.txt；Android 5–9：应用外部私有目录
+ * Android/data/<包名>/files/Xinshi/xinshi-diag.txt，并不是公共下载目录）。
+ * 不联网、不上传。
  */
 public class XinshiApp extends Application {
 
@@ -36,6 +39,9 @@ public class XinshiApp extends Application {
     private static final String EXPORT_NAME = "xinshi-diag.txt";
     private static final String EXPORT_DIR = "Xinshi";
     private static final int MAX_LOG_BYTES = 64 * 1024;
+    private static final int MAX_STACK_FRAMES = 200;
+    private static final int MAX_CAUSE_DEPTH = 8;
+    private static final int READ_TAIL_BYTES = 24 * 1024;
 
     private static XinshiApp instance;
     private static Thread.UncaughtExceptionHandler previousHandler;
@@ -56,6 +62,8 @@ public class XinshiApp extends Application {
                 + " android=" + Build.VERSION.RELEASE
                 + " device=" + Build.MANUFACTURER + " " + Build.MODEL
                 + " webview=" + webViewVersion());
+            // 正式包启动时顺手清掉历史版本可能残留在公共目录的诊断文件（AND-01）。
+            cleanupPublicExport();
             if (BuildConfig.XINSHI_DIAG) {
                 export();
             }
@@ -73,8 +81,8 @@ public class XinshiApp extends Application {
         try {
             File file = new File(app.getFilesDir(), LOG_NAME);
             if (file.length() > MAX_LOG_BYTES) {
-                //noinspection ResultOfMethodCallIgnored
-                file.delete();
+                // 只保留尾部一半，不要把启动节点整份删掉（AND-10）。
+                trimToTail(file, MAX_LOG_BYTES / 2);
             }
             String line = timestamp() + "  " + step + "\n";
             try (FileOutputStream stream = new FileOutputStream(file, true)) {
@@ -86,7 +94,7 @@ public class XinshiApp extends Application {
         }
     }
 
-    /** 记录崩溃堆栈，并立刻导出。 */
+    /** 记录崩溃堆栈（截断到前 MAX_STACK_FRAMES 帧），日志只保存在应用私有目录。 */
     static synchronized void crash(Thread thread, Throwable error) {
         XinshiApp app = instance;
         if (app == null) {
@@ -97,11 +105,15 @@ public class XinshiApp extends Application {
         if (thread != null) {
             writer.append("thread: ").append(thread.getName()).append('\n');
         }
-        error.printStackTrace(new PrintWriter(writer));
+        appendTruncated(error, writer);
         writer.append("===== CRASH END =====\n");
         String text = writer.toString();
         try {
             File file = new File(app.getFilesDir(), LOG_NAME);
+            // 深堆栈/崩溃循环时先滚动截断，避免日志无限膨胀（AND-10）。
+            if (file.length() > MAX_LOG_BYTES) {
+                trimToTail(file, MAX_LOG_BYTES / 2);
+            }
             try (FileOutputStream stream = new FileOutputStream(file, true)) {
                 stream.write(text.getBytes(StandardCharsets.UTF_8));
             }
@@ -112,10 +124,17 @@ public class XinshiApp extends Application {
         export();
     }
 
-    /** 把内部日志导出到 Download/Xinshi/xinshi-diag.txt。 */
+    /**
+     * 把内部日志导出到公共目录（Android 10+ 为 Download/Xinshi/xinshi-diag.txt，
+     * Android 5–9 为应用外部私有目录）。默认关闭：只有调试构建或显式诊断构建才允许导出，
+     * 正式包只写私有 filesDir，避免设备型号/堆栈等诊断信息落在公共目录（AND-01/16）。
+     */
     static synchronized void export() {
         XinshiApp app = instance;
         if (app == null) {
+            return;
+        }
+        if (!BuildConfig.XINSHI_DIAG && !BuildConfig.DEBUG) {
             return;
         }
         try {
@@ -134,6 +153,56 @@ public class XinshiApp extends Application {
         }
     }
 
+    /** 正式包启动时清理历史版本可能残留在公共目录的诊断文件，确保不会长期残留（AND-01）。 */
+    static synchronized void cleanupPublicExport() {
+        XinshiApp app = instance;
+        if (app == null || BuildConfig.XINSHI_DIAG || BuildConfig.DEBUG) {
+            return;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                deleteFromDownloads(app);
+            } else {
+                File dir = new File(app.getExternalFilesDir(null), EXPORT_DIR);
+                File file = new File(dir, EXPORT_NAME);
+                if (file.exists()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    file.delete();
+                }
+            }
+        } catch (Throwable ignored) {
+            // 清理失败不影响启动
+        }
+    }
+
+    /** Android 10+：删除本应用此前写入公共下载目录的诊断文件。 */
+    private static void deleteFromDownloads(Application app) {
+        ContentResolver resolver = app.getContentResolver();
+        String relativePath = Environment.DIRECTORY_DOWNLOADS + "/" + EXPORT_DIR + "/";
+        try (Cursor cursor = resolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            new String[] { MediaStore.MediaColumns._ID },
+            MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
+                + MediaStore.MediaColumns.RELATIVE_PATH + " = ? AND "
+                + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + " = ?",
+            new String[] { EXPORT_NAME, relativePath, app.getPackageName() },
+            null
+        )) {
+            if (cursor == null) {
+                return;
+            }
+            while (cursor.moveToNext()) {
+                long id = cursor.getLong(0);
+                resolver.delete(
+                    ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id),
+                    null,
+                    null
+                );
+            }
+        }
+    }
+
+    /** Android 10+：导出到公共下载目录 Download/Xinshi/（仅诊断构建，见 export 守卫）。 */
     private static void writeToDownloads(Application app, byte[] bytes) {
         ContentResolver resolver = app.getContentResolver();
         String relativePath = Environment.DIRECTORY_DOWNLOADS + "/" + EXPORT_DIR + "/";
@@ -183,6 +252,12 @@ public class XinshiApp extends Application {
         }
     }
 
+    /**
+     * Android 5–9：分区存储前没有公共 Downloads API，这里写的是应用外部私有目录
+     * Android/data/<包名>/files/Xinshi/xinshi-diag.txt，不是注释曾声称的公共 Download 目录；
+     * 仅诊断构建会调用（见 export 守卫）。旧系统上该目录仍可被持 READ_EXTERNAL_STORAGE
+     * 的应用读取，因此正式包不应再写（AND-16）。
+     */
     private static void writeToAppExternal(Application app, byte[] bytes) {
         File dir = new File(app.getExternalFilesDir(null), EXPORT_DIR);
         //noinspection ResultOfMethodCallIgnored
@@ -194,7 +269,7 @@ public class XinshiApp extends Application {
         }
     }
 
-    /** 读取当前日志全文，给原生崩溃页展示。 */
+    /** 只读取日志尾部 READ_TAIL_BYTES，给原生崩溃页展示，避免整份大日志进内存（AND-10）。 */
     static String readLog() {
         XinshiApp app = instance;
         if (app == null) {
@@ -205,9 +280,69 @@ public class XinshiApp extends Application {
             if (!file.exists()) {
                 return "";
             }
-            return new String(readAll(file), StandardCharsets.UTF_8);
+            return new String(readTail(file, READ_TAIL_BYTES), StandardCharsets.UTF_8);
         } catch (Throwable error) {
             return "";
+        }
+    }
+
+    /** 读取文件尾部 maxBytes 字节；文件更短时返回全部。 */
+    private static byte[] readTail(File file, int maxBytes) throws IOException {
+        long length = file.length();
+        long skip = Math.max(0, length - maxBytes);
+        try (FileInputStream stream = new FileInputStream(file)) {
+            long skipped = 0;
+            while (skipped < skip) {
+                long step = stream.skip(skip - skipped);
+                if (step <= 0) {
+                    break;
+                }
+                skipped += step;
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[8 * 1024];
+            int read;
+            while ((read = stream.read(chunk)) > 0) {
+                out.write(chunk, 0, read);
+            }
+            return out.toByteArray();
+        }
+    }
+
+    /** 日志超限时只保留尾部 keepBytes，滚动写入而不是整份删除。 */
+    private static void trimToTail(File file, int keepBytes) {
+        try {
+            byte[] tail = readTail(file, keepBytes);
+            try (FileOutputStream stream = new FileOutputStream(file, false)) {
+                stream.write(tail);
+            }
+        } catch (Throwable ignored) {
+            // 截断失败时继续追加，诊断写入不能影响主流程
+        }
+    }
+
+    /** 截断堆栈：只保留前 MAX_STACK_FRAMES 帧与最多 MAX_CAUSE_DEPTH 层 cause 链。 */
+    private static void appendTruncated(Throwable error, StringWriter writer) {
+        if (error == null) {
+            return;
+        }
+        Throwable current = error;
+        int depth = 0;
+        while (current != null && depth < MAX_CAUSE_DEPTH) {
+            writer.append(depth == 0 ? "" : "Caused by: ").append(String.valueOf(current)).append('\n');
+            StackTraceElement[] frames = current.getStackTrace();
+            int limit = Math.min(frames.length, MAX_STACK_FRAMES);
+            for (int i = 0; i < limit; i++) {
+                writer.append("\tat ").append(frames[i].toString()).append('\n');
+            }
+            if (frames.length > limit) {
+                writer.append("\t... (").append(String.valueOf(frames.length - limit)).append(" 帧已省略)\n");
+            }
+            current = current.getCause();
+            depth += 1;
+        }
+        if (error.getCause() != null && depth >= MAX_CAUSE_DEPTH) {
+            writer.append("\t... (cause 链已截断)\n");
         }
     }
 

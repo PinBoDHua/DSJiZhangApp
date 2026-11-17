@@ -8,6 +8,7 @@ import { SubPage } from '../components/SubPage';
 import { TrashSheet } from '../components/TrashSheet';
 import { CYCLE_LABEL, jobColor, rateLabel } from '../lib/meta';
 import { getSettlementOverview } from '../lib/settlement';
+import { remainingAmountOf } from '../lib/payment';
 
 interface JobsProps {
   onBack: () => void;
@@ -22,6 +23,17 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
   const [trashOpen, setTrashOpen] = useState(false);
   const overview = getSettlementOverview(state);
   const pendingByJob = new Map(overview.jobs.map((item) => [item.job.id, item.outstanding]));
+  // UI-04：「已结清」要纳入已结算待收，和首页 hero 同口径。
+  const receivableByJob = new Map<string, number>();
+  for (const settlement of state.settlements) {
+    const remaining = remainingAmountOf(settlement);
+    if (remaining > 0) {
+      receivableByJob.set(
+        settlement.jobId,
+        (receivableByJob.get(settlement.jobId) ?? 0) + remaining,
+      );
+    }
+  }
   const active = state.jobs.filter((job) => !job.archived);
   const archived = state.jobs.filter((job) => job.archived);
   const trashCount =
@@ -35,6 +47,7 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
     if (!job) return null;
     const meta = jobColor(job.color);
     const pending = pendingByJob.get(job.id) ?? 0;
+    const receivable = receivableByJob.get(job.id) ?? 0;
     return (
       <button type="button" className="job-manage-card" key={job.id} onClick={() => onEdit(job.id)}>
         <span className="job-manage-bar" style={{ background: meta.main }} />
@@ -55,6 +68,10 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
           {pending !== 0 ? (
             <span className="job-pending-badge">
               {pending < 0 ? '待抵' : '待结'} <Money value={Math.abs(pending)} />
+            </span>
+          ) : receivable > 0 ? (
+            <span className="job-pending-badge">
+              已结算待收 <Money value={receivable} />
             </span>
           ) : (
             <span className="job-clear-badge">已结清</span>

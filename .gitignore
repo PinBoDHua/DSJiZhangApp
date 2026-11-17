@@ -16,6 +16,11 @@ android/keystore/
 # 密钥与本地环境配置：绝不允许入库（口令、私钥、签名配置）
 *.jks
 *.keystore
+*.pem
+*.p12
+*.p8
+*.key
+google-services.json
 signing.properties
 password.txt
 .env
@@ -27,4 +32,5 @@ password.txt
 .qoder-credits/
 .trae/
 .workbuddy/
+.audit-work/
 .screenshots/

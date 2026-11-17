@@ -22,11 +22,13 @@ describe('文字版 PDF 工记明细', () => {
     expect(rows[0].label).toContain('11月3日');
   });
 
-  it('忽略不属于同一工作的工记', () => {
+  it('找不到锁定的工记时用占位行标注，不静默少行（PAY-24）', () => {
     const rows = buildPayslipDetailRows(settlement, [
       makeEntry({ id: 'entry-1', jobId: 'job-2', date: '2026-11-03' }),
     ]);
-    expect(rows).toEqual([]);
+    expect(rows.map((row) => row.id)).toEqual(['entry-2', 'entry-1']);
+    expect(rows.every((row) => row.label === '（工记已删除）')).toBe(true);
+    expect(rows.every((row) => row.amount === 0 && row.hours === 0)).toBe(true);
   });
 
   it('按每页 36 行分页，末页保留余数', () => {

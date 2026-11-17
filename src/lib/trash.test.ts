@@ -228,4 +228,22 @@ describe('恢复前的拦截理由', () => {
     expect(day29.remainingDays).toBe(1);
     expect(trashRestoreBlockReason(day29, makeState(), NOW)).toBeNull();
   });
+
+  it('恢复前的 24 小时校验用未舍入的原始工时（D23）', () => {
+    const preciseRow = buildTrashRows(
+      makeState({
+        jobs: [job],
+        trashedEntries: [
+          { entry: makeEntry({ id: 'entry-precise', hours: 8.3349 }), deletedAt: daysAgo(1) },
+        ],
+      }),
+      NOW,
+    )[0];
+    const other = makeEntry({ id: 'entry-precise-other', hours: 15.67 });
+    // 界面显示 8.33 小时，15.67 + 8.33 = 24.00 看似合规，精确值 24.0049 实际已超。
+    expect(preciseRow.hours).toBe(8.33);
+    expect(trashRestoreBlockReason(preciseRow, makeState({ jobs: [job], entries: [other] }), NOW)).toBe(
+      '这天合计会超过 24 小时',
+    );
+  });
 });

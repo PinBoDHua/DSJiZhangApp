@@ -114,8 +114,16 @@ export async function clearPhotos(): Promise<void> {
   });
 }
 
-/** 启动时清理不再被任何工记（含回收站工记）引用的照片 */
-export async function prunePhotos(keepIds: Set<string>): Promise<number> {
+/**
+ * 启动时清理不再被任何工记（含回收站工记）引用的照片。
+ * skipCreatedAfter（ISO 时间）之后新建的照片一律不删：冷启动瞬间的 keep 集
+ * 在 mount 时算好，随后刚拍下、还没写进账本的工记照片会被误判成孤儿，
+ * 而照片本体不可再生。
+ */
+export async function prunePhotos(
+  keepIds: Set<string>,
+  skipCreatedAfter?: string,
+): Promise<number> {
   if (typeof indexedDB === 'undefined') return 0;
   const db = await openPhotoDb();
   return new Promise<number>((resolve, reject) => {
@@ -127,7 +135,11 @@ export async function prunePhotos(keepIds: Set<string>): Promise<number> {
       const cursor = cursorRequest.result;
       if (!cursor) return;
       const record = cursor.value as PhotoRecord;
-      if (!keepIds.has(record.id)) {
+      const createdAfterPruneStart =
+        skipCreatedAfter !== undefined &&
+        typeof record.createdAt === 'string' &&
+        record.createdAt > skipCreatedAfter;
+      if (!keepIds.has(record.id) && !createdAfterPruneStart) {
         cursor.delete();
         removed += 1;
       }

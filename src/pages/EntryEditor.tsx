@@ -23,6 +23,7 @@ import {
 } from '../lib/date';
 import { formatHours } from '../lib/money';
 import { round2, toAmount } from '../lib/money';
+import { clampMoneyInput, exceedsDailyHours, moneyInputTooLarge } from '../lib/pagePay';
 import { autoOtHours, otHourlyRate, otMultiplierFor, payForEntry } from '../lib/pay';
 import type { TimerTimes } from '../lib/timer';
 import { DURATION_PRESETS, endTimeForDuration } from '../lib/timePreset';
@@ -242,8 +243,8 @@ export function EntryEditor({
         hours,
         quantity: isPiece ? quantityValue : 0,
         otHours: effectiveOt,
-        bonus: Math.max(0, toAmount(bonus)),
-        deduction: Math.max(0, toAmount(deduction)),
+        bonus: clampMoneyInput(toAmount(bonus)),
+        deduction: clampMoneyInput(toAmount(deduction)),
         holiday: overtimeEnabled && holiday,
         note,
         rule,
@@ -384,10 +385,15 @@ export function EntryEditor({
       showError('这份工作的单价还是 0，请先去工作管理里设置');
       return;
     }
+    // UI-10：奖金 / 扣款与导入钳制同一上限（≤ 100 万），避免导出→导入静默改数。
+    if (moneyInputTooLarge(toAmount(bonus)) || moneyInputTooLarge(toAmount(deduction))) {
+      showError('奖金 / 扣款不能超过 100 万，请检查金额');
+      return;
+    }
     const otherDayHours = state.entries
       .filter((entry) => entry.date === date && entry.id !== existing?.id)
       .reduce((sum, entry) => sum + (entry.hours || 0), 0);
-    if (hours > 0 && otherDayHours + hours > 24) {
+    if (hours > 0 && exceedsDailyHours(otherDayHours, hours)) {
       showError(
         `当天已记 ${formatHours(otherDayHours)}h，再加 ${formatHours(hours)}h 会超过 24 小时，请核对`,
       );
@@ -448,8 +454,8 @@ export function EntryEditor({
       hours: round2(hours),
       quantity: isPiece ? round2(quantityValue) : 0,
       otHours: round2(effectiveOt),
-      bonus: round2(Math.max(0, toAmount(bonus))),
-      deduction: round2(Math.max(0, toAmount(deduction))),
+      bonus: clampMoneyInput(toAmount(bonus)),
+      deduction: clampMoneyInput(toAmount(deduction)),
       holiday: Boolean(overtimeEnabled && holiday),
       note: note.trim() || undefined,
       photoId: nextPhotoId,
@@ -638,6 +644,7 @@ export function EntryEditor({
                   type="button"
                   key={job.id}
                   className={`job-choice ${job.id === jobId ? 'is-active' : ''}`}
+                  aria-pressed={job.id === jobId}
                   onClick={() => chooseJob(job)}
                 >
                   <JobDot color={job.color} size={8} />
@@ -656,6 +663,7 @@ export function EntryEditor({
                   type="button"
                   key={item.offset}
                   className={`date-chip ${date === item.iso ? 'is-active' : ''}`}
+                  aria-pressed={date === item.iso}
                   onClick={() => {
                     dirtyRef.current = true;
                     setDate(item.iso);
@@ -690,6 +698,7 @@ export function EntryEditor({
                 <button
                   type="button"
                   className={timeMode === 'range' ? 'is-active' : ''}
+                  aria-pressed={timeMode === 'range'}
                   onClick={() => switchTimeMode('range')}
                 >
                   按上下班时间
@@ -697,6 +706,7 @@ export function EntryEditor({
                 <button
                   type="button"
                   className={timeMode === 'manual' ? 'is-active' : ''}
+                  aria-pressed={timeMode === 'manual'}
                   onClick={() => switchTimeMode('manual')}
                 >
                   直接填工时
@@ -714,6 +724,7 @@ export function EntryEditor({
                         className={
                           Math.abs(netHours - preset) < 0.01 ? 'is-active' : ''
                         }
+                        aria-pressed={Math.abs(netHours - preset) < 0.01}
                         onClick={() => {
                           dirtyRef.current = true;
                           setEndTime(endTimeForDuration(startTime, preset, breakMinutes));
@@ -750,6 +761,7 @@ export function EntryEditor({
                           type="button"
                           key={value}
                           className={breakMinutes === value ? 'is-active' : ''}
+                          aria-pressed={breakMinutes === value}
                           onClick={() => {
                             dirtyRef.current = true;
                             setBreakMinutes(value);
@@ -905,9 +917,11 @@ export function EntryEditor({
                   <span>小时</span>
                 </div>
                 <p className="field-hint">
-                  {isFixedMonthly
-                    ? '默认按班次带入，用于统计；加班时长不能超过总工时（固定月薪本身不受影响）。'
-                    : '用于统计，同时是加班时长上限；不参与日薪 / 月薪基础工资计算。'}
+                  {hours <= 0
+                    ? '工时填 0 仍按 1 个出勤日计薪（日薪 / 月薪基础工资不受工时影响）。'
+                    : isFixedMonthly
+                      ? '默认按班次带入，用于统计；加班时长不能超过总工时（固定月薪本身不受影响）。'
+                      : '用于统计，同时是加班时长上限；不参与日薪 / 月薪基础工资计算。'}
                 </p>
               </label>
             </>
@@ -1066,6 +1080,7 @@ export function EntryEditor({
               ref={photoInputRef}
               className="photo-input"
               type="file"
+              tabIndex={-1}
               accept="image/*"
               aria-label="选择考勤照片"
               onChange={(event) => void handlePhotoFile(event)}

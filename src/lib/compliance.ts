@@ -4,7 +4,7 @@
  */
 
 export { APP_VERSION } from './version';
-export const PRIVACY_VERSION = '2026-11-05';
+export const PRIVACY_VERSION = '2026-11-17';
 export const PRIVACY_CONSENT_KEY = 'xinshi.privacyConsent';
 
 const env = import.meta.env as Record<string, string | undefined>;
@@ -16,8 +16,8 @@ const env = import.meta.env as Record<string, string | undefined>;
  */
 export const PRIVACY_URL = env.VITE_PRIVACY_URL || 'privacy-policy.html';
 
-/** 支持邮箱；上线前用 VITE_SUPPORT_EMAIL 换成真实邮箱。 */
-export const SUPPORT_EMAIL = env.VITE_SUPPORT_EMAIL || 'support@xinshi.app';
+/** 支持邮箱（2026-11-17 已替换为真实可收信邮箱；仍可用 VITE_SUPPORT_EMAIL 覆盖）。 */
+export const SUPPORT_EMAIL = env.VITE_SUPPORT_EMAIL || '2359648846@qq.com';
 
 export function readPrivacyConsent(): string | null {
   try {

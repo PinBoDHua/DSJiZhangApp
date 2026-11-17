@@ -42,7 +42,7 @@ import {
   markBackedUp,
 } from '../lib/backupStatus';
 import { isNativeApp, saveTextFile } from '../lib/native';
-import { saveSnapshot } from '../lib/snapshots';
+import { clearSnapshots, saveSnapshot } from '../lib/snapshots';
 import { APP_VERSION } from '../lib/version';
 import {
   getNativeReminderPermission,
@@ -73,6 +73,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   const [nameDraft, setNameDraft] = useState(state.profile.name);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [clearSnapshotsToo, setClearSnapshotsToo] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [budgetEnabled, setBudgetEnabled] = useState(false);
   const [budgetIncome, setBudgetIncome] = useState('');
@@ -94,6 +95,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
   const [encryptedImportText, setEncryptedImportText] = useState<string | null>(null);
   const [importPassword, setImportPassword] = useState('');
   const [importBusy, setImportBusy] = useState(false);
+  const [fileBusy, setFileBusy] = useState(false);
   const [importError, setImportError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   // 解密是异步的：用户关掉密码框后，迟到的结果不能再弹出导入确认。
@@ -234,6 +236,13 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
+    // 读取前先挡住超大文件：file.text() + JSON.parse 的峰值可达文件数倍，低端 WebView 会 OOM。
+    if (file.size > 20 * 1024 * 1024) {
+      toast('备份文件超过 20MB，无法导入', 'error');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+    setFileBusy(true);
     try {
       const text = await file.text();
       if (isEncryptedBackup(text)) {
@@ -244,12 +253,18 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
         return;
       }
       decryptSeqRef.current += 1;
-      const imported = validateImport(text, { unlockOrphans: true });
+      // 主动导入时拒绝「已结算周期内却没锁定」的工记，否则导入后永远无法结算。
+      const imported = validateImport(text, {
+        unlockOrphans: true,
+        rejectUnsettledInPeriod: true,
+        onWarning: (message) => toast(message, 'info'),
+      });
       setPendingImport(imported);
     } catch (error) {
       const message = error instanceof Error ? error.message : '导入失败，请检查文件';
       toast(message, 'error');
     } finally {
+      setFileBusy(false);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -264,8 +279,18 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
       const imported = await decryptBackup(encryptedImportText, importPassword);
       // 用户在解密期间关掉密码框或换了文件时，丢弃这次结果。
       if (seq !== decryptSeqRef.current) return;
+      // 加密备份的 validateImport 在 backup.ts 内部完成，这里按同一口径再过一遍，
+      // 让「已结算周期内未锁定工记」的拒绝规则也覆盖加密备份。
+      const checked = validateImport(
+        JSON.stringify({ app: 'xinshi', version: imported.version, data: imported }),
+        {
+          unlockOrphans: true,
+          rejectUnsettledInPeriod: true,
+          onWarning: (message) => toast(message, 'info'),
+        },
+      );
       setEncryptedImportText(null);
-      setPendingImport(imported);
+      setPendingImport(checked);
     } catch (error) {
       if (seq !== decryptSeqRef.current) return;
       setImportError(error instanceof Error ? error.message : '解密失败');
@@ -301,12 +326,29 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
 
   const clearWithSnapshot = async () => {
     if (importBusy) return;
+    const removeSnapshots = clearSnapshotsToo;
     setClearOpen(false);
+    setClearSnapshotsToo(false);
     setImportBusy(true);
     try {
       await saveSnapshot(state, 'before-clear');
       resetAll();
-      toast('数据已清空，清空前账本已留快照', 'info');
+      if (removeSnapshots) {
+        // 快照里含完整金额和备注：勾选「同时删除」时连清空前快照一起抹掉。
+        try {
+          await clearSnapshots();
+          toast('数据与全部历史快照已清空', 'info');
+        } catch (error) {
+          toast(
+            error instanceof Error
+              ? `数据已清空，但历史快照删除失败：${error.message}`
+              : '数据已清空，但历史快照删除失败，请到「数据安全」页手动删除',
+            'error',
+          );
+        }
+      } else {
+        toast('数据已清空，清空前账本已留快照', 'info');
+      }
     } catch (error) {
       toast(
         error instanceof Error
@@ -770,13 +812,18 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
-          <button type="button" className="settings-row" onClick={() => fileRef.current?.click()}>
+          <button
+            type="button"
+            className="settings-row"
+            onClick={() => fileRef.current?.click()}
+            disabled={fileBusy || importBusy}
+          >
             <span className="settings-icon">
               <Upload size={18} />
             </span>
             <span className="settings-body">
               <strong>导入备份</strong>
-              <em>支持普通或加密 JSON 文件</em>
+              <em>{fileBusy ? '正在读取备份文件…' : '支持普通或加密 JSON 文件'}</em>
             </span>
             <ChevronRight size={16} className="settings-chevron" />
           </button>
@@ -800,7 +847,11 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
           <button
             type="button"
             className="settings-row settings-row--danger"
-            onClick={() => setClearOpen(true)}
+            onClick={() => {
+              setClearSnapshotsToo(false);
+              setClearOpen(true);
+            }}
+            disabled={importBusy}
           >
             <span className="settings-icon">
               <Trash2 size={18} />
@@ -812,6 +863,12 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             <ChevronRight size={16} className="settings-chevron" />
           </button>
         </div>
+        {importBusy ? (
+          <p className="settings-note" role="status">
+            <ShieldCheck size={14} />
+            <span>正在保存快照并应用更改，请稍候…</span>
+          </p>
+        ) : null}
         <p className="settings-note">
           <ShieldCheck size={14} />
           <span>
@@ -854,6 +911,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
         type="file"
         accept="application/json,.json"
         className="visually-hidden"
+        tabIndex={-1}
         onChange={(event) => handleFile(event.target.files?.[0])}
       />
 
@@ -873,7 +931,7 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
             <span className="field-label">本月工时上限（小时，选填）</span>
             <input className="text-input" type="number" min={0} max={744} step={1} value={budgetHours} onChange={(event) => { setBudgetHours(event.target.value); setBudgetError(''); }} placeholder="例如 200" inputMode="decimal" />
           </label>
-          <p className="field-hint">只统计当前月且日期不超过今天的工记；未来计划不计入。提醒显示在首页、统计和本月首次跨档 Toast，不需要通知权限。</p>
+          <p className="field-hint">只统计当前月且日期不超过今天的工记；未来计划不计入。固定月薪岗位按整月月薪估算。提醒显示在首页、统计和本月首次跨档 Toast，不需要通知权限。</p>
           {budgetError ? <p className="form-error" role="alert">{budgetError}</p> : null}
         </div>
         <div className="sheet-footer">
@@ -1079,10 +1137,27 @@ export function Profile({ onOpenJobs, onOpenDataSafety }: ProfileProps) {
       <ConfirmDialog
         open={clearOpen}
         title="清空所有数据？"
-        description="工作、工记、借支和结算单会全部删除。清空前必须成功保存本机快照，否则不会执行。"
+        description={
+          <>
+            工作、工记、借支和结算单会全部删除。清空前必须成功保存本机快照，否则不会执行。
+            <br />
+            此前保存的最多 30 份历史快照（含完整金额与备注）默认仍留在这台设备。
+            <label className="payslip-option" style={{ marginTop: 10 }}>
+              <input
+                type="checkbox"
+                checked={clearSnapshotsToo}
+                onChange={(event) => setClearSnapshotsToo(event.target.checked)}
+              />
+              <span>同时删除全部历史快照（彻底抹除账本痕迹）</span>
+            </label>
+          </>
+        }
         confirmLabel="全部清空"
         danger
-        onCancel={() => setClearOpen(false)}
+        onCancel={() => {
+          setClearOpen(false);
+          setClearSnapshotsToo(false);
+        }}
         onConfirm={() => void clearWithSnapshot()}
       />
     </div>

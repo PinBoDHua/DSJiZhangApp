@@ -18,7 +18,12 @@
           var meta = document.querySelector('meta[name="theme-color"]');
           if (meta) meta.setAttribute('content', dark ? '#0F1714' : '#146B4B');
         } catch (error) {
-          /* 首次进入或隐私模式，保持默认浅色 */
+          /* 存储不可用（隐私模式等）时退回系统配色，避免暗色系统下首屏闪白 */
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.dataset.theme = prefersDark ? 'dark' : 'light';
+          document.documentElement.style.colorScheme = prefersDark ? 'dark' : 'light';
         }
       })();
     </script>

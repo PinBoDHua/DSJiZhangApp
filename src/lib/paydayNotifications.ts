@@ -11,10 +11,13 @@ export function paydayNotificationBaseId(jobId: string): number {
     hash = Math.imul(hash, 16777619);
   }
   // 与工作数组顺序无关，并远离 daily / test 使用的 8100–8199。
-  return 100_000 + (hash >>> 0) % 1_000_000 * 3;
+  // 模数取 7 亿（×3 后约 21 亿，仍 < int32 上限 2147483647）；10 个岗位的碰撞概率
+  // 从约 0.005%（模 100 万）降到约 6e-9，大幅降低通知互相覆盖。
+  return 100_000 + ((hash >>> 0) % 700_000_000) * 3;
 }
 
-function nextPayday(payday: number, from = new Date()): Date {
+/** 下一次发薪日 09:00（月末自动回落、跨年进位）；今天已过 09:00 则排到下月。 */
+export function nextPayday(payday: number, from = new Date()): Date {
   const safeDay = Math.max(1, Math.min(31, Math.round(payday)));
   const candidate = new Date(
     from.getFullYear(),

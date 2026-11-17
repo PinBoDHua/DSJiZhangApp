@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReminderIcs, reminderDue } from './reminder';
+import { buildReminderIcs, foldIcsLines, reminderDue } from './reminder';
 import { buildDailyReminderPlan } from './nativeReminders';
 
 describe('记工提醒', () => {
@@ -36,3 +36,31 @@ describe('记工提醒', () => {
     expect(buildDailyReminderPlan('25:99', true, now)).toEqual([]);
   });
 });
+describe('ICS RFC5545 折行', () => {
+  const encoder = new TextEncoder();
+
+  it('75 octet 上限、续行以空格开头、不拆 UTF-8 字符', () => {
+    const description = `DESCRIPTION:${'中文提醒'.repeat(20)}`;
+    const folded = foldIcsLines([description]);
+    const lines = folded.split('\r\n');
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(encoder.encode(line).length).toBeLessThanOrEqual(75);
+    }
+    for (const line of lines.slice(1)) {
+      expect(line.startsWith(' ')).toBe(true);
+    }
+    // unfold 后必须还原原文，且没有拆出替换字符。
+    expect(folded.replace(/\r\n /g, '')).toBe(description);
+    expect(folded).not.toContain('\uFFFD');
+  });
+
+  it('完整 ICS 每行都不超过 75 字节', () => {
+    const ics = buildReminderIcs('21:30');
+    for (const line of ics.split('\r\n').filter((item) => item.length > 0)) {
+      expect(encoder.encode(line).length).toBeLessThanOrEqual(75);
+    }
+    expect(ics).toContain('BEGIN:VCALENDAR');
+  });
+});
+

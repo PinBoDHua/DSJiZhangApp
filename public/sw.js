@@ -1,4 +1,4 @@
-const CACHE_NAME = 'xinshi-v30';
+const CACHE_NAME = 'xinshi-v32';
 // 保留上一版缓存：新版部署后仍开着的旧页面，懒加载 chunk 还能命中旧缓存。
 const KEEP_VERSIONS = 2;
 const CORE = [
@@ -10,13 +10,26 @@ const CORE = [
   '/icons/icon-512.png',
 ];
 
+/**
+ * 预缓存（UI-11）：构建期生成的 dist/precache-manifest.json 列出全部路由 chunk 与静态资源，
+ * 新装 PWA 直接断网也能打开任意页面；清单缺失或请求失败时回退到 CORE。
+ */
+function precache() {
+  return fetch('/precache-manifest.json', { cache: 'no-store' })
+    .then((response) => {
+      if (!response.ok) throw new Error('预缓存清单请求失败：' + response.status);
+      return response.json();
+    })
+    .then((manifest) => {
+      const files = manifest && Array.isArray(manifest.files) ? manifest.files : [];
+      if (files.length === 0) throw new Error('预缓存清单为空');
+      return caches.open(CACHE_NAME).then((cache) => cache.addAll(files));
+    })
+    .catch(() => caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE)));
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(CORE))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -24,11 +37,14 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) => {
+        // 只清理薪时自己的版本缓存；同源其他应用的缓存不动（UI-38）。
         const versions = keys
           .filter((key) => /^xinshi-v\d+$/.test(key))
           .sort((a, b) => Number(b.slice(8)) - Number(a.slice(8)));
         const keep = new Set(versions.slice(0, KEEP_VERSIONS));
-        return Promise.all(keys.filter((key) => !keep.has(key)).map((key) => caches.delete(key)));
+        return Promise.all(
+          versions.filter((key) => !keep.has(key)).map((key) => caches.delete(key)),
+        );
       })
       .then(() => self.clients.claim()),
   );

@@ -81,6 +81,17 @@ describe('XLSX 生成', () => {
     await expect(buildXlsx([{ name: '   ', rows: [['A']] }])).rejects.toThrow('不能为空');
   });
 
+  it('剥离非法 XML 字符并把回车统一成换行', async () => {
+    const data = await buildXlsx([
+      { name: 'S', rows: [['A'], ['前\r\n中\r后\uFFFF\u0001']] },
+    ]);
+    const sheet = readZip(data).get('xl/worksheets/sheet1.xml')?.text ?? '';
+    expect(sheet).not.toContain('\uFFFF');
+    expect(sheet).not.toContain('\u0001');
+    expect(sheet).toContain('前\n中\n后');
+    expect(sheet).not.toContain('\r');
+  });
+
   it('返回正确的 MIME 类型 Blob', async () => {
     const data = await buildXlsx([{ name: 'S', rows: [['A']] }]);
     const blob = xlsxBlob(data);

@@ -144,3 +144,33 @@ describe('搜索关键词', () => {
     expect(jobsInResults(results, [job, otherJob]).map((item) => item.id)).toEqual(['job-1']);
   });
 });
+describe('已结算判定与结算单 entryIds 同口径', () => {
+  it('孤儿 settlementId（结算单已删）按未结算处理', () => {
+    const orphan = makeEntry({
+      id: 'e-orphan',
+      jobId: 'job-1',
+      date: '2026-11-06',
+      note: '孤儿结算引用',
+      settlementId: 'settlement-gone',
+    });
+    const settledEntry = makeEntry({
+      id: 'e-settled',
+      jobId: 'job-1',
+      date: '2026-11-07',
+      note: '真实已结算',
+      settlementId: 'settlement-1',
+    });
+    const settledEntryIds = new Set(['e-settled']);
+    const ids = (query: string) =>
+      searchEntries([orphan, settledEntry], [job], query, { settledEntryIds }).map(
+        (item) => item.entry.id,
+      );
+    expect(ids('未结算')).toEqual(['e-orphan']);
+    expect(ids('已结算')).toEqual(['e-settled']);
+    // 不传集合时保持旧行为（回退看 settlementId），供尚未适配的调用方过渡。
+    expect(
+      searchEntries([orphan], [job], '已结算').map((item) => item.entry.id),
+    ).toEqual(['e-orphan']);
+  });
+});
+

@@ -10,10 +10,10 @@ if (keystorePropertiesFile.exists()) {
 // -Pxinshi.debuggable 让 release 包带 WebView 调试（仅本地排查用，发布包绝不能带）。
 def xinshiVersionCode = project.hasProperty('xinshi.versionCode')
     ? project.property('xinshi.versionCode').toString().toInteger()
-    : 1204
+    : 1205
 def xinshiVersionName = project.hasProperty('xinshi.versionName')
     ? project.property('xinshi.versionName').toString()
-    : "1.2.4"
+    : "1.2.5"
 def xinshiMinify = !project.hasProperty('xinshi.noMinify')
 def xinshiDebuggable = project.hasProperty('xinshi.debuggable')
 // 仅排查 R8：保留压缩，同时打开 WebView CDP；发布不能使用。
@@ -81,7 +81,22 @@ gradle.taskGraph.whenReady { graph ->
     def releaseTask = graph.allTasks.find { task ->
         task.project == appProject && releaseArtifactTaskNames.contains(task.name)
     }
-    if (releaseTask != null && !signingPropertiesFile.exists()) {
+    if (releaseTask == null) {
+        return
+    }
+    // 拒绝可调试 release：-Pxinshi.debuggable / -Pxinshi.webviewDebug 会让正式签名的 release
+    // 带上 debuggable=true（run-as 可读整本账、WebView CDP 开启），只能本地排查，绝不可分发。
+    if (xinshiDebuggable || xinshiWebViewDebug) {
+        def flags = []
+        if (xinshiDebuggable) flags.add('-Pxinshi.debuggable')
+        if (xinshiWebViewDebug) flags.add('-Pxinshi.webviewDebug')
+        throw new GradleException(
+            "拒绝构建可调试 release：检测到 ${flags.join(' / ')}。\n" +
+            "这些开关会让 release 包 debuggable=true（run-as 可读账本、WebView 远程调试开启），" +
+            "正式包禁止使用；本地排查请改用 debug 构建，或移除参数后重新执行 ${releaseTask.name}。"
+        )
+    }
+    if (!signingPropertiesFile.exists()) {
         throw new GradleException(
             "缺少发布签名配置：${signingPropertiesFile} 不存在。\n" +
             "请在 android/keystore/signing.properties 配置 storeFile / storePassword / keyAlias / keyPassword，" +
@@ -110,11 +125,5 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
-}
+// 本项目不使用 Firebase / 推送，已移除 google-services 探测与插件应用（AND-20）。
+// 若日后接入 Firebase，请同时恢复本块并清理 android/build.gradle 的 classpath 与 .gitignore 例外。

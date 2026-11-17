@@ -63,6 +63,43 @@ export async function showLocalNotification(
   }
 }
 
+const ICS_MAX_OCTETS = 75;
+
+/** 按 RFC5545 折行：每行 UTF-8 不超过 75 字节、续行以单个空格开头，且不拆多字节字符。 */
+function foldIcsLine(line: string): string[] {
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= ICS_MAX_OCTETS) return [line];
+  const parts: string[] = [];
+  let current = '';
+  let currentBytes = 0;
+  let limit = ICS_MAX_OCTETS;
+  for (const char of line) {
+    const charBytes = encoder.encode(char).length;
+    if (currentBytes + charBytes > limit) {
+      parts.push(current);
+      current = '';
+      currentBytes = 0;
+      // 续行行首的一个空格也占 1 字节。
+      limit = ICS_MAX_OCTETS - 1;
+    }
+    current += char;
+    currentBytes += charBytes;
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+/** 折行后以 CRLF 连接；续行加一个前导空格（unfold 时会被去掉）。 */
+export function foldIcsLines(lines: string[]): string {
+  const folded: string[] = [];
+  for (const line of lines) {
+    foldIcsLine(line).forEach((part, index) => {
+      folded.push(index === 0 ? part : ` ${part}`);
+    });
+  }
+  return folded.join('\r\n');
+}
+
 function icsLocal(date: Date): string {
   return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}T${pad2(
     date.getHours(),
@@ -112,7 +149,7 @@ export function buildReminderIcs(time: string): string {
     'END:VEVENT',
     'END:VCALENDAR',
   ];
-  return `${lines.join('\r\n')}\r\n`;
+  return `${foldIcsLines(lines)}\r\n`;
 }
 
 export function downloadReminderIcs(time: string): void {

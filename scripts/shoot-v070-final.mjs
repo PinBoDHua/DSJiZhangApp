@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { PRIVACY_VERSION } from './lib/e2e-config.mjs';
 import { mkdir } from 'node:fs/promises';
 
 const BASE = 'http://127.0.0.1:4173';
@@ -16,11 +17,11 @@ async function newPage(viewport = { width: 390, height: 844 }, theme = 'light') 
     serviceWorkers: 'block',
   });
   await context.addInitScript(
-    ({ theme }) => {
-      localStorage.setItem('xinshi.privacyConsent', '2026-11-05');
+    ({ theme, consent }) => {
+      localStorage.setItem('xinshi.privacyConsent', consent);
       localStorage.setItem('xinshi.theme', theme);
     },
-    { theme },
+    { theme, consent: PRIVACY_VERSION },
   );
   const page = await context.newPage();
   return { context, page };

@@ -26,6 +26,7 @@ import {
 import { formatHours } from '../lib/money';
 import { buildAttendanceCsv } from '../lib/csv';
 import { saveTextFile } from '../lib/native';
+import { saveFeedback } from '../lib/fileFeedback';
 import { formatRestDays, restDayAmount, totalRestDays } from '../lib/rest';
 
 interface AttendancePageProps {
@@ -33,6 +34,8 @@ interface AttendancePageProps {
   onBack: () => void;
   onAddEntry: (jobId: string, date: string) => void;
   onOpenEntry: (entryId: string) => void;
+  /** 可选：初始岗位已被彻底删除时提供「去工作管理」入口；不传则只显示返回。 */
+  onOpenJobs?: () => void;
 }
 
 interface SelectedCell {
@@ -45,6 +48,7 @@ export function AttendancePage({
   onBack,
   onAddEntry,
   onOpenEntry,
+  onOpenJobs,
 }: AttendancePageProps) {
   const { state, toast } = useStore();
   const today = todayISO();
@@ -67,6 +71,8 @@ export function AttendancePage({
     ? state.jobs.find((job) => job.id === initialJobId)
     : undefined;
   const jobs = initialJobId ? (initialJob ? [initialJob] : []) : activeJobs;
+  // 从记录页按岗位筛选进来、但该岗位已被彻底删除：不能落「还没有工作」的通用空态（UI-35）。
+  const initialJobMissing = Boolean(initialJobId) && !initialJob;
   const archivedReadonly = Boolean(initialJob?.archived);
   const monthEntries = state.entries.filter(
     (entry) => entry.date >= period.start && entry.date <= period.end,
@@ -147,11 +153,8 @@ export function AttendancePage({
         csv,
         'text/csv;charset=utf-8',
       );
-      toast(
-        result === 'native'
-          ? '考勤 CSV 已保存到「下载/Xinshi」'
-          : '考勤 CSV 已导出',
-      );
+      const feedback = saveFeedback(result, '考勤 CSV');
+      toast(feedback.message, feedback.tone);
     } catch {
       toast('考勤 CSV 导出失败，请稍后再试', 'error');
     } finally {
@@ -170,10 +173,21 @@ export function AttendancePage({
         <div className="card">
           <EmptyState
             icon={CalendarRange}
-            title="还没有工作"
-            description="先建一份工作，再回来看整月考勤。"
-            actionLabel="返回"
+            title={initialJobMissing ? '这份工作已删除' : '还没有工作'}
+            description={
+              initialJobMissing
+                ? '它可能已被彻底删除（回收站里也找不到了）。可以返回记录换一份工作查看，或去工作管理新建。'
+                : '先建一份工作，再回来看整月考勤。'
+            }
+            actionLabel={initialJobMissing ? '返回记录' : '返回'}
             onAction={onBack}
+            extra={
+              initialJobMissing && onOpenJobs ? (
+                <button type="button" className="btn btn--soft btn--sm" onClick={onOpenJobs}>
+                  去工作管理
+                </button>
+              ) : undefined
+            }
             compact
           />
         </div>

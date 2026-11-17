@@ -14,6 +14,62 @@ import type { AppState } from '../types';
 
 const now = new Date('2026-11-05T12:30:00.000Z');
 
+/** 与实现同一口径：递归排序对象键后重建 JSON，校验码不再依赖键序。 */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return '[' + value.map((item) => canonicalJson(item)).join(',') + ']';
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record)
+      .filter((key) => record[key] !== undefined)
+      .sort();
+    return (
+      '{' +
+      keys.map((key) => JSON.stringify(key) + ':' + canonicalJson(record[key])).join(',') +
+      '}'
+    );
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function legacyChecksumInput(parsed: any): string {
+  return JSON.stringify({
+    schemaVersion: parsed.schemaVersion,
+    manifest: parsed.manifest,
+    payload: parsed.payload,
+  });
+}
+
+async function checksumOf(parsed: any): Promise<string> {
+  const digest = await digestText(
+    canonicalJson({
+      schemaVersion: parsed.schemaVersion,
+      manifest: parsed.manifest,
+      payload: parsed.payload,
+    }),
+  );
+  return `${digest.alg}:${digest.hex}`;
+}
+
+async function legacyChecksumOf(parsed: any): Promise<string> {
+  const digest = await digestText(legacyChecksumInput(parsed));
+  return `${digest.alg}:${digest.hex}`;
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, sortKeysDeep(record[key])]),
+    );
+  }
+  return value;
+}
+
 function sampleState(): AppState {
   return makeState({
     jobs: [makeJob({ name: '测试工作' })],
@@ -74,14 +130,7 @@ describe('搬家包', () => {
       new TextEncoder().encode(JSON.stringify({ jobs: 'bad', entries: [] })),
     );
     parsed.payload.data = bytesToBase64(new Uint8Array(ciphertext));
-    const digest = await digestText(
-      JSON.stringify({
-        schemaVersion: parsed.schemaVersion,
-        manifest: parsed.manifest,
-        payload: parsed.payload,
-      }),
-    );
-    parsed.checksum = `${digest.alg}:${digest.hex}`;
+    parsed.checksum = await checksumOf(parsed);
     await expect(unlockMovePackage(JSON.stringify(parsed), 'right-password')).rejects.toThrow(
       '备份缺少工作或工记数据',
     );
@@ -103,14 +152,7 @@ describe('搬家包', () => {
     const { text } = await buildMovePackage(sampleState(), { now });
     const parsed = JSON.parse(text);
     parsed.manifest.entries += 1;
-    const digest = await digestText(
-      JSON.stringify({
-        schemaVersion: parsed.schemaVersion,
-        manifest: parsed.manifest,
-        payload: parsed.payload,
-      }),
-    );
-    parsed.checksum = `${digest.alg}:${digest.hex}`;
+    parsed.checksum = await checksumOf(parsed);
     await expect(unlockMovePackage(JSON.stringify(parsed))).rejects.toThrow('清单与内容不一致');
   });
 
@@ -171,12 +213,9 @@ describe('搬家包', () => {
   it('fnv1a 校验的旧包在支持 SHA-256 的新环境也能验证（旧→新搬家）', async () => {
     const { text } = await buildMovePackage(sampleState(), { now });
     const parsed = JSON.parse(text);
-    const input = JSON.stringify({
-      schemaVersion: parsed.schemaVersion,
-      manifest: parsed.manifest,
-      payload: parsed.payload,
-    });
-    parsed.checksum = `fnv1a:${fnv1aHex(input, 16)}`;
+    // 还原成旧版搬家包：没有 checksumVersion，校验码按旧键序口径计算。
+    delete parsed.checksumVersion;
+    parsed.checksum = `fnv1a:${fnv1aHex(legacyChecksumInput(parsed), 16)}`;
     const result = await unlockMovePackage(JSON.stringify(parsed));
     expect(result.state.entries).toHaveLength(1);
   });
@@ -184,5 +223,30 @@ describe('搬家包', () => {
   it('文件名和短校验码可读', () => {
     expect(moveFileName(new Date(2026, 10, 5, 14, 30))).toBe('薪时搬家包-20261105-1430.json');
     expect(shortChecksum('sha256:9f2c8a10aa')).toBe('9F2C8A10');
+  });
+
+  it('新包按固定键序计算校验码，并标注算法版本（D36）', async () => {
+    const { text, header } = await buildMovePackage(sampleState(), { now });
+    expect(header.checksumVersion).toBe(2);
+    const parsed = JSON.parse(text);
+    expect(parsed.checksum).toBe(await checksumOf(parsed));
+  });
+
+  it('第三方工具递归重排键序后仍能通过校验（D36）', async () => {
+    const { text } = await buildMovePackage(sampleState(), { now });
+    const sorted = sortKeysDeep(JSON.parse(text));
+    const result = await unlockMovePackage(JSON.stringify(sorted));
+    expect(result.encrypted).toBe(false);
+    expect(result.state.entries).toHaveLength(1);
+  });
+
+  it('旧版（缺 checksumVersion）键序校验码的包仍能通过（D36 兼容）', async () => {
+    const { text } = await buildMovePackage(sampleState(), { now });
+    const parsed = JSON.parse(text);
+    delete parsed.checksumVersion;
+    parsed.checksum = await legacyChecksumOf(parsed);
+    await expect(unlockMovePackage(JSON.stringify(parsed))).resolves.toMatchObject({
+      encrypted: false,
+    });
   });
 });

@@ -10,6 +10,7 @@ import type { RecurringFrequency, RecurringRule } from '../types';
 import { formatDateShort, todayISO } from '../lib/date';
 import { formatHours, toAmount } from '../lib/money';
 import { plannedEntryHours } from '../lib/planEntries';
+import { clampMoneyInput, moneyInputTooLarge } from '../lib/pagePay';
 import {
   materializeRecurring,
   nextRecurringDate,
@@ -254,7 +255,16 @@ function RuleEditor({
     const day = Math.round(toAmount(dayOfMonth));
     const hoursValue = toAmount(hours);
     const quantityValue = toAmount(quantity);
-    if (!job || job.archived) return setError('请选择一份进行中的工作');
+    const bonusValue = toAmount(bonus);
+    const deductionValue = toAmount(deduction);
+    // UI-15：规则原岗位即使已归档也放行（与 store 的 allowArchivedJob 同口径），否则归档后连关自动都做不到。
+    if (!job || (job.archived && job.id !== rule?.jobId)) {
+      return setError('请选择一份进行中的工作');
+    }
+    // UI-10：与导入钳制同一上限，避免导出→导入静默改数。
+    if (moneyInputTooLarge(bonusValue) || moneyInputTooLarge(deductionValue)) {
+      return setError('奖金 / 扣款不能超过 100 万');
+    }
     if (!startDate || (endDate && endDate < startDate)) return setError('请检查开始和结束日期');
     if (frequency === 'weekly' && weekdays.length === 0) return setError('每周规则至少选择一天');
     if (frequency === 'monthly' && (day < 1 || day > 31)) return setError('每月日期需在 1–31 之间');
@@ -271,8 +281,8 @@ function RuleEditor({
       endDate: endDate || undefined,
       hours: hoursValue,
       quantity: isPiece ? quantityValue : 0,
-      bonus: Math.max(0, toAmount(bonus)),
-      deduction: Math.max(0, toAmount(deduction)),
+      bonus: clampMoneyInput(bonusValue),
+      deduction: clampMoneyInput(deductionValue),
       note: note.trim() || undefined,
       enabled,
       auto,

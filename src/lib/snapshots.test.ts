@@ -6,6 +6,8 @@ import {
   diffManifests,
   ledgerManifest,
   planSnapshotPrune,
+  readSnapshotState,
+  readSnapshotStateDetailed,
   saveSnapshot,
   stateHash,
 } from './snapshots';
@@ -350,5 +352,128 @@ describe('快照去重语义', () => {
 
     await expect(saveSnapshot(state, 'daily-open')).resolves.toBeNull();
     expect(idb.getPutCalls()).toBe(0);
+  });
+});
+
+/* 读取路径：用一个只支持 get 的假 IndexedDB 注入任意记录。 */
+function createReadIndexedDb(record: unknown) {
+  const db = {
+    close: vi.fn(),
+    transaction: () => ({
+      objectStore: () => ({
+        get: () => {
+          const request: any = { result: record, error: null };
+          queueMicrotask(() => request.onsuccess?.());
+          return request;
+        },
+      }),
+    }),
+  };
+  return {
+    open: () => {
+      const request: any = { result: db, error: null };
+      queueMicrotask(() => request.onsuccess?.());
+      return request;
+    },
+  } as unknown as IDBFactory;
+}
+
+async function snapshotRecord(state: ReturnType<typeof makeState>) {
+  const text = JSON.stringify(state);
+  const hash = await stateHash(state);
+  const data = new TextEncoder().encode(text).buffer as ArrayBuffer;
+  return {
+    ...meta('snap-1', '2026-11-05T10:00:00.000Z', 'manual'),
+    hash,
+    bytes: data.byteLength,
+    compressed: false,
+    integrity: 'sha256' as const,
+    manifest: ledgerManifest(state),
+    data,
+  };
+}
+
+describe('快照完整性校验（A9 / D15）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
+
+  it('新格式快照载荷被改一个字节就报损坏', async () => {
+    const record = await snapshotRecord(state);
+    const tamperedText = JSON.stringify({
+      ...state,
+      profile: { ...state.profile, name: '被篡改' },
+    });
+    const tampered = {
+      ...record,
+      data: new TextEncoder().encode(tamperedText).buffer as ArrayBuffer,
+    };
+    vi.stubGlobal('indexedDB', createReadIndexedDb(tampered));
+    await expect(readSnapshotState('snap-1')).rejects.toThrow('快照已损坏');
+  });
+
+  it('新格式快照缺 hash 直接判损坏，不再静默跳过校验', async () => {
+    const record = await snapshotRecord(state);
+    vi.stubGlobal('indexedDB', createReadIndexedDb({ ...record, hash: '' }));
+    await expect(readSnapshotState('snap-1')).rejects.toThrow('缺少校验值');
+  });
+
+  it('bytes 与载荷尺寸不符时报损坏', async () => {
+    const record = await snapshotRecord(state);
+    vi.stubGlobal('indexedDB', createReadIndexedDb({ ...record, bytes: record.bytes + 1 }));
+    await expect(readSnapshotState('snap-1')).rejects.toThrow('尺寸不符');
+  });
+
+  it('旧格式快照仍可读取并标记 legacy', async () => {
+    const record = await snapshotRecord(state);
+    vi.stubGlobal('indexedDB', createReadIndexedDb({ ...record, integrity: undefined }));
+    const result = await readSnapshotStateDetailed('snap-1');
+    expect(result.integrity).toBe('legacy');
+    expect(result.state.entries).toHaveLength(1);
+    await expect(readSnapshotState('snap-1')).resolves.toMatchObject({ version: 7 });
+  });
+
+  it('无 SubtleCrypto 时 stateHash 明确报错，不再降级为可伪造的 fnv1a', async () => {
+    vi.stubGlobal('crypto', undefined);
+    await expect(stateHash(state)).rejects.toThrow('SHA-256');
+  });
+});
+
+describe('快照解压上限（D16）', () => {
+  it('解压后超过上限立即中止（gzip 炸弹）', async () => {
+    const text = 'x'.repeat(4096);
+    const payload = await compressPayload(text);
+    const record = {
+      ...meta('snap-bomb', '2026-11-05T10:00:00.000Z', 'manual'),
+      data: payload.data,
+      compressed: payload.compressed,
+    };
+    await expect(decompressPayload(record, 1024)).rejects.toThrow('已中止读取');
+  });
+});
+
+describe('快照清理失败降级（D17）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('清理旧快照失败只返回 warning，已写入的快照仍算成功', async () => {
+    const existing = Array.from({ length: 12 }, (_, index) => {
+      const at = `2026-11-05T${String(index).padStart(2, '0')}:00:00.000Z`;
+      return { ...meta(`auto-${index}`, at, 'auto-idle'), data: new ArrayBuffer(0) };
+    });
+    const idb = createSnapshotIndexedDb(existing);
+    vi.stubGlobal('indexedDB', idb.factory);
+
+    const saving = saveSnapshot(makeState(), 'manual');
+    await idb.putSucceeded;
+    idb.complete();
+    const result = await saving;
+
+    expect(result).not.toBeNull();
+    expect(result?.pruned).toBe(0);
+    expect(result?.warning).toBeTruthy();
   });
 });

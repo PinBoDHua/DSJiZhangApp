@@ -14,18 +14,18 @@ import {
 } from '../lib/date';
 import { formatHours } from '../lib/money';
 import { formatRestDays, totalRestDays } from '../lib/rest';
-import { jobColor } from '../lib/meta';
+import { jobColor, PAY_TYPE_LABEL } from '../lib/meta';
 import { buildHeatmap, heatmapAriaLabel } from '../lib/insights';
-import {
-  dailySeries,
-  jobBreakdown,
-  sumEntriesCapped,
-} from '../lib/settlement';
+import { dailySeries, sumEntriesCapped } from '../lib/settlement';
 import { buildYearSummary, shiftYear, yearPeriod } from '../lib/yearStats';
 import { payTypeBreakdown } from '../lib/categoryStats';
+import { fixedMonthlyWholeMonth } from '../lib/pagePay';
 import { monthlyBudgetStatus } from '../lib/budget';
 
 type Mode = 'week' | 'month' | 'year';
+
+/** 周档 / 月档与结算同口径：封顶按「周期占当月天数」折算（PAY-01 / PAY-05 / PAY-29）。 */
+const PERIOD_CAP_OPTIONS = { periodShareCap: true } as const;
 
 interface StatsProps {
   onAddEntry: () => void;
@@ -74,9 +74,8 @@ export function Stats({ onAddEntry }: StatsProps) {
   );
   const totals: Totals = useMemo(() => {
     if (yearSummary) return yearSummary.totals;
-    // 与柱状图（dailySeries → sumEntriesCapped）同一口径：先汇总再 round，避免和图表差 1 分。
-    // 月档是整自然月，与原先不传 period 的封顶口径等价；周档按周折算（固定月薪不整月发放）。
-    return sumEntriesCapped(entries, period);
+    // 与柱状图 / 结算同一口径：周档的固定月薪按「周期占当月天数」折算封顶（PAY-01）。
+    return sumEntriesCapped(entries, period, PERIOD_CAP_OPTIONS);
   }, [yearSummary, entries, period]);
   const series = useMemo(() => {
     if (yearSummary) {
@@ -88,7 +87,7 @@ export function Stats({ onAddEntry }: StatsProps) {
         highlight: month.date.slice(0, 7) === currentMonth,
       }));
     }
-    return dailySeries(entries, period.start, period.end).map((point) => ({
+    return dailySeries(entries, period.start, period.end, PERIOD_CAP_OPTIONS).map((point) => ({
       date: point.date,
       label: mode === 'week' ? weekdayShort(point.date) : String(Number(point.date.slice(8))),
       value: point.earnings,
@@ -96,35 +95,91 @@ export function Stats({ onAddEntry }: StatsProps) {
     }));
   }, [yearSummary, entries, period.start, period.end, mode, today]);
   const breakdown = useMemo(() => {
-    const rows = yearSummary
-      ? yearSummary.breakdown
-      : jobBreakdown(entries, mode === 'month');
-    return rows.map((item) => ({
-      ...item,
-      job: state.jobs.find((job) => job.id === item.jobId),
-    }));
-  }, [yearSummary, entries, mode, state.jobs]);
+    if (yearSummary) {
+      return yearSummary.breakdown.map((item) => ({
+        ...item,
+        job: state.jobs.find((job) => job.id === item.jobId),
+      }));
+    }
+    // PAY-29：按岗位明细与头部同参汇总，明细之和才等于上方合计。
+    const groups = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      const group = groups.get(entry.jobId);
+      if (group) group.push(entry);
+      else groups.set(entry.jobId, [entry]);
+    }
+    return Array.from(groups.entries())
+      .map(([jobId, group]) => {
+        const groupTotals = sumEntriesCapped(group, period, PERIOD_CAP_OPTIONS);
+        return {
+          jobId,
+          total: groupTotals.total,
+          hours: groupTotals.hours,
+          days: groupTotals.days,
+          job: state.jobs.find((job) => job.id === jobId),
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [yearSummary, entries, period, state.jobs]);
   const jobTotal = breakdown.reduce((sum, item) => sum + item.total, 0);
-  const categories = useMemo(
-    () => payTypeBreakdown(entries, mode !== 'week'),
-    [entries, mode],
-  );
+  const categories = useMemo(() => {
+    if (yearSummary) return payTypeBreakdown(entries, true);
+    // 按类型明细同样经 sumEntriesCapped（月薪在「岗位 × 自然人月」内封顶）汇总。
+    const groups = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      const key = entry.rule.payType;
+      const group = groups.get(key);
+      if (group) group.push(entry);
+      else groups.set(key, [entry]);
+    }
+    return Array.from(groups.values())
+      .map((group) => {
+        const payType = group[0].rule.payType;
+        const groupTotals = sumEntriesCapped(group, period, PERIOD_CAP_OPTIONS);
+        return {
+          payType,
+          label: PAY_TYPE_LABEL[payType],
+          total: groupTotals.total,
+          hours: groupTotals.hours,
+          days: new Set(group.map((entry) => entry.date)).size,
+          count: group.length,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [yearSummary, entries, period]);
   const categoryTotal = categories.reduce((sum, item) => sum + item.total, 0);
   const avgHourly = totals.hours > 0 ? totals.total / totals.hours : 0;
   const hasFixedMonthly = entries.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
   );
+  // PAY-21：只有月结岗位的固定月薪才按整月发放，周结 / 日结按周期折算。
+  const wholeMonthPayout = useMemo(
+    () =>
+      fixedMonthlyWholeMonth(
+        entries
+          .filter(
+            (entry) =>
+              entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
+          )
+          .map((entry) => state.jobs.find((job) => job.id === entry.jobId)?.cycle),
+      ),
+    [entries, state.jobs],
+  );
   const overtimeShare = totals.hours > 0 ? (totals.otHours / totals.hours) * 100 : 0;
   const positiveTotal = totals.base + totals.otPay + totals.bonus;
   const canGoNext = period.end < today;
   const isCurrent = today >= period.start && today <= period.end;
-  const budget = mode === 'month' && isCurrent
-    ? monthlyBudgetStatus(state.settings.budget, entries, today)
-    : null;
-  const heatmap = buildHeatmap(state.entries, {
-    today,
-    weekStartsOn: state.settings.weekStartsOn,
-  });
+  const budget = useMemo(
+    () =>
+      mode === 'month' && isCurrent
+        ? monthlyBudgetStatus(state.settings.budget, entries, today)
+        : null,
+    [mode, isCurrent, state.settings.budget, entries, today],
+  );
+  const heatmap = useMemo(
+    () => buildHeatmap(state.entries, { today, weekStartsOn: state.settings.weekStartsOn }),
+    [state.entries, today, state.settings.weekStartsOn],
+  );
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -352,7 +407,9 @@ export function Stats({ onAddEntry }: StatsProps) {
                   {hasFixedMonthly
                     ? mode === 'year'
                       ? ' · 固定月薪逐月封顶'
-                      : ' · 固定月薪按出勤日分摊'
+                      : wholeMonthPayout
+                        ? ' · 固定月薪按出勤日分摊'
+                        : ' · 固定月薪按周期折算'
                     : ''}
                 </p>
               </div>
@@ -370,7 +427,11 @@ export function Stats({ onAddEntry }: StatsProps) {
             {mode === 'year' ? (
               <p className="calc-note">月薪工作逐月封顶；柱状图之和等于上方年度收入。</p>
             ) : totals.capAdjustment > 0 ? (
-              <p className="calc-note">月薪工作已按整月封顶，图表为单日折算展示。</p>
+              <p className="calc-note">
+                {wholeMonthPayout
+                  ? '月薪工作已按整月封顶，图表为单日折算展示。'
+                  : '月薪工作已按结算周期折算封顶，图表为单日折算展示。'}
+              </p>
             ) : null}
           </section>
 

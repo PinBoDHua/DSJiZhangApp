@@ -19,7 +19,7 @@ import { AttendanceDaySheet } from '../components/AttendanceDaySheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
-import { Money } from '../components/Money';
+import { Money, usePrivacy } from '../components/Money';
 import { PayslipSheet } from '../components/PayslipSheet';
 import { PaymentSheet } from '../components/PaymentSheet';
 import { ShareQrSheet } from '../components/ShareQrSheet';
@@ -46,6 +46,7 @@ import {
   settlementCopyText,
 } from '../lib/settlement';
 import { copyText } from '../lib/clipboard';
+import { monthlyTermsVary, overRestDisplay, undoLostPaymentNotice } from '../lib/pagePay';
 import { saveSnapshot } from '../lib/snapshots';
 import { pushNativeBack } from '../lib/nativeBack';
 import {
@@ -91,18 +92,7 @@ function AmountRow({
 const WEEKDAYS_MONDAY = ['一', '二', '三', '四', '五', '六', '日'];
 const WEEKDAYS_SUNDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
-/** 月薪明细是否横跨了不同的计薪快照（同月调价 / 改计薪天数）。 */
-function monthlyTermsVary(entries: Entry[]): boolean {
-  const monthly = entries.filter((entry) => entry.rule.payType === 'monthly');
-  const first = monthly[0];
-  if (!first) return false;
-  return monthly.some(
-    (entry) =>
-      entry.rule.rate !== first.rule.rate ||
-      entry.rule.expectedDays !== first.rule.expectedDays ||
-      entry.rule.monthlyMode !== first.rule.monthlyMode,
-  );
-}
+// PAY-20：月薪快照判定复用 lib/pagePay 的 monthlyTermsVary（按每天最新快照比较）。
 
 /** 只有「整自然月 + 规则一致」时，固定月薪才是整月发放；否则按出勤折算。 */
 function isFixedFullMonth(
@@ -275,6 +265,14 @@ export function SettlementDraftPage({
   const fixedFullMonth = isFixedFullMonth(period, draft.payType, draft.monthlyMode, draft.entries);
   const isFlexibleRest =
     isFixedDraft && (job.rule.restPolicy ?? 'quota') === 'flexible';
+  // PAY-02：非整月周期只显示「本期折算额度」并提示不自动扣，避免「休息 2 天 · 额度 5 天 · 超休 0.83」的误导。
+  const overRest =
+    isFixedDraft && !isFlexibleRest
+      ? overRestDisplay(draft, job.rule.restDaysPerMonth)
+      : null;
+  const showOverRestAmount = Boolean(
+    overRest?.autoDeduct && overRestEnabled && draft.overRestDays > 0,
+  );
   const isMonthlyDraft = draft.payType === 'monthly';
   const monthRestDays = state.restDays
     .filter((rest) => rest.jobId === job.id && periodContains(period, rest.date))
@@ -371,6 +369,18 @@ export function SettlementDraftPage({
                   ? '本期还没结束，确认后该周期剩余日期将无法再记工。'
                   : '确认后工记与借支会锁定，可在结算历史里撤销。'}
             </p>
+            {!hasEntries && !job.archived ? (
+              <button
+                type="button"
+                className="btn btn--soft btn--block"
+                onClick={() =>
+                  onAddEntry(job.id, periodContains(period, today) ? today : period.end)
+                }
+              >
+                <Plus size={16} />
+                补记一笔
+              </button>
+            ) : null}
           </div>
         }
       >
@@ -445,7 +455,7 @@ export function SettlementDraftPage({
                 <p className="overrest-meta">
                   出勤 {draft.days} 天 · 休息 {draft.restDays} 天
                   {isFixedDraft && !isFlexibleRest && job.rule.restDaysPerMonth > 0
-                    ? ` · 额度 ${job.rule.restDaysPerMonth} 天`
+                    ? ` · ${overRest ? overRest.quotaText : `额度 ${job.rule.restDaysPerMonth} 天`}`
                     : isFlexibleRest
                       ? ' · 随机休息'
                       : ''}
@@ -637,22 +647,28 @@ export function SettlementDraftPage({
               <div>
                 <h2>超休扣款</h2>
                 <p className="overrest-meta">
-                  本月休息 {draft.restDays} 天 · 额度 {job.rule.restDaysPerMonth} 天
+                  本月休息 {draft.restDays} 天 ·{' '}
+                  {overRest?.quotaText ?? `额度 ${job.rule.restDaysPerMonth} 天`}
                   {draft.overRestDays > 0 ? ` · 超休 ${draft.overRestDays} 天` : ' · 未超休'}
                 </p>
               </div>
-              <button
-                type="button"
-                className={`switch ${overRestEnabled ? 'is-on' : ''}`}
-                role="switch"
-                aria-checked={overRestEnabled}
-                aria-label="本期扣超休"
-                onClick={() => setOverRestEnabled((value) => !value)}
-              >
-                <i />
-              </button>
+              {overRest?.autoDeduct ? (
+                <button
+                  type="button"
+                  className={`switch ${overRestEnabled ? 'is-on' : ''}`}
+                  role="switch"
+                  aria-checked={overRestEnabled}
+                  aria-label="本期扣超休"
+                  onClick={() => setOverRestEnabled((value) => !value)}
+                >
+                  <i />
+                </button>
+              ) : null}
             </div>
-            {overRestEnabled && draft.overRestDays > 0 ? (
+            {overRest?.notice ? (
+              <p className="field-hint" role="note">{overRest.notice}</p>
+            ) : null}
+            {showOverRestAmount ? (
               <label className="field overrest-field">
                 <span className="field-label">本期扣款金额</span>
                 <div className="inline-number">
@@ -677,13 +693,13 @@ export function SettlementDraftPage({
                   留空 = 按 {draft.overRestDays} 天自动计算；这次结算可以单独关掉或改金额。
                 </p>
               </label>
-            ) : (
+            ) : overRest?.autoDeduct ? (
               <p className="field-hint">
                 {draft.overRestDays > 0
                   ? '本期不扣超休工资；确认结算前都可以再打开。'
                   : '休息没有超过额度，本期不产生超休扣款。'}
               </p>
-            )}
+            ) : null}
           </section>
         ) : null}
 
@@ -879,9 +895,24 @@ interface RecordPageProps {
 
 export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) {
   const { state, undoSettlement, toast } = useStore();
+  // UI-06：隐藏金额不影响导出 / 分享的明文，页面顶部要提示。
+  const hiddenAmounts = usePrivacy();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
   const undoingRef = useRef(false);
+  // UI-02：卸载后不再执行撤销、不再调用 onBack 劫持导航。
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  // UI-02：等待快照期间 Android 返回键也不生效（注册在 App 返回处理之上）。
+  useEffect(() => {
+    if (!undoBusy) return;
+    return pushNativeBack(() => undefined);
+  }, [undoBusy]);
   const [payslipOpen, setPayslipOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -923,6 +954,8 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
     settlement.monthlyMode,
     entries,
   );
+  // PAY-28：撤销会丢弃已登记的收款，有快照也要在确认框里明确警告。
+  const lostPayment = undoLostPaymentNotice(settlement);
 
   const handleCopy = async () => {
     const ok = await copyText(settlementCopyText(settlement));
@@ -947,7 +980,9 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
         );
         return;
       }
+      if (!mountedRef.current) return;
       const ok = undoSettlement(settlement.id);
+      if (!mountedRef.current) return;
       if (ok) {
         toast('已撤销结算，工记已解锁；撤销前已留快照', 'info');
         onBack();
@@ -965,7 +1000,7 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
       <SubPage
         title="结算单"
         subtitle={settlement.jobName}
-        onBack={onBack}
+        onBack={undoBusy ? () => undefined : onBack}
         action={
           <span className="status-chip status-chip--settled">
             <LockKeyhole size={12} />
@@ -1002,6 +1037,11 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
           </div>
         }
       >
+        {hiddenAmounts ? (
+          <p className="export-plaintext-hint" role="note">
+            当前已隐藏金额，导出 / 分享内容仍包含明文金额
+          </p>
+        ) : null}
         <section className="slip slip--done" style={style}>
           <div className="slip-top">
             <span className="slip-job">
@@ -1234,7 +1274,12 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
       <ConfirmDialog
         open={confirmOpen}
         title="撤销这张结算单？"
-        description="撤销后，本期工记和借支会重新进入待结算，金额可能随记录变化。"
+        description={
+          <span>
+            撤销后，本期工记和借支会重新进入待结算，金额可能随记录变化。
+            {lostPayment ? <span className="form-error">{lostPayment}</span> : null}
+          </span>
+        }
         confirmLabel="撤销结算"
         danger
         onCancel={() => setConfirmOpen(false)}

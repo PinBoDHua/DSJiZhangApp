@@ -66,13 +66,14 @@ export function checkLedger(state: AppState, options: HealthOptions = {}): Healt
   const jobIds = new Set([...state.jobs, ...state.trashedJobs.map((item) => item.job)].map((job) => job.id));
   const settlementMap = new Map(state.settlements.map((item) => [item.id, item]));
   const entryMap = new Map(state.entries.map((item) => [item.id, item]));
-  const settlementByEntry = new Map<string, string[]>();
+  const settlementByEntry = new Map<string, Set<string>>();
 
   for (const settlement of state.settlements) {
-    for (const entryId of settlement.entryIds) {
+    // 同一张结算单里重复列出同一笔工记先去重：ids=[S,S] 不是「多张结算单重复结算」。
+    for (const entryId of new Set(settlement.entryIds)) {
       const list = settlementByEntry.get(entryId);
-      if (list) list.push(settlement.id);
-      else settlementByEntry.set(entryId, [settlement.id]);
+      if (list) list.add(settlement.id);
+      else settlementByEntry.set(entryId, new Set([settlement.id]));
     }
   }
 
@@ -123,13 +124,54 @@ export function checkLedger(state: AppState, options: HealthOptions = {}): Healt
   });
 
   // 4. 同一笔工记被多张结算单纳入
-  const multiSettled = [...settlementByEntry.entries()].filter(([, ids]) => ids.length > 1);
+  const multiSettled = [...settlementByEntry.entries()].filter(([, ids]) => ids.size > 1);
   add(issues, {
     code: 'entry-multi-settled',
     severity: 'critical',
     title: '同一笔工记出现在多张结算单里',
     detail: `${multiSettled.length} 笔工记被重复结算，可能重复发薪。`,
     refs: multiSettled.map(([entryId]) => entryId),
+  });
+
+  // 4b. 结算单与工记 / 借支的单向引用：记录锁在结算单上，但结算单没有列回它。
+  // 这类记录既不能编辑（被锁定）也不在结算明细里，与导入时的双向校验对称。
+  const oneWayEntries = state.entries.filter((entry) => {
+    if (!entry.settlementId) return false;
+    const settlement = settlementMap.get(entry.settlementId);
+    return Boolean(settlement && !settlement.entryIds.includes(entry.id));
+  });
+  const oneWayAdvances = state.advances.filter((advance) => {
+    if (!advance.settlementId) return false;
+    const settlement = settlementMap.get(advance.settlementId);
+    return Boolean(settlement && !settlement.advanceIds.includes(advance.id));
+  });
+  add(issues, {
+    code: 'settlement-one-way-reference',
+    severity: 'critical',
+    title: '结算单与工记 / 借支存在单向引用',
+    detail: `${oneWayEntries.length} 笔工记、${oneWayAdvances.length} 笔借支被结算单锁住，但结算单没有列回它们。`,
+    refs: [
+      ...oneWayEntries.map((item) => item.id),
+      ...oneWayAdvances.map((item) => item.id),
+    ],
+  });
+
+  // 4c. 未锁定的工记落在已结算周期内：会计入未结合计，却因周期重叠永远无法再结算。
+  const unsettledInPeriod = state.entries.filter((entry) => {
+    if (entry.settlementId) return false;
+    return state.settlements.some(
+      (settlement) =>
+        settlement.jobId === entry.jobId &&
+        entry.date >= settlement.periodStart &&
+        entry.date <= settlement.periodEnd,
+    );
+  });
+  add(issues, {
+    code: 'unsettled-in-settled-period',
+    severity: 'warning',
+    title: '有工记落在已结算周期内却没有锁定',
+    detail: `${unsettledInPeriod.length} 笔工记的日期在已结算周期内但未进入结算，永远无法再结算，请撤销结算后重新结算。`,
+    refs: unsettledInPeriod.map((item) => item.id),
   });
 
   // 5. 结算周期颠倒 / 应发异常

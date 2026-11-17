@@ -4,10 +4,11 @@ import type { Settlement } from '../types';
 import { createSettlementQrFor, qrToPngBlob } from '../lib/shareQr';
 import { formatDateShort } from '../lib/date';
 import { saveBlobFile } from '../lib/native';
+import { saveFeedback } from '../lib/fileFeedback';
 import { copyText } from '../lib/clipboard';
 import { useStore } from '../store';
 import { Sheet } from './Sheet';
-import { Money } from './Money';
+import { Money, usePrivacy } from './Money';
 
 interface ShareQrSheetProps {
   settlement: Settlement;
@@ -16,6 +17,8 @@ interface ShareQrSheetProps {
 
 export function ShareQrSheet({ settlement, onClose }: ShareQrSheetProps) {
   const { toast } = useStore();
+  // UI-06：二维码 / 复制摘要里的金额始终是明文，隐藏金额时必须在顶部提示。
+  const hiddenAmounts = usePrivacy();
   const [saving, setSaving] = useState(false);
   const qr = useMemo(() => createSettlementQrFor(settlement), [settlement]);
 
@@ -27,11 +30,8 @@ export function ShareQrSheet({ settlement, onClose }: ShareQrSheetProps) {
         blob,
         `薪时结算二维码-${settlement.jobName}-${settlement.periodEnd}.png`,
       );
-      toast(
-        result === 'native'
-          ? '二维码已保存到「下载/Xinshi」'
-          : '二维码已保存',
-      );
+      const feedback = saveFeedback(result, '二维码图片');
+      toast(feedback.message, feedback.tone);
     } catch {
       toast('二维码保存失败，请稍后再试', 'error');
     } finally {
@@ -52,6 +52,11 @@ export function ShareQrSheet({ settlement, onClose }: ShareQrSheetProps) {
       onClose={onClose}
     >
       <div className="sheet-body share-qr-body">
+        {hiddenAmounts ? (
+          <p className="export-plaintext-hint" role="note">
+            当前已隐藏金额，导出 / 分享内容仍包含明文金额
+          </p>
+        ) : null}
         <div className="share-qr-card">
           <img src={qr.dataUrl} alt="结算单二维码" />
         </div>

@@ -128,17 +128,34 @@ async function pendingIds(plugin: LocalNotificationsPlugin): Promise<number[]> {
   }
 }
 
-export async function cancelDailyReminder(): Promise<void> {
-  const loaded = await loadPlugin();
-  if (!loaded) return;
-  try {
-    const ids = await pendingIds(loaded.plugin);
-    if (ids.length > 0) {
-      await loaded.plugin.cancel({ notifications: ids.map((id) => ({ id })) });
+/**
+ * 提醒同步串行锁：schedule → cancel 不是原子操作，两个并发 sync（启动补齐 + 设置变更）
+ * 可能互相删掉刚排好的通知。这里用 Promise 链把同步任务串行化，前一个失败也不阻塞后续。
+ */
+let reminderSyncQueue: Promise<unknown> = Promise.resolve();
+
+function withReminderLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = reminderSyncQueue.then(task, task);
+  reminderSyncQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+export function cancelDailyReminder(): Promise<void> {
+  return withReminderLock(async () => {
+    const loaded = await loadPlugin();
+    if (!loaded) return;
+    try {
+      const ids = await pendingIds(loaded.plugin);
+      if (ids.length > 0) {
+        await loaded.plugin.cancel({ notifications: ids.map((id) => ({ id })) });
+      }
+    } catch {
+      // 取消失败不影响已关闭的开关。
     }
-  } catch {
-    // 取消失败不影响已关闭的开关。
-  }
+  });
 }
 
 /**
@@ -147,43 +164,45 @@ export async function cancelDailyReminder(): Promise<void> {
  * - 新计划调度成功后再清理不在新 ID 集合中的旧提醒，失败时保留旧提醒；
  * - 不主动请求权限，权限由用户在「我的」里开启。
  */
-export async function syncDailyReminder(
+export function syncDailyReminder(
   reminder: Settings['reminder'],
   includeToday: boolean,
 ): Promise<number> {
-  const loaded = await loadPlugin();
-  if (!loaded) return 0;
-  const plugin = loaded.plugin;
-  try {
-    const permission = await plugin.checkPermissions();
-    if (permission.display !== 'granted') return 0;
-    await ensureDailyChannel(plugin);
-    const notifications: LocalNotificationSchema[] = buildDailyReminderPlan(
-      reminder.time,
-      includeToday,
-    ).map((item) => ({
-      id: item.id,
-      title: '薪时 · 今天还没记工',
-      body: '花 10 秒把今天的工时补上，月底不用翻聊天记录。',
-      channelId: DAILY_CHANNEL_ID,
-      schedule: { at: item.at, allowWhileIdle: true },
-      extra: { kind: DAILY_KIND, date: item.date },
-    }));
-    const ids = await pendingIds(plugin);
-    if (notifications.length > 0) {
-      await plugin.schedule({ notifications });
-    }
+  return withReminderLock(async () => {
+    const loaded = await loadPlugin();
+    if (!loaded) return 0;
+    const plugin = loaded.plugin;
+    try {
+      const permission = await plugin.checkPermissions();
+      if (permission.display !== 'granted') return 0;
+      await ensureDailyChannel(plugin);
+      const notifications: LocalNotificationSchema[] = buildDailyReminderPlan(
+        reminder.time,
+        includeToday,
+      ).map((item) => ({
+        id: item.id,
+        title: '薪时 · 今天还没记工',
+        body: '花 10 秒把今天的工时补上，月底不用翻聊天记录。',
+        channelId: DAILY_CHANNEL_ID,
+        schedule: { at: item.at, allowWhileIdle: true },
+        extra: { kind: DAILY_KIND, date: item.date },
+      }));
+      const ids = await pendingIds(plugin);
+      if (notifications.length > 0) {
+        await plugin.schedule({ notifications });
+      }
 
-    const nextIds = new Set(notifications.map((notification) => notification.id));
-    const staleIds = ids.filter((id) => !nextIds.has(id));
-    if (staleIds.length > 0) {
-      await plugin.cancel({ notifications: staleIds.map((id) => ({ id })) });
+      const nextIds = new Set(notifications.map((notification) => notification.id));
+      const staleIds = ids.filter((id) => !nextIds.has(id));
+      if (staleIds.length > 0) {
+        await plugin.cancel({ notifications: staleIds.map((id) => ({ id })) });
+      }
+      return notifications.length;
+    } catch (error) {
+      console.warn('每日提醒调度失败', error);
+      return 0;
     }
-    return notifications.length;
-  } catch (error) {
-    console.warn('每日提醒调度失败', error);
-    return 0;
-  }
+  });
 }
 
 export async function sendTestNativeReminder(): Promise<boolean> {

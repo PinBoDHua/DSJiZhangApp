@@ -32,7 +32,8 @@ import {
 import { formatHours } from '../lib/money';
 import { formatRestDays, totalRestDays } from '../lib/rest';
 import { plannedWorkDates, planStatusForJob } from '../lib/plan';
-import { sumEntries, sumEntriesCapped } from '../lib/settlement';
+import { dailySeries, sumEntries, sumEntriesCapped } from '../lib/settlement';
+import { fixedMonthlyWholeMonth } from '../lib/pagePay';
 
 interface RecordsProps {
   onAddEntry: () => void;
@@ -108,7 +109,13 @@ export function Records({
       ? monthRestDays
       : monthRestDays.filter((rest) => rest.jobId === effectiveFilter);
   const filteredRestTotal = totalRestDays(filteredRestDays);
-  const totals = sumEntriesCapped(filtered);
+  // 月合计 / 日历格 / 选中日同源（PAY-05）：月薪封顶后按出勤日分摊。
+  const totals = sumEntriesCapped(filtered, monthPeriod, { periodShareCap: true });
+  const earningsByDate = new Map(
+    dailySeries(filtered, monthPeriod.start, monthPeriod.end, {
+      periodShareCap: true,
+    }).map((point) => [point.date, point.earnings]),
+  );
   const planJobs =
     effectiveFilter === 'all'
       ? state.jobs.filter((job) => !job.archived && job.workWeekdays)
@@ -131,8 +138,15 @@ export function Records({
   const selectedEntries = sortEntries(filtered.filter((entry) => entry.date === selectedDate));
   const selectedRestDays = filteredRestDays.filter((rest) => rest.date === selectedDate);
   const selectedTotals = sumEntries(selectedEntries);
+  const selectedAmount = earningsByDate.get(selectedDate) ?? 0;
   const hasFixedMonthly = filtered.some(
     (entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed',
+  );
+  // PAY-21：周结 / 日结的固定月薪按周期折算，不能宣称「整月发放」。
+  const wholeMonthPayout = fixedMonthlyWholeMonth(
+    filtered
+      .filter((entry) => entry.rule.payType === 'monthly' && entry.rule.monthlyMode === 'fixed')
+      .map((entry) => state.jobs.find((job) => job.id === entry.jobId)?.cycle),
   );
 
   const groups = new Map<string, Entry[]>();
@@ -326,7 +340,9 @@ export function Records({
             </p>
           ) : null}
           {hasFixedMonthly ? (
-            <p className="summary-note">月薪岗位的单日金额为折算参考，实际按整月发放。</p>
+            <p className="summary-note">
+              月薪岗位的单日金额为折算参考，实际按{wholeMonthPayout ? '整月' : '结算周期'}口径发放。
+            </p>
           ) : null}
         </section>
       ) : null}
@@ -337,6 +353,7 @@ export function Records({
             type="button"
             className={`filter-chip ${effectiveFilter === 'all' ? 'is-active' : ''}`}
             onClick={() => setJobFilter('all')}
+            aria-pressed={effectiveFilter === 'all'}
           >
             全部
           </button>
@@ -346,6 +363,7 @@ export function Records({
               key={job.id}
               className={`filter-chip ${effectiveFilter === job.id ? 'is-active' : ''}`}
               onClick={() => setJobFilter(job.id)}
+              aria-pressed={effectiveFilter === job.id}
             >
               <JobDot color={job.color} size={7} />
               {job.name}
@@ -380,12 +398,12 @@ export function Records({
               <p>
                 {selectedEntries.length} 笔 · {formatHours(selectedTotals.hours)}h
                 {selectedRestDays.length > 0 ? ` · 休息 ${selectedRestDays.length} 天` : ''}
-                {selectedTotals.hours > 24 ? (
+                {selectedTotals.hours > 24 + 1e-9 ? (
                   <em className="day-warning">当天合计超过 24h</em>
                 ) : null}
               </p>
             </div>
-            <Money value={selectedTotals.total} />
+            <Money value={selectedAmount} />
           </div>
           {selectedRestDays.length > 0 ? (
             <div className="card rest-day-list">
@@ -466,6 +484,7 @@ export function Records({
             {dates.map((date) => {
               const dayEntries = groups.get(date) ?? [];
               const dayTotals = sumEntries(dayEntries);
+              const dayAmount = earningsByDate.get(date) ?? 0;
               const relative = relativeDayLabel(date);
               return (
                 <section className="record-group" key={date}>
@@ -478,13 +497,13 @@ export function Records({
                       </h2>
                       <p>
                         {dayEntries.length} 笔 · {formatHours(dayTotals.hours)}h
-                        {dayTotals.hours > 24 ? (
+                        {dayTotals.hours > 24 + 1e-9 ? (
                           <em className="day-warning">当天合计超过 24h</em>
                         ) : null}
                       </p>
                     </div>
                     <div className="record-day-total">
-                      <Money value={dayTotals.total} />
+                      <Money value={dayAmount} />
                     </div>
                   </div>
                   <div className="card list-card">

@@ -22,6 +22,17 @@ describe('打卡计时', () => {
     expect(times.startTime).toBe('09:30');
     expect(times.endTime).toBe('18:05');
     expect(times.breakMinutes).toBe(0);
+    // C8 核心字段：真实计时时长必须带出，不能只靠起止钟点反推。
+    expect(times.hours).toBe(8.58);
+  });
+
+  it('跨天 / 超过 24 小时的计时带出真实时长', () => {
+    const start = new Date(2026, 10, 4, 9, 30, 0);
+    const end = new Date(2026, 10, 5, 11, 30, 0);
+    const times = buildTimerTimes(start.toISOString(), end);
+    expect(times.date).toBe('2026-11-04');
+    expect(times.endTime).toBe('11:30');
+    expect(times.hours).toBe(26);
   });
 
   it('识别超过 24 小时的计时', () => {

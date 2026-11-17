@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { PRIVACY_VERSION } from './lib/e2e-config.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 // 子页面（数据与安全 / 工作管理 / 月度考勤）在多分辨率下的溢出与非安全区检查
@@ -65,8 +66,8 @@ for (const viewport of VIEWPORTS) {
     serviceWorkers: 'block',
   });
   await context.addInitScript(
-    ({ simulate, insets }) => {
-      localStorage.setItem('xinshi.privacyConsent', '2026-11-05');
+    ({ simulate, insets, consent }) => {
+      localStorage.setItem('xinshi.privacyConsent', consent);
       localStorage.setItem('xinshi.theme', 'light');
       if (simulate) {
         document.addEventListener('DOMContentLoaded', () => {
@@ -76,7 +77,7 @@ for (const viewport of VIEWPORTS) {
         });
       }
     },
-    { simulate: SIMULATE_INSETS, insets: INSETS },
+    { simulate: SIMULATE_INSETS, insets: INSETS, consent: PRIVACY_VERSION },
   );
   const page = await context.newPage();
   page.on('pageerror', (error) => console.log(`[pageerror] ${viewport.name}: ${error}`));

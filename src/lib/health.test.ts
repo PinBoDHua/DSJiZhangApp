@@ -172,4 +172,35 @@ describe('账本体检', () => {
     expect(fixed.fixed).toBe(1);
     expect(fixed.state.advances[0].settlementId).toBeUndefined();
   });
+
+  it('同一结算单里重复列出的工记不算重复结算（D13）', () => {
+    const entry = makeEntry({ settlementId: 'settlement-1' });
+    const settlement = makeSettlement({ entryIds: [entry.id, entry.id] });
+    const state = makeState({ jobs: [makeJob()], entries: [entry], settlements: [settlement] });
+    expect(codes(state)).not.toContain('entry-multi-settled');
+  });
+
+  it('工记锁定在结算单上但结算单没列回该工记（D14）', () => {
+    const state = healthyState();
+    state.settlements[0].entryIds = [];
+    expect(codes(state)).toContain('settlement-one-way-reference');
+  });
+
+  it('借支与结算单的单向引用也能检出（D14）', () => {
+    const state = makeState({
+      jobs: [makeJob()],
+      advances: [makeAdvance({ settlementId: 'settlement-1' })],
+      settlements: [makeSettlement({ advanceIds: [] })],
+    });
+    expect(codes(state)).toContain('settlement-one-way-reference');
+  });
+
+  it('未锁定工记落在已结算周期内会提醒（D11）', () => {
+    const state = makeState({
+      jobs: [makeJob()],
+      entries: [makeEntry({ date: '2026-11-05' })],
+      settlements: [makeSettlement({ entryIds: [] })],
+    });
+    expect(codes(state)).toContain('unsettled-in-settled-period');
+  });
 });

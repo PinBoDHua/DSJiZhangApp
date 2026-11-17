@@ -32,6 +32,12 @@ export interface RecurringMaterializeResult {
   skipped: number;
   /** 规则开始日期早于回溯窗口，更早的规则日已放弃，不再补记。 */
   truncated: boolean;
+  /** 日薪 / 月薪规则 hours=0 仍生成全额计薪工记的条数，供 UI 提示「按 1 个出勤日计薪」。 */
+  zeroHourEntries: number;
+  /** 单价 <= 0 被跳过且未推进游标的规则日数；改回单价后会重新补记，不再永久漏补。 */
+  paySkipped: number;
+  /** 规则开始日期早于已处理游标：更早的日期不会回补（设计如此），供 UI 提示。 */
+  startDateBehindCursor: boolean;
 }
 
 export function ruleMatchesDate(rule: RecurringRule, date: string): boolean {
@@ -113,6 +119,7 @@ export function materializeRecurring(
 ): RecurringMaterializeResult {
   const today = options.today ?? todayISO();
   const horizon = options.includeToday ? today : addDays(today, -1);
+  // 同一批生成的工记共用一个时间戳；结算 / 统计侧遇到 createdAt 并列时以 id 字典序兜底取最新快照。
   const timestamp = options.now ?? nowISO();
   const idFactory = options.createId ?? (() => `entry-recur-${Date.now()}-${Math.random()}`);
   const backfillDays = Math.max(
@@ -127,6 +134,9 @@ export function materializeRecurring(
   let added = 0;
   let skipped = 0;
   let truncated = false;
+  let zeroHourEntries = 0;
+  let paySkipped = 0;
+  let startDateBehindCursor = false;
 
   for (const original of source.recurringRules ?? []) {
     if (!original.enabled || (options.automaticOnly && !original.auto)) continue;
@@ -142,6 +152,10 @@ export function materializeRecurring(
       truncated = true;
     }
     if (cursor < rule.startDate) cursor = rule.startDate;
+    if (rule.lastProcessedDate && rule.startDate <= rule.lastProcessedDate) {
+      // 开始日期改成更早的日期后，游标之前的日子不会自动回补（设计如此），只返回提示。
+      startDateBehindCursor = true;
+    }
     let guard = 0;
     while (cursor <= horizon && guard <= backfillDays) {
       if (ruleMatchesDate(rule, cursor) && (!rule.lastProcessedDate || cursor > rule.lastProcessedDate)) {
@@ -159,20 +173,30 @@ export function materializeRecurring(
         const resting = source.restDays.some(
           (rest) => rest.jobId === rule.jobId && rest.date === cursor,
         );
-        const entry = duplicate || settled || resting
-          ? null
-          : entryFromRule(rule, job, cursor, timestamp, idFactory());
-        if (
-          !entry ||
-          wouldExceedDayLimit(entries, cursor, entry.hours)
-        ) {
+        if (job.rule.rate <= 0) {
+          // 单价为 0 时不生成工记，也不能推进游标：否则改回单价后这些天永久漏补。
           skipped += 1;
+          paySkipped += 1;
         } else {
-          entries = [entry, ...entries];
-          changed = true;
-          added += 1;
+          const entry = duplicate || settled || resting
+            ? null
+            : entryFromRule(rule, job, cursor, timestamp, idFactory());
+          if (!entry || wouldExceedDayLimit(entries, cursor, entry.hours)) {
+            skipped += 1;
+          } else {
+            entries = [entry, ...entries];
+            changed = true;
+            added += 1;
+            if (
+              entry.hours <= 0 &&
+              (job.rule.payType === 'daily' || job.rule.payType === 'monthly')
+            ) {
+              // 0 工时仍会按全额日薪 / 月薪计薪，单独计数让 UI 可提示。
+              zeroHourEntries += 1;
+            }
+          }
+          rule = { ...rule, lastProcessedDate: cursor };
         }
-        rule = { ...rule, lastProcessedDate: cursor };
       }
       cursor = addDays(cursor, 1);
       guard += 1;
@@ -183,6 +207,7 @@ export function materializeRecurring(
     }
   }
 
-  if (!changed) return { state: source, added, skipped, truncated };
-  return { state: { ...source, entries, recurringRules: rules }, added, skipped, truncated };
+  const result = { added, skipped, truncated, zeroHourEntries, paySkipped, startDateBehindCursor };
+  if (!changed) return { state: source, ...result };
+  return { state: { ...source, entries, recurringRules: rules }, ...result };
 }

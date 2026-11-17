@@ -10,6 +10,7 @@ import { formatDateTime } from '../lib/date';
 import { formatHours, formatMoney } from '../lib/money';
 import {
   SNAPSHOT_MAX_BYTES,
+  SNAPSHOT_MAX_COUNT,
   SNAPSHOT_REASON_LABEL,
   deleteSnapshots,
   diffManifests,
@@ -17,7 +18,7 @@ import {
   isSnapshotStoreAvailable,
   ledgerManifest,
   listSnapshots,
-  readSnapshotState,
+  readSnapshotStateDetailed,
   saveSnapshot,
   snapshotTotalBytes,
   type SnapshotMeta,
@@ -37,6 +38,8 @@ export function Snapshots({ onBack }: SnapshotsProps) {
   const [pendingRestore, setPendingRestore] = useState<{
     meta: SnapshotMeta;
     state: AppState;
+    /** 旧格式快照：完整性只按旧规则校验（D17 提示） */
+    legacy: boolean;
   } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SnapshotMeta | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,7 +72,11 @@ export function Snapshots({ onBack }: SnapshotsProps) {
     try {
       const saved = await saveSnapshot(state, 'manual');
       if (!saved) toast('内容和上一张快照一样，没有重复保存', 'info');
-      else toast('已拍下本机快照', 'success');
+      else {
+        toast('已拍下本机快照', 'success');
+        // D17：快照本体已写入，仅旧快照清理失败，不能静默吞掉。
+        if (saved.warning) toast(`旧快照清理失败：${saved.warning}`, 'info');
+      }
       await refresh();
     } catch (snapshotError) {
       toast(snapshotError instanceof Error ? snapshotError.message : '拍快照失败', 'error');
@@ -81,8 +88,13 @@ export function Snapshots({ onBack }: SnapshotsProps) {
   const prepareRestore = async (meta: SnapshotMeta) => {
     setBusy(true);
     try {
-      const snapshotState = await readSnapshotState(meta.id);
-      setPendingRestore({ meta, state: snapshotState });
+      const snapshot = await readSnapshotStateDetailed(meta.id);
+      setPendingRestore({
+        meta,
+        state: snapshot.state,
+        // 旧快照没有强校验标记：仍可恢复，但要在确认框里说明校验口径。
+        legacy: snapshot.integrity === 'legacy',
+      });
     } catch (restoreError) {
       toast(restoreError instanceof Error ? restoreError.message : '读取快照失败', 'error');
     } finally {
@@ -96,7 +108,9 @@ export function Snapshots({ onBack }: SnapshotsProps) {
     const previous = state;
     setBusy(true);
     try {
-      await saveSnapshot(previous, 'before-restore');
+      const backup = await saveSnapshot(previous, 'before-restore');
+      // D17：恢复前快照已写入成功，仅旧快照清理失败时提示。
+      if (backup?.warning) toast(`旧快照清理失败：${backup.warning}`, 'info');
       // replaceState 会先落盘再切换：写入失败时必须明确失败，不能提示“已恢复”然后重启回滚。
       if (!replaceState(pendingRestore.state)) {
         toast('本机存储写入失败，操作未生效，请先导出备份', 'error');
@@ -167,7 +181,7 @@ export function Snapshots({ onBack }: SnapshotsProps) {
             <strong>自动留底</strong>
             <p>
               空闲 3 分钟、每日首次打开和导入 / 清空前会自动拍快照；最多保留{' '}
-              {metas.length > 0 ? `${metas.length} 个` : '30 个'}。
+              {SNAPSHOT_MAX_COUNT} 个。
             </p>
           </div>
         </div>
@@ -244,6 +258,9 @@ export function Snapshots({ onBack }: SnapshotsProps) {
                 将用 {formatDateTime(pendingRestore.meta.at)} 的账本覆盖当前状态；
                 覆盖前会自动为当前状态拍一张快照。
               </p>
+              {pendingRestore.legacy ? (
+                <p>这是旧格式快照，完整性只按旧规则校验；恢复前请确认内容符合预期。</p>
+              ) : null}
               <div className="snap-diff">
                 {diff.map((row) => (
                   <div className="snap-diff-row" key={row.key}>

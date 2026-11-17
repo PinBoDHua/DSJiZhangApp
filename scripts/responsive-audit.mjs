@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { PRIVACY_VERSION } from './lib/e2e-config.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 const BASE = 'http://127.0.0.1:4173';
@@ -101,8 +102,8 @@ for (const viewport of VIEWPORTS) {
     serviceWorkers: 'block',
   });
   await context.addInitScript(
-    ({ simulate, insets }) => {
-      localStorage.setItem('xinshi.privacyConsent', '2026-11-05');
+    ({ simulate, insets, consent }) => {
+      localStorage.setItem('xinshi.privacyConsent', consent);
       localStorage.setItem('xinshi.theme', 'light');
       if (simulate) {
         document.addEventListener('DOMContentLoaded', () => {
@@ -112,7 +113,7 @@ for (const viewport of VIEWPORTS) {
         });
       }
     },
-    { simulate: SIMULATE_INSETS, insets: INSETS },
+    { simulate: SIMULATE_INSETS, insets: INSETS, consent: PRIVACY_VERSION },
   );
   const page = await context.newPage();
   page.on('pageerror', (error) => console.log(`[pageerror] ${viewport.name}: ${error}`));

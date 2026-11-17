@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, FileText, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { Logo, Wordmark } from './Logo';
 import { PrivacyPolicy } from './PrivacyPolicy';
@@ -13,11 +13,18 @@ interface PrivacyGateProps {
 export function PrivacyGate({ onAgree }: PrivacyGateProps) {
   const [showPolicy, setShowPolicy] = useState(false);
   const [declined, setDeclined] = useState(false);
+  const backRef = useRef<HTMLButtonElement>(null);
 
   // 隐私政策子视图要接管 Android 返回键：否则会走全局兜底 minimizeApp，把 App 收进后台。
   useEffect(() => {
     if (!showPolicy) return;
     return pushNativeBack(() => setShowPolicy(false));
+  }, [showPolicy]);
+
+  // 政策子视图整屏替换后焦点会掉到 body：打开后把焦点交给返回按钮，键盘 / 读屏用户不用从头 Tab。
+  useEffect(() => {
+    if (!showPolicy) return;
+    backRef.current?.focus();
   }, [showPolicy]);
 
   const decline = () => {
@@ -37,6 +44,7 @@ export function PrivacyGate({ onAgree }: PrivacyGateProps) {
         <div className="privacy-gate-sheet">
           <header className="privacy-gate-head">
             <button
+              ref={backRef}
               type="button"
               className="icon-button icon-button--back"
               onClick={() => setShowPolicy(false)}

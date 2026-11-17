@@ -45,6 +45,8 @@ export interface SnapshotMeta {
   hash: string;
   bytes: number;
   compressed: boolean;
+  /** 新格式快照的完整性标记；旧快照缺省，读取时按 legacy 处理 */
+  integrity?: 'sha256';
   manifest: LedgerManifest;
 }
 
@@ -62,6 +64,8 @@ export interface ManifestDiffRow {
 
 export const SNAPSHOT_MAX_COUNT = 30;
 export const SNAPSHOT_MAX_BYTES = 30 * 1024 * 1024;
+/** 解压后允许的最大字节数：防止被篡改成高压缩比 gzip 的 IDB 记录撑爆内存 */
+export const SNAPSHOT_MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
 
 const DB_NAME = 'xinshi.snapshots';
 const DB_VERSION = 1;
@@ -129,7 +133,9 @@ export function diffManifests(before: LedgerManifest, after: LedgerManifest): Ma
 export async function stateHash(state: AppState): Promise<string> {
   const text = JSON.stringify(state);
   const sha = await sha256Hex(text);
-  return (sha ?? fnv1aHex(text, 16)).slice(0, 16);
+  // 快照完整性只接受 SHA-256：32 位 FNV 可构造碰撞，不能作为可伪造的静默兜底。
+  if (!sha) throw new Error('当前环境不支持 SHA-256，无法保证快照完整性');
+  return sha.slice(0, 16);
 }
 
 interface CompressedPayload {
@@ -151,16 +157,42 @@ export async function compressPayload(text: string): Promise<CompressedPayload> 
   }
 }
 
-export async function decompressPayload(record: SnapshotRecord): Promise<string> {
+export async function decompressPayload(
+  record: SnapshotRecord,
+  maxBytes = SNAPSHOT_MAX_DECOMPRESSED_BYTES,
+): Promise<string> {
   if (!record.compressed) {
     if (typeof record.data === 'string') return record.data;
+    if (record.data.byteLength > maxBytes) throw new Error('快照内容过大，已中止读取');
     return new TextDecoder().decode(record.data);
   }
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('当前环境无法解压本机快照');
   }
-  const stream = new Blob([record.data]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return new Response(stream).text();
+  // 流式累计解压后字节数：被篡改成 gzip 炸弹的记录不能无限膨胀吃光内存。
+  const reader = new Blob([record.data])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'))
+    .getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('快照解压后超过 64MB，已中止读取');
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
 }
 
 export function formatBytes(bytes: number): string {
@@ -310,7 +342,7 @@ export async function listSnapshots(): Promise<SnapshotMeta[]> {
 export async function saveSnapshot(
   state: AppState,
   reason: SnapshotReason,
-): Promise<{ meta: SnapshotMeta; pruned: number } | null> {
+): Promise<{ meta: SnapshotMeta; pruned: number; warning?: string } | null> {
   const existing = await listSnapshots();
   const hash = await stateHash(state);
   // 安全类快照（导入/清空/恢复/撤销结算前）必须在手动保留组里有一份，不能被
@@ -331,6 +363,7 @@ export async function saveSnapshot(
     hash,
     bytes: payload.data.byteLength,
     compressed: payload.compressed,
+    integrity: 'sha256',
     manifest: ledgerManifest(state),
   };
   const record: SnapshotRecord = { ...meta, data: payload.data };
@@ -346,22 +379,75 @@ export async function saveSnapshot(
     });
     const after = [...existing, meta].sort((a, b) => b.at.localeCompare(a.at));
     const remove = planSnapshotPrune(after);
+    let pruned = 0;
+    let warning: string | undefined;
     if (remove.length > 0) {
-      const tx = db.transaction(STORE, 'readwrite');
-      const store = tx.objectStore(STORE);
-      for (const id of remove) store.delete(id);
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error ?? new Error('清理旧快照失败'));
-      });
+      try {
+        const tx = db.transaction(STORE, 'readwrite');
+        const store = tx.objectStore(STORE);
+        for (const id of remove) store.delete(id);
+        await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error ?? new Error('清理旧快照失败'));
+        });
+        pruned = remove.length;
+      } catch (error) {
+        // 快照本体已写入成功：清理旧快照失败只降级为提示，不能让导入 / 清空流程被取消。
+        warning = error instanceof Error ? error.message : '清理旧快照失败';
+      }
     }
-    return { meta, pruned: remove.length };
+    return { meta, pruned, ...(warning ? { warning } : {}) };
   } finally {
     db.close();
   }
 }
 
-export async function readSnapshotState(id: string): Promise<AppState> {
+export interface SnapshotReadResult {
+  state: AppState;
+  /** sha256 = 新格式强校验；legacy = 旧快照（只有携带 hash 时才校验） */
+  integrity: 'sha256' | 'legacy';
+}
+
+/** 校验快照完整性：新格式缺 hash 直接判损坏，旧格式仍可读但标记 legacy。 */
+async function verifySnapshotIntegrity(
+  record: SnapshotRecord,
+  text: string,
+): Promise<'sha256' | 'legacy'> {
+  // bytes 记录的是载荷真实字节数，被清理工具改写时先在这里露馅。
+  if (typeof record.bytes === 'number' && record.bytes > 0) {
+    const actualBytes =
+      typeof record.data === 'string'
+        ? new TextEncoder().encode(record.data).byteLength
+        : record.data.byteLength;
+    if (record.bytes !== actualBytes) {
+      throw new Error('快照已损坏（尺寸不符），可能被清理工具修改，无法恢复');
+    }
+  }
+  const strong = record.integrity === 'sha256';
+  if (!record.hash) {
+    // 旧实现「抹掉 hash 就跳过校验」，任何改动都能静默恢复；新格式不再放行。
+    if (strong) throw new Error('快照已损坏（缺少校验值），无法恢复');
+    return 'legacy';
+  }
+  if (strong) {
+    const sha = await sha256Hex(text);
+    if (!sha) throw new Error('当前环境不支持 SHA-256，无法校验快照完整性');
+    if (record.hash !== sha.slice(0, 16)) {
+      throw new Error('快照已损坏，可能被清理工具修改，无法恢复');
+    }
+    return 'sha256';
+  }
+  // 旧快照当时可能落在 fnv1a 兜底上：两种候选都接受，能读出来即可。
+  const candidates = new Set<string>([fnv1aHex(text, 16).slice(0, 16)]);
+  const sha = await sha256Hex(text);
+  if (sha) candidates.add(sha.slice(0, 16));
+  if (!candidates.has(record.hash)) {
+    throw new Error('快照已损坏，可能被清理工具修改，无法恢复');
+  }
+  return 'legacy';
+}
+
+export async function readSnapshotStateDetailed(id: string): Promise<SnapshotReadResult> {
   const db = await openDb();
   try {
     const record = await requestResult<SnapshotRecord | undefined>(
@@ -369,24 +455,22 @@ export async function readSnapshotState(id: string): Promise<AppState> {
     );
     if (!record) throw new Error('快照不存在，可能已被清理');
     const text = await decompressPayload(record);
-    // 写入时存了 hash / bytes，读取时要用它验完整性：IndexedDB 被清理工具或
-    // 其他脚本改过时，只要能通过结构校验就会被当成正常账本静默恢复。
-    if (record.hash) {
-      const candidates = new Set<string>([fnv1aHex(text, 16).slice(0, 16)]);
-      const sha = await sha256Hex(text);
-      if (sha) candidates.add(sha.slice(0, 16));
-      if (!candidates.has(record.hash)) {
-        throw new Error('快照已损坏，可能被清理工具修改，无法恢复');
-      }
-    }
+    const integrity = await verifySnapshotIntegrity(record, text);
     const parsed = JSON.parse(text) as unknown;
-    return validateImport(
-      JSON.stringify({ app: 'xinshi', version: record.schema, data: parsed }),
-      { unlockOrphans: true },
-    );
+    return {
+      state: validateImport(
+        JSON.stringify({ app: 'xinshi', version: record.schema, data: parsed }),
+        { unlockOrphans: true },
+      ),
+      integrity,
+    };
   } finally {
     db.close();
   }
+}
+
+export async function readSnapshotState(id: string): Promise<AppState> {
+  return (await readSnapshotStateDetailed(id)).state;
 }
 
 export async function deleteSnapshots(ids: string[]): Promise<void> {

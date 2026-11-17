@@ -2,10 +2,11 @@ import { chromium } from 'playwright-core';
 import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { E2E_BASE_URL, E2E_BROWSER_PATH, PRIVACY_VERSION, seedPrivacyConsent } from './lib/e2e-config.mjs';
 
 const APP_VERSION = JSON.parse(readFileSync('package.json', 'utf8')).version;
-const BASE = 'http://127.0.0.1:4173';
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const BASE = E2E_BASE_URL;
+const EDGE = E2E_BROWSER_PATH;
 const OUT = 'test-results-v100';
 await mkdir(OUT, { recursive: true });
 
@@ -16,9 +17,7 @@ const context = await browser.newContext({
   timezoneId: 'Asia/Shanghai',
   serviceWorkers: 'block',
 });
-await context.addInitScript(() =>
-  localStorage.setItem('xinshi.privacyConsent', '2026-11-05'),
-);
+await seedPrivacyConsent(context);
 const page = await context.newPage();
 const errors = [];
 page.on('console', (message) => {

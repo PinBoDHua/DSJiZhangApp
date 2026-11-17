@@ -20,11 +20,24 @@ function binaryString(bytes: Uint8Array): string {
   return result;
 }
 
-async function loadPdfFont(): Promise<string> {
+export async function loadPayslipPdfFont(): Promise<string> {
   if (fontCache) return fontCache;
-  const response = await fetch(`${import.meta.env.BASE_URL}fonts/xinshi-sans.ttf`);
-  if (!response.ok) throw new Error('中文字体加载失败');
-  fontCache = binaryString(new Uint8Array(await response.arrayBuffer()));
+  const url = `${import.meta.env.BASE_URL}fonts/xinshi-sans.ttf`;
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    // 透出具体原因（网络 / 资源缺失），页面 catch 后可直接展示，而不是只说「请稍后再试」。
+    throw new Error(`中文字体加载失败：无法读取 ${url}（${String(error)}）`);
+  }
+  if (!response.ok) {
+    throw new Error(`中文字体加载失败：${url} 返回 HTTP ${response.status}`);
+  }
+  try {
+    fontCache = binaryString(new Uint8Array(await response.arrayBuffer()));
+  } catch (error) {
+    throw new Error(`中文字体加载失败：字体文件读取中断（${String(error)}）`);
+  }
   return fontCache;
 }
 
@@ -39,7 +52,7 @@ export async function downloadPayslipTextPdf(
   options: PayslipOptions = DEFAULT_PAYSLIP_OPTIONS,
   entries: Entry[] = [],
 ): Promise<'web' | 'native' | 'shared'> {
-  const [{ jsPDF }, font] = await Promise.all([import('jspdf'), loadPdfFont()]);
+  const [{ jsPDF }, font] = await Promise.all([import('jspdf'), loadPayslipPdfFont()]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   doc.addFileToVFS(FONT_FILE, font);
   doc.addFont(FONT_FILE, 'XinshiSans', 'normal');

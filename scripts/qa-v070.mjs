@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { seedPrivacyConsent } from './lib/e2e-config.mjs';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
@@ -14,7 +15,7 @@ const context = await browser.newContext({
   timezoneId: 'Asia/Shanghai',
   serviceWorkers: 'block',
 });
-await context.addInitScript(() => localStorage.setItem('xinshi.privacyConsent', '2026-11-05'));
+await seedPrivacyConsent(context);
 const page = await context.newPage();
 const errors = [];
 page.on('console', (msg) => {

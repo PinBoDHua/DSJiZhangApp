@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RecurringRule } from '../types';
 import { materializeRecurring, nextRecurringDate, ruleMatchesDate } from './recurring';
-import { makeEntry, makeJob, makeRestDay, makeSettlement, makeState } from './testFixtures';
+import { baseRule, makeEntry, makeJob, makeRestDay, makeSettlement, makeState } from './testFixtures';
 
 function rule(patch: Partial<RecurringRule> = {}): RecurringRule {
   return {
@@ -134,3 +134,42 @@ describe('周期记工', () => {
     expect(narrow.truncated).toBe(true);
   });
 });
+describe('周期记工边界（PAY-11）', () => {
+  it('单价为 0 时跳过但不推进游标，改回单价后能补回', () => {
+    const zeroJob = makeJob({ rule: { ...baseRule, rate: 0 } });
+    const zeroState = makeState({ jobs: [zeroJob], recurringRules: [rule()] });
+    const blocked = generate(zeroState, '2026-11-04');
+    expect(blocked.added).toBe(0);
+    expect(blocked.paySkipped).toBe(3);
+    expect(blocked.state.recurringRules?.[0].lastProcessedDate).toBeUndefined();
+
+    const fixedState = { ...zeroState, jobs: [makeJob()] };
+    const retried = generate(fixedState, '2026-11-04');
+    expect(retried.added).toBe(3);
+    expect(retried.paySkipped).toBe(0);
+  });
+
+  it('日薪 / 月薪 hours=0 生成全额工记时给出可检测标记', () => {
+    const dailyJob = makeJob({
+      rule: { ...baseRule, payType: 'daily', rate: 300, otEnabled: false },
+    });
+    const state = makeState({ jobs: [dailyJob], recurringRules: [rule({ hours: 0 })] });
+    const result = generate(state);
+    expect(result.added).toBe(3);
+    expect(result.zeroHourEntries).toBe(3);
+  });
+
+  it('规则开始日期早于已处理游标时返回提示', () => {
+    const state = makeState({
+      jobs: [makeJob()],
+      recurringRules: [
+        rule({ startDate: '2026-10-01', lastProcessedDate: '2026-10-15' }),
+      ],
+    });
+    const result = generate(state, '2026-11-04');
+    expect(result.startDateBehindCursor).toBe(true);
+    // 只从游标之后补：10/16 – 11/03 共 19 天。
+    expect(result.added).toBe(19);
+  });
+});
+

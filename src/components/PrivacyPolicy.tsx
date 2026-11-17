@@ -4,7 +4,7 @@ export function PrivacyPolicy() {
   return (
     <div className="privacy-content">
       <p className="privacy-updated">
-        生效日期：2026-11-05 · 政策版本 {PRIVACY_VERSION}
+        生效日期：{PRIVACY_VERSION} · 政策版本 {PRIVACY_VERSION}
       </p>
 
       <p className="privacy-lead">
@@ -65,6 +65,10 @@ export function PrivacyPolicy() {
             照片只留在本机，不读取相册中的其他内容。
           </li>
           <li>Android 版不申请精确闹钟权限。</li>
+          <li>
+            崩溃诊断只保存在本机应用私有目录（不写入公共下载目录，也不联网上传）；
+            仅调试构建或你主动导出诊断时，才会把诊断文件写入下载目录。
+          </li>
         </ul>
       </section>
 
@@ -118,7 +122,7 @@ export function PrivacyPolicy() {
           可联系：<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>。
         </p>
         <p className="privacy-url">
-          在线版本：<span className="privacy-url-text">{PRIVACY_URL}</span>
+          完整政策页：<span className="privacy-url-text">{PRIVACY_URL}</span>
         </p>
       </section>
 

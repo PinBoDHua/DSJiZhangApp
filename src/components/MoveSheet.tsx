@@ -13,7 +13,7 @@ import type { AppState } from '../types';
 import { useStore } from '../store';
 import { Sheet } from './Sheet';
 import { ConfirmDialog } from './ConfirmDialog';
-import { validateImport } from '../lib/storage';
+import { EXPORT_APP, validateImport } from '../lib/storage';
 import { decryptBackup, isEncryptedBackup } from '../lib/backup';
 import { buildMovePackage, isMovePackage, moveFileName, parseMovePackage, shortChecksum, unlockMovePackage, type MovePackageHeader } from '../lib/movePackage';
 import {
@@ -58,6 +58,8 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
     checksum: string;
     filename: string;
     path: string;
+    /** 旧系统只弹了分享面板、未真正落盘：结果屏不能显示“已保存” */
+    shared: boolean;
   } | null>(null);
 
   const [step, setStep] = useState<ImportStep>('pick');
@@ -67,6 +69,26 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * 主动导入统一口径（与 Profile.tsx 导入口径一致）：
+   * - rejectUnsettledInPeriod（D11）：拒绝日期落在已结算周期内却没锁定的工记；
+   * - onWarning（D25）：共享 photoId 剥离等非阻断提示用 toast 告知，不阻断恢复。
+   */
+  const importOptions = {
+    unlockOrphans: true,
+    rejectUnsettledInPeriod: true,
+    onWarning: (message: string) => toast(message, 'info'),
+  };
+  /**
+   * 加密备份 / 搬家包在各自 lib 内部已做过一次 validateImport，这里再按主动导入口径
+   * 复核一遍，让 D11 拒绝与 D25 提示同样覆盖这两条路径。
+   */
+  const revalidateImport = (next: AppState) =>
+    validateImport(
+      JSON.stringify({ app: EXPORT_APP, version: next.version, data: next }),
+      importOptions,
+    );
 
   useEffect(() => {
     if (!open) return;
@@ -107,13 +129,24 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
       });
       const filename = moveFileName();
       const saved = await saveTextFile(filename, text);
-      markBackedUp();
+      // Android 5–9 只能弹系统分享面板：用户取消时并没有文件落盘。
+      // 与 DataSafety.quickBackup 同口径：'shared' 不重置备份提醒、不显示“已保存”。
+      const shared = saved === 'shared';
+      if (!shared) markBackedUp();
       setResult({
         checksum: shortChecksum(header.checksum),
         filename,
-        path: saved === 'native' ? `下载/Xinshi/${filename}` : filename,
+        shared,
+        path: shared
+          ? '系统分享面板'
+          : saved === 'native'
+            ? `下载/Xinshi/${filename}`
+            : filename,
       });
-      toast('搬家包已导出', 'success');
+      toast(
+        shared ? '已打开系统分享面板，请确认文件已保存' : '搬家包已导出',
+        shared ? 'info' : 'success',
+      );
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : '导出失败');
     } finally {
@@ -139,6 +172,13 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
+    // 低端 WebView 把几十 MB 文件 file.text()+JSON.parse 全量读入会 OOM；
+    // 账本 localStorage 上限约 5MB，超过 20MB 的文件几乎不可能是正常备份。
+    if (file.size > 20 * 1024 * 1024) {
+      setError('备份文件超过 20 MB，请确认文件是否正确');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
     setError('');
     setBusy(true);
     try {
@@ -147,7 +187,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
         const header = parseMovePackage(text);
         if ('plain' in header.payload) {
           const unlocked = await unlockMovePackage(text);
-          acceptState(unlocked.state, {
+          acceptState(revalidateImport(unlocked.state), {
             source: '搬家包',
             exportedAt: header.exportedAt,
             checksum: shortChecksum(header.checksum),
@@ -165,7 +205,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
         setPendingHeader(null);
         setStep('password');
       } else {
-        const imported = validateImport(text, { unlockOrphans: true });
+        const imported = validateImport(text, importOptions);
         acceptState(imported, {
           source: '普通备份',
           encrypted: false,
@@ -189,7 +229,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
     try {
       if (pendingKind === 'move') {
         const unlocked = await unlockMovePackage(pendingText, password);
-        acceptState(unlocked.state, {
+        acceptState(revalidateImport(unlocked.state), {
           source: '加密搬家包',
           exportedAt: unlocked.header.exportedAt,
           checksum: shortChecksum(unlocked.header.checksum),
@@ -197,7 +237,7 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
         });
       } else {
         const restored = await decryptBackup(pendingText, password);
-        acceptState(restored, { source: '加密备份', encrypted: true });
+        acceptState(revalidateImport(restored), { source: '加密备份', encrypted: true });
       }
       setPassword('');
     } catch (unlockError) {
@@ -213,7 +253,9 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
     setBusy(true);
     setError('');
     try {
-      await saveSnapshot(state, 'before-import');
+      const backup = await saveSnapshot(state, 'before-import');
+      // D17：快照本体已写入，仅旧快照清理失败，不能静默吞掉。
+      if (backup?.warning) toast(`旧快照清理失败：${backup.warning}`, 'info');
       // replaceState 现在先同步落盘再切内存：写入失败时旧账本保持不变，不能提示成功。
       if (!replaceState(preview.state)) {
         const message = '本机存储写入失败，导入未生效，请先导出备份';
@@ -252,9 +294,13 @@ export function MoveSheet({ open, mode, onClose }: MoveSheetProps) {
               <span className="move-done-icon">
                 <CheckCircle2 size={26} />
               </span>
-              <h3>搬家包已保存</h3>
+              <h3>{result.shared ? '已打开系统分享面板' : '搬家包已保存'}</h3>
               <p>
-                {isNativeApp() ? `位置：${result.path}` : `文件名：${result.filename}`}
+                {result.shared
+                  ? '请确认文件已保存；在系统面板里取消则没有文件落盘。'
+                  : isNativeApp()
+                    ? `位置：${result.path}`
+                    : `文件名：${result.filename}`}
               </p>
               <dl className="move-done-meta">
                 <div>

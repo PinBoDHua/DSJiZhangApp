@@ -57,11 +57,29 @@ describe('工资条明细行', () => {
       showBonus: false,
       showAdvance: false,
     });
+    // 隐藏加班 / 奖金 / 借支后，可见行加总对不上净额，补一行「其他」汇总（PAY-24）。
     expect(rows.map((row) => row.label)).toEqual([
       '固定月薪',
       '扣款',
       '超休扣款',
+      '其他（含借支/超休）',
     ]);
+    const other = rows.find((row) => row.label === '其他（含借支/超休）');
+    expect(other?.value).toBe(300);
+    expect(other?.negative).toBe(true);
+  });
+
+  it('隐藏超休 / 借支后可见行加总仍等于净额', () => {
+    const rows = buildPayslipRows(settlement, {
+      ...DEFAULT_PAYSLIP_OPTIONS,
+      showOverRest: false,
+    });
+    const explained = rows.reduce(
+      (sum, row) => sum + (row.negative ? -row.value : row.value),
+      0,
+    );
+    expect(explained).toBe(settlement.net);
+    expect(rows.find((row) => row.label === '其他（含借支/超休）')?.value).toBe(159.09);
   });
 
   it('读取旧偏好时补默认值并截断页脚', () => {

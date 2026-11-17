@@ -49,9 +49,13 @@ export function crc32(bytes: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+/** 剥离 XML 1.0 非法字符（控制符 / 非字符位 / 孤立代理项），\r 统一转 \n 后再做实体转义。 */
 function xmlEscape(value: string): string {
   return value
+    .replace(/\r\n?/g, '\n')
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .replace(/[\uFFFE\uFFFF]|[\uFDD0-\uFDEF]/g, '')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

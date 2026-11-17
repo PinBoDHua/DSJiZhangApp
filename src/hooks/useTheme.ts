@@ -31,4 +31,15 @@ export function useTheme(mode: ThemeMode): void {
     media.addListener(handleChange);
     return () => media.removeListener(handleChange);
   }, [mode]);
+
+  useEffect(() => {
+    // 跨标签页同步（UI-39）：storage 事件只在其他标签页写入时触发。
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== THEME_KEY || event.newValue === null) return;
+      const next = event.newValue;
+      if (next === 'light' || next === 'dark' || next === 'system') apply(next);
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 }

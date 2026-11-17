@@ -15,7 +15,9 @@ export function formatMoney(
 ): string {
   const { decimals = 2, symbol = false, signed = false } = options;
   const safe = Number.isFinite(value) ? value : 0;
-  const rounded = Number(safe.toFixed(decimals));
+  // 展示前先按「分」舍入，避免未舍入值出现 8.165 → 8.16 / 8.17 的显示与账目分叉。
+  // 注意 round2 对负值半分向 +∞ 舍入（-8.165 → -8.16，即 8.16 的镜像），属既定口径。
+  const rounded = Number(round2(safe).toFixed(decimals));
   const abs = Math.abs(rounded);
   const text = abs.toLocaleString('zh-CN', {
     minimumFractionDigits: decimals,

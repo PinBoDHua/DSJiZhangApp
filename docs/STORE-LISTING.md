@@ -20,8 +20,8 @@
 | 登录 | 不需要，全部功能免登录 |
 | 网络 | **不申请网络权限**；无服务器 |
 | 数据 | 只存本机；导出文件由用户保管 |
-| 支持邮箱 | `support@xinshi.app`（上线前必须换成真实可收信邮箱） |
-| 隐私政策 | `https://pinbodhua.github.io/DSJiZhangApp/privacy-policy.html`（需开启 GitHub Pages，源选 `/docs`）；若 Pages 源选根目录，URL 改为 `https://pinbodhua.github.io/DSJiZhangApp/docs/privacy-policy.html` |
+| 支持邮箱 | `2359648846@qq.com`（2026-11-17 已配置；更换时同步两份政策 HTML 与 compliance.ts） |
+| 隐私政策 | 应用内离线政策页 `privacy-policy.html` 随构建分发；上架前必须另行托管为**可公开访问的 HTTPS 地址并实测 200**，旧 GitHub Pages 地址实测 404，不得再填 |
 
 ### 短描述（≤80 字）
 
@@ -140,6 +140,7 @@ gradlew.bat bundleRelease
   - `android/app/build/outputs/apk/release/app-release.apk`
   - `android/app/build/outputs/bundle/release/app-release.aab`
 - 复制并重命名到 `release/xinshi-v1.0.0.apk` / `release/xinshi-v1.0.0.aab`。
+- 发布 SOP：只从 `release/` 取带版本号 + SHA-256 登记的成品；`android/aligned.apk` 这类 zipalign 中间产物已删除，不要从 `android/` 根目录取 APK 分发。
 - 校验：
 
 ```bash
@@ -177,7 +178,7 @@ aapt dump permissions release/xinshi-v1.0.0.apk
 | 开发者实名 | 华为 / 小米 / OPPO / vivo / 应用宝等分别注册 | 外部办理 |
 | 软件著作权 / 电子版权 | 多数商店要求；个人可申请软著 | 外部办理 |
 | 工信部 APP 备案 | 需主体资料、包名、签名 MD5、隐私政策 URL | 外部办理 |
-| 隐私政策 URL | `docs/privacy-policy.html` 托管后的地址；Pages 源 `/docs` 时为 `.../privacy-policy.html` | 需开启 Pages |
+| 隐私政策 URL | 自行托管的公开 HTTPS 地址（自建站点 / 对象存储等），上架前实测 200；旧 GitHub Pages 地址已 404 | 需准备托管 |
 | 隐私政策首启弹窗 | v0.7.0 已实现，未同意不进入 | 已完成 |
 | 权限清单 | 见第 3 节；无敏感权限 | 已完成 |
 | 个人信息收集清单 | 无收集；本地存储 | 已完成 |
@@ -216,14 +217,13 @@ A：应用没有账号体系，不收集账号信息；删除本地数据即完�
 
 | 位置 | 当前值 | 替换为 |
 | --- | --- | --- |
-| `src/lib/compliance.ts` / `docs/privacy-policy.html` | `support@xinshi.app` | 真实可收信邮箱 |
-| `src/lib/compliance.ts` / 本文 | `https://pinbodhua.github.io/DSJiZhangApp/privacy-policy.html` | 实际可访问的隐私政策 URL |
-| `docs/privacy-policy.html` | 同上 | 同上 |
+| `src/lib/compliance.ts` / 两份政策 HTML | `2359648846@qq.com` | 已完成（2026-11-17；如需更换用 VITE_SUPPORT_EMAIL 注入并同步政策 HTML） |
+| `src/lib/compliance.ts` / 本文 | 应用内离线页 `privacy-policy.html` | 自行托管的公开 HTTPS 政策地址（实测 200；原 GitHub Pages 地址已 404，不得再填） |
 
 可用构建环境变量覆盖，不必改代码：
 
 ```bash
-VITE_SUPPORT_EMAIL=you@example.com
+VITE_SUPPORT_EMAIL=2359648846@qq.com
 VITE_PRIVACY_URL=https://your.site/privacy-policy.html
 ```
 

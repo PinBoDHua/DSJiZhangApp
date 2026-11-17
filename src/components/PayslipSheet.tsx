@@ -14,8 +14,10 @@ import {
 } from '../lib/payslipOptions';
 import { formatMoney } from '../lib/money';
 import { isNativeApp, saveBlobFile } from '../lib/native';
+import { saveFeedback } from '../lib/fileFeedback';
 import { useStore } from '../store';
 import { Sheet } from './Sheet';
+import { usePrivacy } from './Money';
 
 interface PayslipSheetProps {
   settlement: Settlement;
@@ -44,6 +46,8 @@ const PAYSLIP_TOGGLES: Array<{ key: PayslipBoolKey; label: string }> = [
 
 export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps) {
   const { state, toast } = useStore();
+  // UI-06：隐藏金额只影响 App 内的展示，导出的图片 / PDF 仍是明文。
+  const hiddenAmounts = usePrivacy();
   const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,11 +127,8 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     setSaveBusy(true);
     try {
       const result = await saveBlobFile(blobRef.current, payslipFileName(settlement));
-      toast(
-        result === 'native'
-          ? '图片已保存到「下载/Xinshi」'
-          : '工资条已保存',
-      );
+      const feedback = saveFeedback(result, '工资条图片');
+      toast(feedback.message, feedback.tone);
     } catch {
       toast('保存失败，请稍后再试', 'error');
     } finally {
@@ -156,7 +157,8 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
     setPdfBusy(true);
     try {
       const result = await downloadPayslipPdf(blobRef.current, settlement);
-      toast(result === 'native' ? 'PDF 已保存到「下载/Xinshi」' : 'PDF 已保存');
+      const feedback = saveFeedback(result, 'PDF 工资条');
+      toast(feedback.message, feedback.tone);
     } catch {
       toast('PDF 生成失败，请稍后再试', 'error');
     } finally {
@@ -171,13 +173,11 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
         settlement.entryIds.includes(entry.id),
       );
       const result = await downloadPayslipTextPdf(settlement, options, entries);
-      toast(
-        result === 'native'
-          ? '文字版 PDF 已保存到「下载/Xinshi」'
-          : '文字版 PDF 已保存',
-      );
-    } catch {
-      toast('文字版 PDF 生成失败，请稍后再试', 'error');
+      const feedback = saveFeedback(result, '文字版 PDF');
+      toast(feedback.message, feedback.tone);
+    } catch (error) {
+      // PAY-24：字体加载失败时透出具体原因（如离线 / HTTP 404），不再只有通用文案。
+      toast(error instanceof Error ? error.message : '文字版 PDF 生成失败，请稍后再试', 'error');
     } finally {
       setTextBusy(false);
     }
@@ -186,6 +186,11 @@ export function PayslipSheet({ settlement, accent, onClose }: PayslipSheetProps)
   return (
     <Sheet open title="工资条图片" subtitle="发给老板对账，或留作记录" onClose={onClose}>
       <div className="sheet-body payslip-body">
+        {hiddenAmounts ? (
+          <p className="export-plaintext-hint" role="note">
+            当前已隐藏金额，导出 / 分享内容仍包含明文金额
+          </p>
+        ) : null}
         {loading ? (
           <div className="payslip-skeleton" aria-busy="true" aria-label="正在生成工资条">
             <div className="skeleton skeleton--eyebrow" />

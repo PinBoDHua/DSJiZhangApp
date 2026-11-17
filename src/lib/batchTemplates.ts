@@ -80,18 +80,27 @@ export function saveBatchTemplates(templates: BatchTemplate[]): BatchTemplate[] 
   return normalized;
 }
 
+export interface UpsertBatchTemplateResult {
+  templates: BatchTemplate[];
+  saved: BatchTemplate;
+  /** 满额被挤掉的最旧模板；没有挤掉时为 undefined，页面可据此提示「已替换最旧模板」。 */
+  evicted?: BatchTemplate;
+}
+
 export function upsertBatchTemplate(
   templates: BatchTemplate[],
   input: Omit<BatchTemplate, 'id'>,
-): { templates: BatchTemplate[]; saved: BatchTemplate } {
+): UpsertBatchTemplateResult {
   const saved: BatchTemplate = { ...input, id: createId('tpl') };
-  const next = [
+  const merged = [
     saved,
     ...templates.filter(
       (item) => item.name !== saved.name || item.jobId !== saved.jobId,
     ),
-  ].slice(0, MAX_TEMPLATES);
-  return { templates: saveBatchTemplates(next), saved };
+  ];
+  // 满额时不再静默丢弃：把被挤掉的模板返回给页面，由页面提示替换或拒绝。
+  const evicted = merged.length > MAX_TEMPLATES ? merged[MAX_TEMPLATES] : undefined;
+  return { templates: saveBatchTemplates(merged.slice(0, MAX_TEMPLATES)), saved, evicted };
 }
 
 export function deleteBatchTemplate(
@@ -123,6 +132,9 @@ export function parseBatchTemplateFile(text: string): BatchTemplate[] {
       ? (raw as Record<string, unknown>)
       : null;
   if (wrapper && wrapper.kind && wrapper.kind !== 'batch-templates') {
+    throw new Error('这不是薪时批量模板文件');
+  }
+  if (wrapper && wrapper.app !== undefined && wrapper.app !== 'xinshi') {
     throw new Error('这不是薪时批量模板文件');
   }
   if (wrapper && typeof wrapper.version === 'number' && wrapper.version > 1) {

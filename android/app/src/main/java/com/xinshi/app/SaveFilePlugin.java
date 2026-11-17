@@ -1,5 +1,6 @@
 package com.xinshi.app;
 
+import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
@@ -132,6 +133,8 @@ public class SaveFilePlugin extends Plugin {
                 call.reject("无法创建临时目录");
                 return;
             }
+            // 分享面板拿到的只是临时副本：每次分享前清掉上一轮遗留文件，避免缓存无限累积（AND-17）。
+            cleanupLegacyCache(dir);
             File file = new File(dir, filename);
             try (OutputStream stream = new FileOutputStream(file)) {
                 stream.write(bytes);
@@ -142,6 +145,8 @@ public class SaveFilePlugin extends Plugin {
             Intent intent = new Intent(Intent.ACTION_SEND);
             intent.setType(mimeType);
             intent.putExtra(Intent.EXTRA_STREAM, uri);
+            // 部分旧 ROM 只认 ClipData 里的 URI 授权，补上以防分享目标读不到临时文件（AND-17）。
+            intent.setClipData(ClipData.newRawUri(null, uri));
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             Intent chooser = Intent.createChooser(intent, "保存或分享文件");
             chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -156,7 +161,24 @@ public class SaveFilePlugin extends Plugin {
         }
     }
 
-    /** 读取已发布文件的实际名称：同名冲突时系统可能自动改名。 */
+    /** 清理缓存目录里上一轮分享留下的临时文件（Android 5–9 分享面板无法回调删除）。 */
+    private void cleanupLegacyCache(File dir) {
+        File[] stale = dir.listFiles();
+        if (stale == null) {
+            return;
+        }
+        for (File item : stale) {
+            if (item != null && item.isFile()) {
+                //noinspection ResultOfMethodCallIgnored
+                item.delete();
+            }
+        }
+    }
+
+    /**
+     * 读取已发布文件的实际名称：同名冲突时系统可能自动改名。
+     * 查询失败时按请求名回退——这是展示层兜底，极少数情况下可能与磁盘实际文件名不一致。
+     */
     private String displayNameOf(ContentResolver resolver, Uri uri, String fallback) {
         try (Cursor cursor = resolver.query(
                 uri, new String[] { MediaStore.MediaColumns.DISPLAY_NAME }, null, null, null)) {
@@ -217,11 +239,12 @@ public class SaveFilePlugin extends Plugin {
 
         String relativePath = relativePath(subdir);
         ContentResolver resolver = getContext().getContentResolver();
-        String selection = MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? AND "
+        // 前缀里的 % / _ 要转义，避免被当成 LIKE 通配符匹配到无关备份（AND-17）。
+        String selection = MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? ESCAPE '\\' AND "
                 + MediaStore.MediaColumns.RELATIVE_PATH + " = ? AND "
                 + MediaStore.MediaColumns.OWNER_PACKAGE_NAME + " = ? AND "
                 + MediaStore.MediaColumns.IS_PENDING + " = 0";
-        String[] args = new String[] { prefix + "%", relativePath, getContext().getPackageName() };
+        String[] args = new String[] { escapeLikePrefix(prefix), relativePath, getContext().getPackageName() };
         String[] columns = new String[] {
                 MediaStore.MediaColumns._ID,
                 MediaStore.MediaColumns.DISPLAY_NAME,
@@ -259,6 +282,11 @@ public class SaveFilePlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("deleted", deleted);
         call.resolve(result);
+    }
+
+    /** 转义 LIKE 前缀中的 \、% 与 _，拼回 "%" 通配后缀。 */
+    private static String escapeLikePrefix(String prefix) {
+        return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
     private String relativePath(String subdir) {

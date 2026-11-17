@@ -43,14 +43,15 @@ export function ConfirmDialog({
       if (event.key !== 'Escape') return;
       // 确认框可能叠在抽屉上：只关闭最上面这一层。
       event.stopImmediatePropagation();
-      onCancel();
+      cancelRef.current();
     };
     window.addEventListener('keydown', handleKey, true);
     return () => {
       releaseScroll();
       window.removeEventListener('keydown', handleKey, true);
     };
-  }, [open, onCancel]);
+    // 依赖只留 open：onCancel 多为内联箭头函数，父级（toast 等）每次渲染都会重挂监听并解锁/重锁滚动。
+  }, [open]);
 
   if (!open) return null;
 

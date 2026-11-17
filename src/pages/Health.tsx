@@ -54,17 +54,24 @@ export function Health({ onBack, onNavigate }: HealthProps) {
   const fixOrphanLocks = async (issue: HealthIssue) => {
     if (issue.code !== 'orphan-settlement-lock') return;
     setBusy(true);
+    let snapshotSaved = true;
     try {
       await saveSnapshot(state, 'manual');
     } catch {
-      // 快照失败仍允许修复，Toast 里说明
+      // 快照失败仍允许修复，但必须在 Toast 里说明没有留底，否则用户以为可以一键回退（UI-21）。
+      snapshotSaved = false;
     }
     const fixed = applySafeFixes(state, [issue.code]);
     if (fixed.fixed > 0) {
       if (!replaceState(fixed.state)) {
         toast('本机存储写入失败，操作未生效，请先导出备份', 'error');
-      } else {
+      } else if (snapshotSaved) {
         toast(`已解锁 ${fixed.fixed} 条记录，可以重新结算了`, 'success');
+      } else {
+        toast(
+          `已解锁 ${fixed.fixed} 条记录，但快照保存失败：本次修复没有留底，无法一键回退`,
+          'error',
+        );
       }
     } else {
       toast('没有需要解锁的记录', 'info');

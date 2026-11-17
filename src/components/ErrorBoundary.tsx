@@ -116,3 +116,59 @@ export class ErrorBoundary extends Component<Props, State> {
     );
   }
 }
+
+interface PageProps {
+  children: ReactNode;
+  /** 出错时「返回」动作（例如切回首页）；不传则只重置本页错误状态 */
+  onReset?: () => void;
+}
+
+interface PageState {
+  hasError: boolean;
+  message: string;
+}
+
+/**
+ * 页级错误边界（审计 UI-19）：子页渲染异常时只坏当前页，不再整应用落到根级错误屏。
+ * 根级 ErrorBoundary 仍负责真正白屏兜底；这里用更轻的 fallback，保留底部导航可用。
+ */
+export class PageErrorBoundary extends Component<PageProps, PageState> {
+  state: PageState = { hasError: false, message: '' };
+
+  static getDerivedStateFromError(error: unknown): PageState {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('薪时子页渲染失败', error, info.componentStack);
+  }
+
+  private reset = () => {
+    this.setState({ hasError: false, message: '' });
+    this.props.onReset?.();
+  };
+
+  render(): ReactNode {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="error-boundary">
+        <div className="error-boundary-card" role="alert">
+          <h1>这个页面出错了</h1>
+          <p>账本数据没有丢失，可以返回首页继续使用其他页面。</p>
+          <div className="error-boundary-actions">
+            <button type="button" className="btn btn--primary btn--block" onClick={this.reset}>
+              返回首页
+            </button>
+          </div>
+          <details className="error-boundary-detail">
+            <summary>错误信息</summary>
+            <code>{this.state.message || '未知错误'}</code>
+          </details>
+        </div>
+      </div>
+    );
+  }
+}

@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -32,6 +33,7 @@ import {
   isValidDate,
   STORAGE_KEY,
 } from './lib/storage';
+import { isRemoteDirty, replayUpdaters, type StateUpdater } from './lib/stateMerge';
 import {
   materializeRecurring,
   type NewRecurringRuleInput,
@@ -55,6 +57,39 @@ import { StorageRecovery } from './components/StorageRecovery';
 export type NewJobInput = Omit<Job, 'id' | 'createdAt' | 'archived'> & { archived?: boolean };
 export type NewEntryInput = Omit<Entry, 'id' | 'createdAt' | 'updatedAt'>;
 export type EntryPatch = Partial<Omit<Entry, 'id' | 'createdAt' | 'settlementId'>>;
+
+/** 整包替换（清空 / 导入 / 恢复快照）的广播键：其他标签页收到后丢弃未落盘改动。 */
+const LEDGER_EPOCH_KEY = 'xinshi.ledgerEpoch';
+
+function readStoredStateRaw(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** 广播「整包替换意图」，值用时间戳字符串；存储不可用时静默跳过。 */
+function broadcastLedgerEpoch(): void {
+  try {
+    localStorage.setItem(LEDGER_EPOCH_KEY, String(Date.now()));
+  } catch {
+    // 本地存储不可用时没有其他标签页可同步
+  }
+}
+
+/** 按错误类型区分存储失败文案（D21）：配额不足 / 存储被禁用 / 其他。 */
+function storageErrorMessage(error: unknown): string {
+  const name = error instanceof Error ? error.name : '';
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (name === 'QuotaExceededError' || /quota|space/i.test(message)) {
+    return '本地存储空间不足，请先导出备份';
+  }
+  if (name === 'SecurityError' || name === 'NotAllowedError') {
+    return '浏览器禁用了本地存储（隐私模式或站点设置），本次记录可能无法保存';
+  }
+  return '保存本地数据失败，请先导出备份后重试';
+}
 
 function validRecurringInput(
   state: AppState,
@@ -208,6 +243,14 @@ function StoreStateProvider({
   const storageWarned = useRef(false);
   /** 有内存改动尚未落盘：此时收到其他标签页的 storage 事件先不回灌，避免覆盖新改动。 */
   const pendingPersist = useRef(false);
+  /** 本窗口上次成功写入的 JSON 原文：落盘前与 localStorage 比对（乐观 CAS，D02）。 */
+  const lastPersistedRaw = useRef<string | null>(readStoredStateRaw());
+  /** 尚未落盘的更新函数：远端被别的标签页改过时按序重放，避免整包覆盖（D02）。 */
+  const pendingUpdaters = useRef<StateUpdater[]>([]);
+  /** 落盘期间收到过远端事件（即使 pending 也记下，供合并判断）。 */
+  const remoteDirty = useRef(false);
+  /** 启动时刻：只清理这之前就存在的孤儿照片，避免误删刚拍的新照片（D08）。 */
+  const pruneStartedAt = useRef(nowISO());
   stateRef.current = state;
 
   const bumpLedger = useCallback(() => setLedgerSeq((value) => value + 1), []);
@@ -243,18 +286,38 @@ function StoreStateProvider({
   );
 
   useEffect(() => {
+    // 没有待落盘的更新（例如跨标签页回灌触发的重渲染）时不要回写，避免覆盖远端。
+    if (!pendingPersist.current) return;
+    // 乐观 CAS：保存前重读远端原文。若远端在本窗口上次写入后被别的标签页改过，
+    // 把本窗口整包写回会丢掉对方的改动；此时以远端为基准、按提交顺序重放本地更新（D02）。
+    const remoteRaw = readStoredStateRaw();
+    let next = stateRef.current;
+    if (isRemoteDirty(remoteRaw, lastPersistedRaw.current)) {
+      const loaded = loadStateDetailed();
+      // 远端损坏 / 不可读时退回原行为：保存本地账本（不能因为读不到就不保存）。
+      if (!loaded.failure) {
+        next = replayUpdaters(loaded.state ?? createEmptyState(), pendingUpdaters.current);
+        stateRef.current = next;
+        setState(next);
+      }
+    }
     try {
-      saveState(state);
+      saveState(next);
+      lastPersistedRaw.current = JSON.stringify(next);
+      pendingUpdaters.current = [];
+      remoteDirty.current = false;
       pendingPersist.current = false;
       storageWarned.current = false;
       setStorageError(false);
     } catch (error) {
+      pendingUpdaters.current = [];
+      remoteDirty.current = false;
       pendingPersist.current = false;
       setStorageError(true);
       console.warn('保存本地数据失败', error);
       if (!storageWarned.current) {
         storageWarned.current = true;
-        toast('本地存储空间不足，请先导出备份', 'error');
+        toast(storageErrorMessage(error), 'error');
       }
     }
   }, [state, toast]);
@@ -263,14 +326,33 @@ function StoreStateProvider({
   // storage 事件只在其他标签页触发；回写相同内容不会再触发事件，不会形成回环。
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
+      if (event.key === LEDGER_EPOCH_KEY) {
+        // 其他标签页做了整包替换（清空 / 导入 / 恢复快照）：本窗口未落盘的改动一律作废，
+        // 以远端为准，否则会把旧账整包写回去（D09）。注意不要在本分支里再写 epoch，避免回环。
+        pendingUpdaters.current = [];
+        pendingPersist.current = false;
+        remoteDirty.current = false;
+        const loaded = loadStateDetailed();
+        if (loaded.failure) return;
+        const next = loaded.state ?? createEmptyState();
+        lastPersistedRaw.current = readStoredStateRaw();
+        stateRef.current = next;
+        setState(next);
+        return;
+      }
       if (event.key !== STORAGE_KEY && event.key !== null) return;
       // 本窗口有已提交但尚未落盘的新改动时，先不接收远端状态：否则刚记的一笔
-      // 会被另一个窗口的旧状态覆盖，且本窗口的保存 effect 还会把旧状态写回去。
-      if (pendingPersist.current) return;
+      // 会被另一个窗口的旧状态覆盖。标记脏位，落盘时走乐观 CAS 合并（D02）。
+      if (pendingPersist.current) {
+        remoteDirty.current = true;
+        return;
+      }
       const loaded = loadStateDetailed();
       if (loaded.failure) return;
       // 另一个窗口清空账本时（key === null / 所有 key 被移除），这里也要同步成空账本。
       const next = loaded.state ?? createEmptyState();
+      lastPersistedRaw.current = readStoredStateRaw();
+      remoteDirty.current = false;
       stateRef.current = next;
       setState(next);
       toast('账本已在其他窗口更新，已同步最新数据', 'info');
@@ -287,6 +369,7 @@ function StoreStateProvider({
   );
 
   // 启动时清掉已经没有任何工记引用的照片，避免本机空间被孤儿照片占住。
+  // 只清理启动前就存在的孤儿：启动后新拍、尚未写进账本的照片不能误删（D08）。
   useEffect(() => {
     const current = stateRef.current;
     const keep = new Set<string>();
@@ -296,14 +379,16 @@ function StoreStateProvider({
     for (const item of current.trashedEntries) {
       if (item.entry.photoId) keep.add(item.entry.photoId);
     }
-    void prunePhotos(keep).catch(() => undefined);
+    void prunePhotos(keep, pruneStartedAt.current).catch(() => undefined);
   }, []);
 
   // 所有写操作共用同步 ref，避免同一事件循环内连续操作读取到旧账本。
-  const commit = useCallback((updater: (previous: AppState) => AppState) => {
+  const commit = useCallback((updater: StateUpdater) => {
     const next = updater(stateRef.current);
     stateRef.current = next;
     pendingPersist.current = true;
+    // 记录更新函数：远端被别的标签页改过时按提交顺序重放，而不是整包覆盖（D02）。
+    pendingUpdaters.current.push(updater);
     setState(next);
   }, []);
 
@@ -311,6 +396,9 @@ function StoreStateProvider({
   const persistNow = useCallback(() => {
     try {
       saveState(stateRef.current);
+      lastPersistedRaw.current = JSON.stringify(stateRef.current);
+      pendingUpdaters.current = [];
+      remoteDirty.current = false;
       pendingPersist.current = false;
       setStorageError(false);
       return true;
@@ -798,6 +886,10 @@ function StoreStateProvider({
           ? { ok: true }
           : { ok: false, reason: '这条工作已经不在回收站里了' };
       }
+      // 工作分支此前提前 return，绕过了 30 天保留期判定（D07 / UI-32）：这里补走同一条守卫。
+      const jobRow = buildTrashRows(current).find((row) => row.kind === 'job' && row.id === id);
+      const jobBlocked = jobRow ? trashRestoreBlockReason(jobRow, current) : null;
+      if (jobBlocked) return { ok: false, reason: jobBlocked };
       commit((prev) => ({
         ...prev,
         jobs: prev.jobs.some((job) => job.id === id) ? prev.jobs : [...prev.jobs, item.job],
@@ -956,12 +1048,13 @@ function StoreStateProvider({
         createdAt: nowISO(),
       });
       if (!committed) return null;
-      // 同步推进 ref，避免同一渲染周期内第二次调用仍读取旧状态。
-      stateRef.current = committed.state;
-      setState(committed.state);
+      // 必须走 commit()：否则 pendingPersist 不置位，结算提交后、落盘前收到的其他标签页
+      // storage 事件会把这笔结算静默吞掉（D01 / PAY-03 / UI-07）。
+      // commit 内部会同步推进 stateRef，同一渲染周期内第二次调用仍读得到新状态。
+      commit(() => committed.state);
       return committed.settlement;
     },
-    [],
+    [commit],
   );
 
   const setSettlementPayment = useCallback(
@@ -977,6 +1070,27 @@ function StoreStateProvider({
       const current = stateRef.current;
       const settlement = current.settlements.find((item) => item.id === settlementId);
       if (!settlement) return false;
+      // net<=0（无需收款 / 倒欠）：没有可收金额，允许直接标记「已结清」，
+      // 否则 paid 恒为 0 → 永远落库 unpaid（PAY-07 / D30）。正常 net>0 路径保持不变。
+      if (settlement.net <= 0) {
+        const paidAt = input.paidAt || todayISO();
+        commit((prev) => ({
+          ...prev,
+          settlements: prev.settlements.map((item) =>
+            item.id === settlementId
+              ? {
+                  ...item,
+                  paymentStatus: 'paid',
+                  paidAmount: 0,
+                  paidAt,
+                  paymentMethod: input.method?.trim() || undefined,
+                  paymentNote: input.note?.trim() || undefined,
+                }
+              : item,
+          ),
+        }));
+        return true;
+      }
       const net = Math.max(0, settlement.net);
       const paid = Math.min(net, Math.max(0, Math.round(input.paidAmount * 100) / 100));
       const paymentStatus = paid <= 0 ? 'unpaid' : paid >= net ? 'paid' : 'partial';
@@ -1050,10 +1164,15 @@ function StoreStateProvider({
         setStorageError(true);
         return false;
       }
+      lastPersistedRaw.current = JSON.stringify(candidate);
+      pendingUpdaters.current = [];
+      remoteDirty.current = false;
       pendingPersist.current = false;
       setStorageError(false);
       stateRef.current = candidate;
       setState(candidate);
+      // 导入 / 恢复快照 = 整包替换：广播 epoch，让其他标签页丢弃未落盘改动并以本账本为准（D09）。
+      broadcastLedgerEpoch();
       bumpLedger();
       return true;
     },
@@ -1061,10 +1180,14 @@ function StoreStateProvider({
   );
 
   const resetAll = useCallback(() => {
+    // 清空是「整包替换」：先提交空账本，再广播 epoch，其他标签页会丢弃未落盘改动并以
+    // 远端为准，不会再把旧账整包写回（D09）。不再把「删键」当成清空账本的唯一手段。
+    commit(() => createEmptyState());
+    // 侧键（主题 / 备份提醒 / 预算标记）与旧 schema 键仍要清掉；空账本由持久化 effect 落盘。
     clearStoredState();
+    broadcastLedgerEpoch();
     clearReminderMark();
     void clearPhotos().catch(() => undefined);
-    commit(() => createEmptyState());
     bumpLedger();
   }, [commit, bumpLedger]);
 
@@ -1089,46 +1212,89 @@ function StoreStateProvider({
     }));
   }, []);
 
-  const value: StoreValue = {
-    state,
-    toast,
-    addJob,
-    updateJob,
-    setJobArchived,
-    deleteJob,
-    restoreJob,
-    startTimer,
-    clearTimer,
-    addEntry,
-    updateEntry,
-    deleteEntry,
-    restoreEntry,
-    addRestDay,
-    removeRestDay,
-    restoreRestDay,
-    addAdvance,
-    deleteAdvance,
-    addRecurringRule,
-    updateRecurringRule,
-    deleteRecurringRule,
-    generateRecurring,
-    restoreAdvance,
-    restoreTrashItem,
-    purgeTrashItem,
-    emptyTrash,
-    settleJob,
-    setSettlementPayment,
-    undoSettlement,
-    updateProfile,
-    updateSettings,
-    replaceState,
-    persistNow,
-    ledgerSeq,
-    storageError,
-    resetAll,
-    loadDemo,
-    completeOnboarding,
-  };
+  // value 用 useMemo 固定引用：此前每次 toast / 重渲染都会新建对象，整棵订阅树跟着重渲染（UI-08）。
+  const value: StoreValue = useMemo(
+    () => ({
+      state,
+      toast,
+      addJob,
+      updateJob,
+      setJobArchived,
+      deleteJob,
+      restoreJob,
+      startTimer,
+      clearTimer,
+      addEntry,
+      updateEntry,
+      deleteEntry,
+      restoreEntry,
+      addRestDay,
+      removeRestDay,
+      restoreRestDay,
+      addAdvance,
+      deleteAdvance,
+      addRecurringRule,
+      updateRecurringRule,
+      deleteRecurringRule,
+      generateRecurring,
+      restoreAdvance,
+      restoreTrashItem,
+      purgeTrashItem,
+      emptyTrash,
+      settleJob,
+      setSettlementPayment,
+      undoSettlement,
+      updateProfile,
+      updateSettings,
+      replaceState,
+      persistNow,
+      ledgerSeq,
+      storageError,
+      resetAll,
+      loadDemo,
+      completeOnboarding,
+    }),
+    [
+      state,
+      toast,
+      addJob,
+      updateJob,
+      setJobArchived,
+      deleteJob,
+      restoreJob,
+      startTimer,
+      clearTimer,
+      addEntry,
+      updateEntry,
+      deleteEntry,
+      restoreEntry,
+      addRestDay,
+      removeRestDay,
+      restoreRestDay,
+      addAdvance,
+      deleteAdvance,
+      addRecurringRule,
+      updateRecurringRule,
+      deleteRecurringRule,
+      generateRecurring,
+      restoreAdvance,
+      restoreTrashItem,
+      purgeTrashItem,
+      emptyTrash,
+      settleJob,
+      setSettlementPayment,
+      undoSettlement,
+      updateProfile,
+      updateSettings,
+      replaceState,
+      persistNow,
+      ledgerSeq,
+      storageError,
+      resetAll,
+      loadDemo,
+      completeOnboarding,
+    ],
+  );
 
   return (
     <StoreContext.Provider value={value}>

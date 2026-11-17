@@ -3,6 +3,7 @@
   "short_name": "薪时",
   "description": "给小时工、日结工、周结工和月结工用的个人记工工具。记工时、算工钱、等发薪。",
   "lang": "zh-CN",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

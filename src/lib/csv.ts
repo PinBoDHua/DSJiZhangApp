@@ -1,13 +1,15 @@
 import type { Entry, Job, PayType, Period, RestDay, Settlement } from '../types';
 import { eachDay, weekdayCN } from './date';
 import { formatHours, round2 } from './money';
+import { settlementChecksum } from './checksum';
 import { PAY_TYPE_LABEL } from './meta';
 import { payForEntry } from './pay';
 import { formatRestDays, restDayAmount, totalRestDays } from './rest';
 import { PAYMENT_STATUS_LABEL, paidAmountOf, paymentStatusOf, remainingAmountOf } from './payment';
 
 function cell(value: string | number): string {
-  let text = String(value ?? '');
+  // 数字统一先按「分」舍入：0.1 + 0.2 直接 String 会导出 0.30000000000000004。
+  let text = typeof value === 'number' ? String(round2(value)) : String(value ?? '');
   // CSV 会交给 Excel / WPS 打开，文本开头不能被执行成公式。
   if (typeof value === 'string' && /^\s*[=+\-@]/.test(text)) text = `'${text}`;
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -132,8 +134,11 @@ export function buildEntryCsv(
 }
 
 export function buildSettlementCsv(settlements: Settlement[]): string {
+  // 列语义与 Excel「结算单」表一致：奖金 / 扣款只算工记分项，额外奖扣单独成列，
+  // 并补单号与校验码，方便与工记 CSV 的「结算ID」列对账。数字统一由 cell() 舍入到分。
   const rows: Array<Array<string | number>> = [
     [
+      '单号',
       '工作',
       '周期开始',
       '周期结束',
@@ -144,7 +149,9 @@ export function buildSettlementCsv(settlements: Settlement[]): string {
       '基础工资',
       '加班工资',
       '奖金',
+      '额外奖金',
       '扣款',
+      '额外扣款',
       '超休扣款',
       '借支抵扣',
       '应发净额',
@@ -154,10 +161,12 @@ export function buildSettlementCsv(settlements: Settlement[]): string {
       '收款日期',
       '收款方式',
       '收款备注',
+      '校验码',
     ],
   ];
   for (const settlement of settlements) {
     rows.push([
+      settlement.id,
       settlement.jobName,
       settlement.periodStart,
       settlement.periodEnd,
@@ -167,8 +176,10 @@ export function buildSettlementCsv(settlements: Settlement[]): string {
       settlement.hours,
       settlement.base,
       settlement.otPay,
-      settlement.bonus + settlement.extraBonus,
-      settlement.deduction + settlement.extraDeduction,
+      settlement.bonus,
+      settlement.extraBonus,
+      settlement.deduction,
+      settlement.extraDeduction,
       settlement.overRestDeduction ?? 0,
       settlement.advanceTotal,
       settlement.net,
@@ -178,7 +189,9 @@ export function buildSettlementCsv(settlements: Settlement[]): string {
       settlement.paidAt ?? '',
       settlement.paymentMethod ?? '',
       settlement.paymentNote ?? '',
+      settlementChecksum(settlement),
     ]);
   }
   return `\uFEFF${buildCsv(rows)}`;
 }
+

@@ -78,3 +78,19 @@ describe('结算周期重叠', () => {
     ).toBeUndefined();
   });
 });
+describe('同日周期重复结算', () => {
+  it('共享边界日（日结同日）必须判重叠，实现不能改成严格 <', () => {
+    const daily = [
+      makeSettlement({
+        id: 'd1',
+        jobId: 'job-1',
+        periodStart: '2026-11-08',
+        periodEnd: '2026-11-08',
+      }),
+    ];
+    expect(
+      findSettlementOverlap(daily, 'job-1', { start: '2026-11-08', end: '2026-11-08' })?.id,
+    ).toBe('d1');
+  });
+});
+

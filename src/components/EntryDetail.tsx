@@ -9,6 +9,7 @@ import { findRestOnDay } from '../lib/guards';
 import { getPhoto } from '../lib/photos';
 import { photoFileName } from '../lib/photoStamp';
 import { saveBlobFile } from '../lib/native';
+import { saveFeedback } from '../lib/fileFeedback';
 import { pushNativeBack } from '../lib/nativeBack';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { Sheet } from './Sheet';
@@ -117,7 +118,8 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
     const todayHours = state.entries
       .filter((item) => item.date === today)
       .reduce((sum, item) => sum + (item.hours || 0), 0);
-    if (todayHours + entry.hours > 24) {
+    // 浮点累加可能有尾差（如 8.1 + 15.9），留 1e-9 容差，避免合法工时被误拒（审计 UI-33）。
+    if (todayHours + entry.hours > 24 + 1e-9) {
       toast('今天合计工时已经超过 24 小时，不能再复制', 'error');
       return;
     }
@@ -136,14 +138,20 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
       deduction: 0,
       holiday: false,
       note: entry.note,
-      rule: entry.rule,
+      // 复制到今天的记录按岗位当前规则计薪：调价后不能沿用旧单价快照（审计 UI-12）。
+      rule: job.rule,
     });
     if (!created) {
       toast('今天所在的周期已经结算，不能复制', 'error');
       return;
     }
+    const priceChanged =
+      job.rule.payType !== entry.rule.payType ||
+      job.rule.rate !== entry.rule.rate ||
+      job.rule.expectedDays !== entry.rule.expectedDays;
     toast(
-      restMoved ? '已复制到今天，这天的休息已移到回收站' : '已复制到今天，可去记录里调整',
+      (restMoved ? '已复制到今天，这天的休息已移到回收站' : '已复制到今天，可去记录里调整') +
+        (priceChanged ? '；已按岗位当前单价计薪' : ''),
     );
     onClose();
   };
@@ -154,9 +162,9 @@ export function EntryDetail({ entryId, onClose, onEdit }: EntryDetailProps) {
     try {
       const blob = await (await fetch(photo)).blob();
       const result = await saveBlobFile(blob, photoFileName(job?.name ?? '考勤', entry.date));
-      toast(
-        result === 'native' ? '照片已保存到「下载/Xinshi」' : '照片已保存',
-      );
+      // 'shared'（旧系统分享面板）不代表已落盘，统一走 fileFeedback 文案（审计 UI-22）。
+      const feedback = saveFeedback(result, '照片');
+      toast(feedback.message, feedback.tone);
     } catch {
       toast('照片保存失败，请稍后再试', 'error');
     } finally {

@@ -42,7 +42,16 @@ export function TrashSheet({ open, onClose }: TrashSheetProps) {
   const [target, setTarget] = useState<{ kind: TrashKind; id: string } | null>(null);
   const [emptyOpen, setEmptyOpen] = useState(false);
 
-  const rows = useMemo(() => buildTrashRows(state), [state]);
+  // 恢复拦截依赖「当前时间」：弹层长开时每分钟重渲染一次，跨过保留期边界后按钮能及时禁用（UI-32）。
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setInterval(() => setNowTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, [open]);
+
+  // 本组件常挂在个人页 / 工作管理页：关闭时不扫全账本构建回收站行（UI-42）。
+  const rows = useMemo(() => (open ? buildTrashRows(state) : []), [open, state]);
   const visible = useMemo(
     () => filterTrashRows(rows, filter, jobFilter),
     [rows, filter, jobFilter],
