@@ -5,26 +5,37 @@
  * 任一硬性检查失败时进程退出码为 1；本脚本不会修改、创建或删除任何文件。
  *
  * 环境变量：
- *   XINSHI_RELEASE_STRICT=1  把「占位邮箱 / 产物缺失」等人工确认项升级为 FAIL（默认仅 NOTE）。
+ *   XINSHI_RELEASE_STRICT=1  把「产物缺失」等人工确认项升级为 FAIL（默认仅 NOTE）。
+ *   SKIP_APK_CHECK=1         无 Android SDK 时显式跳过 aapt2 / apksigner 产物断言（会打印 NOTE 说明跳过原因）。
  *
- * 覆盖范围（对应审计 AND-03/04/05/14）：
+ * 覆盖范围（对应审计 AND-03/04/05/14、D01–D06）：
  *   版本号一致性 + versionCode 公式碰撞提示、SW 缓存版本、
- *   隐私政策 URL / 离线页 / 两份逐字节一致 / 内部链接与占位邮箱 / 版本号同步、
- *   敏感文件与 .gitignore、FileProvider 白名单、release 签名守卫与 debuggable release 守卫、
- *   release APK 的 aapt2 badging 断言、dist/index.html 的 CSP meta。
+ *   隐私政策 URL / 离线页 / 两份逐字节一致 / 内部链接与占位邮箱 / 占位域名 / 版本号同步、
+ *   敏感文件与 .gitignore、FileProvider 白名单、release 签名守卫与 debuggable / diag release 守卫、
+ *   release APK 的 aapt2 badging 断言（debuggable / versionCode / versionName）、
+ *   apksigner 证书指纹、dist ↔ assets/public 逐文件 sha256、dist/index.html 的 CSP meta。
  */
 
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const STRICT = process.env.XINSHI_RELEASE_STRICT === '1';
+/** 无 Android SDK 的环境显式跳过产物级断言；跳过原因会打印 NOTE（不再静默降级）。 */
+const SKIP_APK_CHECK = process.env.SKIP_APK_CHECK === '1';
 const results = [];
 
+/** 占位域名：出现在隐私政策 URL / .env.example 里一律视为上架阻断（D06）。 */
+const PLACEHOLDER_DOMAINS = ['example.com', 'example.org', 'example.net'];
 /** 占位值：上架前必须替换为真实可收信邮箱。 */
-const PLACEHOLDER_EMAILS = ['support@xinshi.app', 'example.com', 'you@example.com'];
+const PLACEHOLDER_EMAILS = ['support@xinshi.app', 'you@example.com', ...PLACEHOLDER_DOMAINS];
+/** 发布登记的签名证书 SHA-256（见 docs/RELEASE-NOTES-v<version>.md；比较时统一小写）。 */
+const EXPECTED_SIGNER_SHA256 = 'a5b8514a165a7849a4073bd00a94759fcb957aa02f83970012eb72f25185d606';
+/** assets/public 侧允许比 dist 多出的 Capacitor 生成文件（D04 白名单）。 */
+const ASSETS_ONLY_FILES = ['cordova.js', 'cordova_plugins.js'];
 /** 政策页允许保留的外部链接白名单（空数组 = 不允许外部链接，避免再出现死链）。 */
 const ALLOWED_POLICY_LINKS = [];
 /** release 产物任务集合（与 build.gradle 的守卫保持一致）。 */
@@ -117,11 +128,86 @@ function scanPolicyLinks(relativePath) {
   return { links, broken, placeholderEmails };
 }
 
-/** 在 ANDROID_HOME / ANDROID_SDK_ROOT 的 build-tools 中查找 aapt2。 */
-function findAapt2() {
-  const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-  if (!sdk) return null;
-  const buildTools = join(sdk, 'build-tools');
+/** 判断字符串是否含 example.com / example.org / example.net 占位域名（D06）。 */
+function containsPlaceholderDomain(value) {
+  const lower = String(value).toLowerCase();
+  return PLACEHOLDER_DOMAINS.some((domain) => lower.includes(domain));
+}
+
+/** 递归收集目录下每个文件的 sha256（相对路径统一用 /，用于 D04 的 dist ↔ assets 比对）。 */
+function hashTree(rootDir) {
+  const files = {};
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.isFile()) {
+        const key = relative(rootDir, fullPath).split(sep).join('/');
+        files[key] = createHash('sha256').update(readFileSync(fullPath)).digest('hex');
+      }
+    }
+  };
+  walk(rootDir);
+  return files;
+}
+
+/** 从 release/ 的 APK 文件名中取语义化版本号最高者（解析不了时回退最新 mtime，D03）。 */
+function pickLatestVersionApk(apkNames, releaseDir) {
+  const parsed = apkNames
+    .map((name) => {
+      const match = /^xinshi-v(\d+)\.(\d+)\.(\d+)\.apk$/i.exec(name);
+      return match
+        ? { name, parts: [Number(match[1]), Number(match[2]), Number(match[3])] }
+        : null;
+    })
+    .filter(Boolean)
+    .sort(
+      (a, b) =>
+        b.parts[0] - a.parts[0] || b.parts[1] - a.parts[1] || b.parts[2] - a.parts[2],
+    );
+  if (parsed.length > 0) return parsed[0].name;
+  return apkNames
+    .map((name) => ({ name, mtime: statSync(join(releaseDir, name)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)[0].name;
+}
+
+/** 读取 android/local.properties 的 sdk.dir（缺失或无法读取时返回 null，D02）。 */
+function readLocalSdkDir() {
+  const propertiesFile = join(ROOT, 'android/local.properties');
+  if (!existsSync(propertiesFile)) return null;
+  try {
+    const match = readFileSync(propertiesFile, 'utf8').match(/^\s*sdk\.dir\s*=\s*(.+?)\s*$/m);
+    return match ? match[1].replace(/\\\\/g, '\\').replace(/^"|"$/g, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 候选 SDK 目录（D02）：ANDROID_HOME → ANDROID_SDK_ROOT → android/local.properties 的 sdk.dir
+ * → 常见安装路径（Windows %LOCALAPPDATA%\Android\Sdk 等）。去重并只保留真实存在的目录。
+ */
+function sdkCandidates() {
+  const candidates = [
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    readLocalSdkDir(),
+  ];
+  if (process.platform === 'win32') {
+    if (process.env.LOCALAPPDATA) candidates.push(join(process.env.LOCALAPPDATA, 'Android', 'Sdk'));
+    candidates.push('C:/Android/Sdk');
+  } else if (process.platform === 'darwin') {
+    candidates.push(join(process.env.HOME || '', 'Library', 'Android', 'sdk'));
+  } else {
+    candidates.push(join(process.env.HOME || '', 'Android', 'Sdk'), '/usr/lib/android-sdk');
+  }
+  return [...new Set(candidates.filter((item) => item && existsSync(item)))];
+}
+
+/** 在某个 SDK 的 build-tools（版本倒序）中查找指定工具。 */
+function findBuildTool(sdkDir, fileNames) {
+  const buildTools = join(sdkDir, 'build-tools');
   if (!existsSync(buildTools)) return null;
   let versions = [];
   try {
@@ -130,12 +216,39 @@ function findAapt2() {
     return null;
   }
   for (const version of versions) {
-    for (const name of ['aapt2.exe', 'aapt2']) {
+    for (const name of fileNames) {
       const candidate = join(buildTools, version, name);
       if (existsSync(candidate)) return candidate;
     }
   }
   return null;
+}
+
+/** 查找 aapt2（D02）：不再只认环境变量，找不到时由调用方 FAIL 或按 SKIP_APK_CHECK 跳过。 */
+function findAapt2() {
+  for (const sdkDir of sdkCandidates()) {
+    const tool = findBuildTool(sdkDir, ['aapt2.exe', 'aapt2']);
+    if (tool) return tool;
+  }
+  return null;
+}
+
+/** 查找 apksigner（D03）：Windows 下为 apksigner.bat。 */
+function findApksigner() {
+  for (const sdkDir of sdkCandidates()) {
+    const tool = findBuildTool(sdkDir, ['apksigner.bat', 'apksigner']);
+    if (tool) return tool;
+  }
+  return null;
+}
+
+/** 执行外部工具；Windows 的 .bat / .cmd 需要经 cmd.exe 启动。 */
+function runTool(toolPath, args) {
+  const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] };
+  if (process.platform === 'win32' && /\.(bat|cmd)$/i.test(toolPath)) {
+    return execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', toolPath, ...args], options);
+  }
+  return execFileSync(toolPath, args, options);
 }
 
 console.log('薪时发布配置检查（只读，不修改任何文件）');
@@ -230,6 +343,11 @@ try {
     const value = urlMatch[1];
     if (/pinbodhua\.github\.io/i.test(value)) {
       fail('PRIVACY_URL 默认值指向已失效地址', value);
+    } else if (containsPlaceholderDomain(value)) {
+      fail(
+        'PRIVACY_URL 默认值不是占位域名',
+        value + ' 含 example.com 一类占位域名，构建后会被编进 App，商店审核会判「隐私政策链接不可用」',
+      );
     } else if (/^https?:\/\//i.test(value)) {
       pass('PRIVACY_URL 默认值不是已失效地址', value);
       note('PRIVACY_URL 默认为外部地址，请人工确认在无登录状态下可公开访问（HTTPS 且实测 200）');
@@ -275,7 +393,8 @@ try {
     }
   }
   if (placeholderEmails.length > 0) {
-    failInStrict(
+    // D06：占位邮箱一律 FAIL（不再只在 STRICT 下拦截），避免占位值随构建进入正式包。
+    fail(
       '支持邮箱不是占位值',
       '检测到占位邮箱 ' + [...new Set(placeholderEmails)].join(', ') + '；上架前必须换成真实可收信邮箱并同步政策 HTML',
     );
@@ -300,6 +419,58 @@ try {
   }
 } catch (error) {
   fail('隐私政策检查', error instanceof Error ? error.message : String(error));
+}
+
+// 3.1 .env.example / 构建环境变量的占位值兜底（D06）：模板被 cp 成 .env 后会被 Vite 自动加载。
+try {
+  const ENV_EXAMPLE = '.env.example';
+  const offenders = [];
+  if (existsSync(join(ROOT, ENV_EXAMPLE))) {
+    const activeLines = read(ENV_EXAMPLE)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#'));
+    for (const line of activeLines) {
+      const match = /^([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+      if (!match) continue;
+      const [, key, value] = match;
+      const placeholderEmail =
+        key.toUpperCase().includes('EMAIL') &&
+        PLACEHOLDER_EMAILS.some((item) => value.toLowerCase().includes(item.toLowerCase()));
+      if (containsPlaceholderDomain(value) || placeholderEmail) {
+        offenders.push(key + '=' + value);
+      }
+    }
+    if (offenders.length > 0) {
+      fail(
+        '.env.example 不含占位域名 / 占位邮箱',
+        '未注释的占位值：' + offenders.join(', ') + '；请注释或留空，构建前注入真实值',
+      );
+    } else {
+      pass('.env.example 不含占位域名 / 占位邮箱', '已检查 ' + activeLines.length + ' 个未注释变量');
+    }
+  } else {
+    note(ENV_EXAMPLE + ' 不存在，跳过占位值检查（模板应随仓库提供，便于注入真实隐私政策 URL / 邮箱）');
+  }
+  // 直接通过环境变量注入时同样拦截（VITE_ 前缀变量会覆盖 compliance.ts 默认值）。
+  const envOffenders = ['VITE_PRIVACY_URL', 'VITE_SUPPORT_EMAIL']
+    .filter((key) => process.env[key])
+    .filter((key) => {
+      const value = process.env[key] ?? '';
+      return (
+        containsPlaceholderDomain(value) ||
+        (key === 'VITE_SUPPORT_EMAIL' &&
+          PLACEHOLDER_EMAILS.some((item) => value.toLowerCase().includes(item.toLowerCase())))
+      );
+    })
+    .map((key) => key + '=' + process.env[key]);
+  if (envOffenders.length > 0) {
+    fail('构建环境变量不是占位值', '当前 shell 设置了占位值：' + envOffenders.join(', ') + '；请注入真实 HTTPS 地址 / 可收信邮箱');
+  } else {
+    pass('构建环境变量不是占位值', 'VITE_PRIVACY_URL / VITE_SUPPORT_EMAIL 未设置占位值');
+  }
+} catch (error) {
+  fail('.env.example 占位值检查', error instanceof Error ? error.message : String(error));
 }
 
 // 4. 敏感文件不在 git 跟踪列表
@@ -395,39 +566,59 @@ try {
   } else {
     pass('release 守卫拦截可调试构建', '-Pxinshi.debuggable / -Pxinshi.webViewDebug 会中止 release 产物任务');
   }
+  // D01：-Pxinshi.diag 会让正式包把诊断写到公共 Download，必须与 debuggable 同等中止。
+  const blocksDiag = /gradle\.taskGraph\.whenReady[\s\S]*if \(xinshiDiag\)[\s\S]*Download/.test(gradle);
+  if (!blocksDiag) {
+    fail(
+      'release 守卫拦截诊断构建',
+      'taskGraph 守卫中未找到对 xinshiDiag 的拒绝，或错误信息未说明诊断会写入公共 Download',
+    );
+  } else {
+    pass('release 守卫拦截诊断构建', '-Pxinshi.diag 会中止 release 产物任务（错误信息说明写入公共 Download）');
+  }
 } catch (error) {
   fail('release 守卫检查', error instanceof Error ? error.message : String(error));
 }
 
-// 8. release 产物 application-debuggable 断言（AND-03；找不到 aapt2 时 NOTE，不静默 PASS）
+// 8. release 产物断言：debuggable / 版本 / 签名证书（AND-03、D02、D03）
+//    aapt2 发现顺序：ANDROID_HOME → ANDROID_SDK_ROOT → local.properties 的 sdk.dir → 常见路径；
+//    找不到时默认 FAIL（显式 SKIP_APK_CHECK=1 才降级为 NOTE 并说明跳过原因）。
 try {
   const releaseDir = join(ROOT, 'release');
-  // 只校验最新 3 个产物（按 mtime 倒序），确保当前待发布包一定在检查范围内。
-  const apks = existsSync(releaseDir)
-    ? readdirSync(releaseDir)
-        .filter((name) => name.toLowerCase().endsWith('.apk'))
-        .map((name) => ({ name, mtime: statSync(join(releaseDir, name)).mtimeMs }))
-        .sort((a, b) => b.mtime - a.mtime)
-        .slice(0, 3)
-        .map((item) => item.name)
+  const apkNames = existsSync(releaseDir)
+    ? readdirSync(releaseDir).filter((name) => name.toLowerCase().endsWith('.apk'))
     : [];
-  if (apks.length === 0) {
-    note('release/ 下没有 APK，跳过产物 application-debuggable 断言（打包后请再跑一次 pnpm check:release）');
+  if (apkNames.length === 0) {
+    // 产物还没打包：本地开发阶段允许 NOTE（STRICT 下视为发布阻断）。
+    failInStrict(
+      'release 产物存在',
+      'release/ 下没有 APK，跳过 debuggable / 版本 / 签名断言；打包后请再跑一次 pnpm check:release',
+    );
+  } else if (SKIP_APK_CHECK) {
+    note(
+      'SKIP_APK_CHECK=1：跳过 release APK 的 debuggable / versionCode / versionName / 签名证书断言（本次未做产物级校验）',
+    );
   } else {
     const aapt2 = findAapt2();
     if (!aapt2) {
-      note(
-        '未找到 aapt2（需设置 ANDROID_HOME 或 ANDROID_SDK_ROOT 指向 Android SDK），无法自动校验 ' +
-          apks.length +
-          ' 个 release APK 的 application-debuggable；请人工执行 aapt2 dump badging <apk> 确认输出无该行',
+      fail(
+        '找到 aapt2 校验 release 产物',
+        '已按 ANDROID_HOME → ANDROID_SDK_ROOT → android/local.properties 的 sdk.dir → 常见 SDK 路径探测，' +
+          '均未找到 build-tools/*/aapt2；请安装 Android build-tools 或设置 ANDROID_HOME，' +
+          '确实无 SDK 的环境请显式 SKIP_APK_CHECK=1 跳过并人工核对产物',
       );
     } else {
-      for (const apk of apks.slice(0, 5)) {
+      // 8.1 debuggable：只校验最近 3 个产物（按 mtime 倒序），确保当前待发布包一定在检查范围内。
+      const recentApks = apkNames
+        .map((name) => ({ name, mtime: statSync(join(releaseDir, name)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 3)
+        .map((item) => item.name);
+      const badgingByApk = new Map();
+      for (const apk of recentApks) {
         try {
-          const badging = execFileSync(aapt2, ['dump', 'badging', join(releaseDir, apk)], {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'pipe'],
-          });
+          const badging = runTool(aapt2, ['dump', 'badging', join(releaseDir, apk)]);
+          badgingByApk.set(apk, badging);
           if (/application-debuggable/.test(badging)) {
             fail('release APK 不可调试', apk + ' 含 application-debuggable');
           } else {
@@ -437,13 +628,130 @@ try {
           note('aapt2 校验 ' + apk + ' 失败：' + (error instanceof Error ? error.message : String(error)));
         }
       }
+
+      // 8.2 版本：release/ 下版本号最高的 APK 必须与 package.json 期望一致（D03）。
+      const latestApk = pickLatestVersionApk(apkNames, releaseDir);
+      let expectedVersion = '';
+      let expectedVersionCode = 0;
+      try {
+        expectedVersion = String(JSON.parse(read('package.json')).version ?? '');
+      } catch {
+        expectedVersion = '';
+      }
+      const semver = /^(\d+)\.(\d+)\.(\d+)$/.exec(expectedVersion);
+      if (!semver) {
+        note('package.json 版本号不可解析，跳过 release APK 版本断言');
+      } else {
+        expectedVersionCode =
+          Number(semver[1]) * 1000 + Number(semver[2]) * 100 + Number(semver[3]);
+        let badging = badgingByApk.get(latestApk);
+        try {
+          if (!badging) badging = runTool(aapt2, ['dump', 'badging', join(releaseDir, latestApk)]);
+          const versionCode = /versionCode='(\d+)'/.exec(badging)?.[1];
+          const versionName = /versionName='([^']+)'/.exec(badging)?.[1];
+          if (!versionCode || !versionName) {
+            fail('release APK 版本可解析', latestApk + ' 的 aapt2 badging 输出缺少 versionCode / versionName');
+          } else if (versionName !== expectedVersion || Number(versionCode) !== expectedVersionCode) {
+            fail(
+              'release APK 版本与 package.json 一致',
+              '最新产物 ' + latestApk + ' 为 ' + versionName + '（versionCode ' + versionCode + '），' +
+                '期望 ' + expectedVersion + '（versionCode ' + expectedVersionCode + '）；' +
+                '可能使用了 -Pxinshi.versionCode / -Pxinshi.versionName 覆盖，或产物已过期',
+            );
+          } else {
+            pass(
+              'release APK 版本与 package.json 一致',
+              latestApk + ' = ' + versionName + '（versionCode ' + versionCode + '）',
+            );
+          }
+        } catch (error) {
+          fail(
+            'release APK 版本可解析',
+            '读取 ' + latestApk + ' 的 badging 失败：' + (error instanceof Error ? error.message : String(error)),
+          );
+        }
+      }
+
+      // 8.3 签名证书：apksigner --print-certs 的 SHA-256 必须等于发布登记值（D03）。
+      const apksigner = findApksigner();
+      if (!apksigner) {
+        note(
+          '未找到 apksigner（build-tools/*/apksigner），跳过 ' + latestApk +
+            ' 的签名证书断言；请人工执行 apksigner verify --print-certs <apk> 核对证书 SHA-256',
+        );
+      } else {
+        try {
+          const output = runTool(apksigner, ['verify', '--print-certs', join(releaseDir, latestApk)]);
+          const match = /certificate SHA-256 digest:\s*([0-9a-fA-F]{64})/.exec(output);
+          if (!match) {
+            fail('release APK 签名证书与登记值一致', 'apksigner 输出中未找到证书 SHA-256 摘要');
+          } else if (match[1].toLowerCase() !== EXPECTED_SIGNER_SHA256) {
+            fail(
+              'release APK 签名证书与登记值一致',
+              latestApk + ' 证书 SHA-256=' + match[1].toLowerCase() +
+                '，登记值=' + EXPECTED_SIGNER_SHA256 + '；可能用了错误的 keystore',
+            );
+          } else {
+            pass(
+              'release APK 签名证书与登记值一致',
+              latestApk + ' 证书 SHA-256=' + match[1].toLowerCase(),
+            );
+          }
+        } catch (error) {
+          fail(
+            'release APK 签名证书与登记值一致',
+            'apksigner verify ' + latestApk + ' 失败：' + (error instanceof Error ? error.message : String(error)),
+          );
+        }
+      }
     }
   }
 } catch (error) {
-  note('release 产物 debuggable 断言未执行：' + (error instanceof Error ? error.message : String(error)));
+  fail('release 产物断言', error instanceof Error ? error.message : String(error));
 }
 
-// 9. 构建产物 CSP meta（AND-07 由构建期注入；dist 不存在时 NOTE）
+// 9. dist ↔ android/app/src/main/assets/public 逐文件 sha256 漂移断言（AND-05 / D04）
+try {
+  const DIST_DIR = 'dist';
+  const ASSETS_DIR = 'android/app/src/main/assets/public';
+  if (!existsSync(join(ROOT, DIST_DIR)) || !existsSync(join(ROOT, ASSETS_DIR))) {
+    note(
+      'dist/ 或 ' + ASSETS_DIR + '/ 不存在（尚未构建 / 未 cap sync），跳过 assets 漂移断言；' +
+        '请先 pnpm build && pnpm exec cap sync android 再打包',
+    );
+  } else {
+    const distFiles = hashTree(join(ROOT, DIST_DIR));
+    const assetFiles = hashTree(join(ROOT, ASSETS_DIR));
+    const missingInAssets = Object.keys(distFiles).filter((file) => !(file in assetFiles));
+    const unexpectedInAssets = Object.keys(assetFiles).filter(
+      (file) => !(file in distFiles) && !ASSETS_ONLY_FILES.includes(file),
+    );
+    const contentDiffs = Object.keys(distFiles).filter(
+      (file) => file in assetFiles && distFiles[file] !== assetFiles[file],
+    );
+    const drift = [
+      ...contentDiffs.map((file) => '内容不同：' + file),
+      ...missingInAssets.map((file) => 'assets 缺失：' + file),
+      ...unexpectedInAssets.map((file) => 'assets 多出：' + file),
+    ];
+    if (drift.length > 0) {
+      fail(
+        'assets/public 与 dist 同源（逐文件 sha256）',
+        '检测到 ' + drift.length + ' 处漂移：' + drift.join('；') +
+          '。请先 pnpm build && pnpm exec cap sync android 后重新打包',
+      );
+    } else {
+      pass(
+        'assets/public 与 dist 同源（逐文件 sha256）',
+        '已比对 ' + Object.keys(distFiles).length + ' 个文件（白名单仅 ' + ASSETS_ONLY_FILES.join(' / ') + '）',
+      );
+    }
+  }
+} catch (error) {
+  fail('assets 漂移断言', error instanceof Error ? error.message : String(error));
+}
+
+// 10. 构建产物 CSP meta（AND-07 由构建期注入；dist 不存在时 NOTE）
 try {
   const distIndex = join(ROOT, 'dist/index.html');
   const configCandidates = ['vite.config.ts', 'vite.config.js', 'vite.config.mjs'];
@@ -469,9 +777,9 @@ try {
 }
 
 console.log('');
-note('正式包构建参数必须不含 -Pxinshi.debuggable / -Pxinshi.webviewDebug（Gradle 守卫已强制中止）。');
+note('正式包构建参数必须不含 -Pxinshi.debuggable / -Pxinshi.webviewDebug / -Pxinshi.diag（Gradle 守卫已强制中止）。');
 note('上架前请用 VITE_PRIVACY_URL / VITE_SUPPORT_EMAIL 注入真实值，并人工打开确认可访问、可收信。');
-note('设置 XINSHI_RELEASE_STRICT=1 可把占位邮箱等人工确认项升级为 FAIL。');
+note('设置 XINSHI_RELEASE_STRICT=1 可把「产物缺失」等人工确认项升级为 FAIL；无 Android SDK 时须显式 SKIP_APK_CHECK=1 跳过产物断言。');
 console.log('');
 
 const passed = results.filter(Boolean).length;

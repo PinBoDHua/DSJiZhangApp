@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles.css';
-import { installNativeBack } from './lib/nativeBack';
+import { installNativeBack, installWebBack } from './lib/nativeBack';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -51,6 +51,10 @@ window.addEventListener('vite:preloadError', (event) => {
   window.location.reload();
 });
 
+// 原生壳（Android）用 Capacitor backButton；网页 / PWA 用 history 哨兵 + popstate 桥接返回键，
+// 这样打开子页 / 弹层时按返回是关闭当前层，而不是直接退出 App（C04）。
 if (nativeShell) {
   void installNativeBack();
+} else {
+  installWebBack();
 }

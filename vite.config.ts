@@ -10,8 +10,11 @@ const packageJson = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
 ) as { version: string };
 
-/** 预缓存清单只收离线启动必需的静态资源（字体 2.4MB 不进清单，避免首装下载过重）。 */
-const PRECACHE_EXTENSIONS = new Set(['.js', '.css', '.html', '.webmanifest', '.svg', '.png']);
+/**
+ * 预缓存清单收离线启动与离线功能必需的静态资源。
+ * C02：字体必须预缓存，否则 PWA 首装断网后「文字版工资条 PDF」一定失败（体积 +2.4MB，接受）。
+ */
+const PRECACHE_EXTENSIONS = new Set(['.js', '.css', '.html', '.webmanifest', '.svg', '.png', '.ttf']);
 const PRECACHE_IGNORE = new Set(['sw.js', 'precache-manifest.json']);
 
 /**

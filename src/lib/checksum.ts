@@ -118,8 +118,8 @@ export function legacySettlementChecksum(settlement: Settlement): string {
   return `${hex.slice(0, 4)}-${hex.slice(4)}`;
 }
 
-/** 新版 canonical：全部分项 + 收款字段，字段顺序与分隔符固定。 */
-function canonicalOf(settlement: Settlement): string {
+/** 结算内容字段（不含可变的收款字段）。 */
+function baseParts(settlement: Settlement): Array<string | number> {
   return [
     settlement.id,
     settlement.jobId,
@@ -142,17 +142,41 @@ function canonicalOf(settlement: Settlement): string {
     fixed2(settlement.hours),
     String(settlement.days),
     fixed2(settlement.otHours),
-    fixed2(settlement.paidAmount),
-    settlement.paymentStatus ?? '',
     fixed2(settlement.restDays),
     (settlement.restDates ?? []).join(','),
     settlement.createdAt,
-  ].join('|');
+  ];
+}
+
+/**
+ * 结算校验码 canonical：**不含收款字段**（B04）。
+ * 登记收款 / 部分收款后同一张单的结算码保持不变，先前导出的 CSV/PDF 仍能核对。
+ */
+function canonicalOf(settlement: Settlement): string {
+  return baseParts(settlement).join('|');
+}
+
+/** 旧版 canonical（含收款字段）：只用于验证 v1.2.5 及更早生成的 sha256 码，以及收款码。 */
+function canonicalOfWithPayment(settlement: Settlement): string {
+  const parts = baseParts(settlement);
+  // 旧版顺序：… otHours, paidAmount, paymentStatus, restDays …
+  parts.splice(
+    parts.length - 3,
+    0,
+    fixed2(settlement.paidAmount),
+    settlement.paymentStatus ?? '',
+  );
+  return parts.join('|');
 }
 
 /** 新版结算校验码：`sha256:十六位十六进制`（64 位有效位，足够避免偶然碰撞）。 */
 export function settlementChecksum(settlement: Settlement): string {
   return `sha256:${sha256Hex(canonicalOf(settlement)).slice(0, 16)}`;
+}
+
+/** 收款校验码：包含收款字段，用于单独核对「何时收了多少钱」；与结算码分开（B04）。 */
+export function paymentChecksum(settlement: Settlement): string {
+  return `sha256:${sha256Hex(canonicalOfWithPayment(settlement)).slice(0, 16)}`;
 }
 
 /**
@@ -163,7 +187,10 @@ export function verifySettlementChecksum(settlement: Settlement, code: string): 
   const value = (code ?? '').trim();
   if (!value) return false;
   if (value.toLowerCase().startsWith('sha256:')) {
-    return settlementChecksum(settlement) === value.toLowerCase();
+    const v2 = settlementChecksum(settlement);
+    // 兼容 v1.2.5 及更早生成的「含收款字段」码：同一张单仍可验证。
+    const v1 = `sha256:${sha256Hex(canonicalOfWithPayment(settlement)).slice(0, 16)}`;
+    return value.toLowerCase() === v2 || value.toLowerCase() === v1;
   }
   return legacySettlementChecksum(settlement) === value.toUpperCase();
 }

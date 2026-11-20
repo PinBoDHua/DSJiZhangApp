@@ -100,20 +100,62 @@ describe('自动备份设置与调度', () => {
     expect(settings.lastError).toBeUndefined();
   });
 
-  it('旧系统走分享面板时不能记成“已备份”，并给出确认提示', async () => {
-    writeAutoBackupSettings({ enabled: true, keep: 14 });
-    vi.mocked(saveTextFile).mockResolvedValueOnce('shared');
-    const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
-    const result = await runAutoBackup(state, {
-      native: true,
-      now: new Date(2026, 10, 6, 9, 0, 0),
+  it('旧系统走分享面板时不算完成：不推进 lastRunAt、不清失败记录，下次仍会重试', async () => {
+    // 预置「上次成功」和「同一自然日的失败退避（count 未到 3，仍允许再跑）」。
+    writeAutoBackupSettings({
+      enabled: true,
+      keep: 14,
+      lastError: '上次备份失败',
+      lastFile: '薪时自动备份-旧文件.json',
     });
+    globalThis.localStorage.setItem(
+      AUTO_BACKUP_FAILURE_KEY,
+      JSON.stringify({ date: '2026-11-06', count: 2, lastError: '原生桥超时' }),
+    );
+    vi.mocked(saveTextFile).mockResolvedValueOnce('shared');
+    vi.mocked(pruneDownloadFiles).mockClear();
+    const state = makeState({ jobs: [makeJob()], entries: [makeEntry()] });
+    const now = new Date(2026, 10, 6, 9, 0, 0);
+    const result = await runAutoBackup(state, { native: true, now });
+
     expect(result.ran).toBe(true);
     expect(result.warning).toContain('分享面板');
+    expect(result.path).toBeTruthy();
     // 没真正落盘：不能把 14 天备份提醒重置为“刚备份过”。
     expect(globalThis.localStorage.getItem('xinshi.lastBackup')).toBeNull();
-    // 但当日不应反复弹分享面板，lastRunAt 仍推进。
-    expect(readAutoBackupSettings().lastRunAt).toBeTruthy();
+    // 未确认落盘 = 本轮未完成：lastRunAt 不推进（当天下一轮仍会重试），也不改上次成功文件。
+    const settings = readAutoBackupSettings();
+    expect(settings.lastRunAt).toBeUndefined();
+    expect(settings.lastFile).toBe('薪时自动备份-旧文件.json');
+    // 上次失败与失败退避都要保留，不能因为弹过分享面板就当成成功清零。
+    expect(settings.lastError).toBe('上次备份失败');
+    expect(readAutoBackupFailure()).toEqual({
+      date: '2026-11-06',
+      count: 2,
+      lastError: '原生桥超时',
+    });
+    // 新文件还没确认写入时不应清理旧备份，否则会白减备份份数。
+    expect(vi.mocked(pruneDownloadFiles)).not.toHaveBeenCalled();
+    // 当天重新打开 App：仍要再试一次（不再被 lastRunAt 挡掉）。
+    expect(
+      shouldRunAutoBackup(readAutoBackupSettings(), state, {
+        native: true,
+        now: new Date(2026, 10, 6, 12, 0, 0),
+      }),
+    ).toBe(true);
+
+    // 下一轮原生落盘成功：才推进 lastRunAt、清掉上次失败并清零退避。
+    vi.mocked(saveTextFile).mockResolvedValueOnce('native');
+    const next = await runAutoBackup(state, {
+      native: true,
+      now: new Date(2026, 10, 6, 12, 0, 0),
+    });
+    expect(next.ran).toBe(true);
+    const retried = readAutoBackupSettings();
+    expect(retried.lastRunAt).toBe(new Date(2026, 10, 6, 12, 0, 0).toISOString());
+    expect(retried.lastError).toBeUndefined();
+    expect(readAutoBackupFailure()).toBeNull();
+    expect(globalThis.localStorage.getItem('xinshi.lastBackup')).toBeTruthy();
   });
 
   it('原生桥连续失败 3 次后当天停止重试，次日自动恢复并清零记录', async () => {

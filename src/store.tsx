@@ -47,7 +47,7 @@ import {
 } from './lib/trash';
 import { createDemoState } from './lib/seed';
 import { clearReminderMark } from './lib/reminder';
-import { commitSettlement } from './lib/settlement';
+import { applySettlementToState, commitSettlement } from './lib/settlement';
 import { findRestOnDay, wouldExceedDayLimit } from './lib/guards';
 import { clearPhotos, deletePhotos, prunePhotos } from './lib/photos';
 import { PrivacyProvider } from './components/Money';
@@ -310,8 +310,8 @@ function StoreStateProvider({
       storageWarned.current = false;
       setStorageError(false);
     } catch (error) {
-      pendingUpdaters.current = [];
-      remoteDirty.current = false;
+      // A02：保存失败时不能把「尚未落盘的更新」当成已保存清掉——保留重放队列与远端脏位，
+      // 下次提交会带着它们走乐观 CAS 合并，避免存储恢复后这批改动被静默丢弃。
       pendingPersist.current = false;
       setStorageError(true);
       console.warn('保存本地数据失败', error);
@@ -830,7 +830,27 @@ function StoreStateProvider({
   const generateRecurring = useCallback(
     (options: RecurringMaterializeOptions = {}): RecurringMaterializeResult => {
       const result = materializeRecurring(stateRef.current, options);
-      if (result.state !== stateRef.current) commit(() => result.state);
+      // A01：周期补记也必须是「语义 updater」——只把新生成的工记与规则水位叠加到 prev 上。
+      // 直接返回 result.state 会在跨标签页 CAS 重放时整包覆盖远端，抹掉别的窗口刚写的账。
+      if (result.state !== stateRef.current) {
+        commit((prev) => {
+          const known = new Set(prev.entries.map((entry) => entry.id));
+          const added = result.state.entries.filter((entry) => !known.has(entry.id));
+          const nextRules = (prev.recurringRules ?? []).map((rule) => {
+            const generated = (result.state.recurringRules ?? []).find(
+              (item) => item.id === rule.id,
+            );
+            return generated && generated.lastProcessedDate !== rule.lastProcessedDate
+              ? { ...rule, lastProcessedDate: generated.lastProcessedDate }
+              : rule;
+          });
+          return {
+            ...prev,
+            entries: added.length > 0 ? [...prev.entries, ...added] : prev.entries,
+            recurringRules: nextRules,
+          };
+        });
+      }
       return result;
     },
     [commit],
@@ -1051,7 +1071,7 @@ function StoreStateProvider({
       // 必须走 commit()：否则 pendingPersist 不置位，结算提交后、落盘前收到的其他标签页
       // storage 事件会把这笔结算静默吞掉（D01 / PAY-03 / UI-07）。
       // commit 内部会同步推进 stateRef，同一渲染周期内第二次调用仍读得到新状态。
-      commit(() => committed.state);
+      commit((prev) => applySettlementToState(prev, committed.settlement));
       return committed.settlement;
     },
     [commit],

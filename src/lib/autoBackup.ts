@@ -159,6 +159,17 @@ export async function runAutoBackup(
       });
       // Android 5–9 只能弹系统分享面板，用户可能取消：没真正落盘就不能记成“已备份”。
       const shared = result === 'shared';
+      if (shared) {
+        // 分享面板弹出 = 是否落盘未确认：本轮不算完成 —— 不写 lastRunAt / lastFile，
+        // 不清上次失败，也不清失败退避，下次打开 App 会自然重试。
+        // 这里也不清理旧备份：新文件还没确认写入时清理只会白减备份份数。
+        return {
+          ran: true,
+          path: filename,
+          warning:
+            '旧系统已打开系统分享面板，请确认本次备份已保存；本次不计入“已备份”，下次打开会重试，旧备份需要手动清理',
+        };
+      }
       // 清理旧备份失败不能把这次备份算作失败：文件已经写进去了，下次再清理即可。
       let pruned = 0;
       let pruneError: string | undefined;
@@ -182,11 +193,8 @@ export async function runAutoBackup(
       });
       // 本次成功即清零失败退避记录。
       writeAutoBackupFailure(null);
-      if (!shared) markBackedUp(now);
-      const warning = shared
-        ? '旧系统已打开系统分享面板，请确认本次备份已保存；旧备份需要手动清理'
-        : pruneError;
-      return { ran: true, path: filename, pruned, warning };
+      markBackedUp(now);
+      return { ran: true, path: filename, pruned, warning: pruneError };
     } catch (error) {
       const message = error instanceof Error ? error.message : '自动备份失败';
       recordAutoBackupFailure(now, message);

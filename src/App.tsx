@@ -249,8 +249,12 @@ function AppContent() {
 
   useEffect(() => {
     if (!privacyOk || !state.onboardingDone) return;
-    void runAutoBackup(state);
-  }, [privacyOk, state]);
+    // A03：旧系统分享面板可能被用户取消，autoBackup 会返回 warning「未确认落盘」。
+    // 不能再静默丢弃：提示用户去确认，否则当天不再备份且毫无感知。
+    void runAutoBackup(state).then((result) => {
+      if (result.warning) toast(result.warning, 'info');
+    });
+  }, [privacyOk, state, toast]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -272,6 +276,36 @@ function AppContent() {
     return prefetchRouteChunks();
   }, [state.onboardingDone]);
 
+  // C03：存储失败告警条改成 sticky 占位后，页面主体会被它顶下来；
+  // 但子页是 position: fixed 的全屏层，不在文档流里，必须按告警条实际高度整体下移，
+  // 否则红条仍会盖住子页返回键。高度量出来写成 CSS 变量，由样式里的 .subpage 消费。
+  const storageBannerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const banner = storageBannerRef.current;
+    if (!storageError || !banner) {
+      root.style.removeProperty('--storage-banner-h');
+      return;
+    }
+    const sync = () => {
+      root.style.setProperty('--storage-banner-h', `${banner.offsetHeight}px`);
+    };
+    sync();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', sync);
+      return () => {
+        window.removeEventListener('resize', sync);
+        root.style.removeProperty('--storage-banner-h');
+      };
+    }
+    const observer = new ResizeObserver(sync);
+    observer.observe(banner);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--storage-banner-h');
+    };
+  }, [storageError]);
+
   if (!privacyOk) {
     return (
       <PrivacyGate
@@ -284,7 +318,7 @@ function AppContent() {
   }
 
   const storageBanner = storageError ? (
-    <div className="app-storage-banner" role="alert">
+    <div className="app-storage-banner" role="alert" ref={storageBannerRef}>
       本机存储写入失败，最近的改动可能没有保存。请先到「我的 → 数据与安全」导出备份，再清理存储空间。
     </div>
   ) : null;

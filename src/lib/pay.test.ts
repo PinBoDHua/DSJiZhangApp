@@ -15,6 +15,7 @@ import {
 import { payForEntry } from './pay';
 import { addMonths, endOfWeek, hoursBetween, periodOf, shiftPeriod, startOfWeek } from './date';
 import { formatMoney, round2 } from './money';
+import { makeState } from './testFixtures';
 
 const rule = (overrides: Partial<PayRule> & Pick<PayRule, 'payType' | 'rate'>): PayRule => ({
   standardHours: 8,
@@ -863,8 +864,8 @@ describe('工资与结算回归', () => {
       [],
       periodOf('daily', '2026-11-04', 1),
     );
-    // 日结一期只有 1 天：PAY-01 封顶按 1/30 折算为 116.67，而不是按 expectedDays 的 159.09。
-    expect(dailyDraft.base).toBe(116.67);
+    // B01：结算是累计封顶——日结一期 1 天照发 3500/22=159.09，不再按 1/30 压成 116.67。
+    expect(dailyDraft.base).toBe(159.09);
 
     const partialMonth = {
       ...periodOf('monthly', '2026-11-04', 1),
@@ -881,8 +882,9 @@ describe('工资与结算回归', () => {
       [],
       partialMonth,
     );
-    // 导入的「11/01–11/25」非整月周期：封顶按 25/30 折算为 2916.67（PAY-01），不再是整月 3500。
-    expect(cappedDraft.base).toBe(2916.67);
+    // B01：非整月周期同样按累计封顶——该月尚无已结算期，封顶仍是整月 3500；
+    // 23 天 raw 3659.09 被压到 3500，capAdjustment 记录超出部分。
+    expect(cappedDraft.base).toBe(3500);
     expect(cappedDraft.capAdjustment).toBeGreaterThan(0);
   });
 
@@ -982,7 +984,7 @@ describe('PAY-01 / 02 / 05 / 09 / 10 / 12 计薪口径回归', () => {
       }),
     );
 
-  it('固定月薪周结 30 天全勤：多期合计回到整月月薪 3500（修复前 4772.74）', () => {
+  it('固定月薪周结 30 天全勤：多期合计不超过整月月薪 3500（B01 累计封顶）', () => {
     const weeklyJob = job({ cycle: 'weekly', rule: fixedRule });
     const entries = novemberEntries(30);
     const periods = new Map<string, ReturnType<typeof periodOf>>();
@@ -990,13 +992,29 @@ describe('PAY-01 / 02 / 05 / 09 / 10 / 12 计薪口径回归', () => {
       const period = periodOf('weekly', item.date, 1);
       periods.set(period.key, period);
     }
+    // 按真实结算顺序逐期提交：每期锁定工记后，后续期只能拿同一自然月的剩余额度。
+    let state = makeState({ jobs: [weeklyJob], entries });
     let total = 0;
+    let index = 0;
     for (const period of periods.values()) {
-      total += buildSettlementDraft(weeklyJob, entries, [], period).base;
+      const committed = commitSettlement(state, {
+        jobId: weeklyJob.id,
+        period,
+        extraBonus: 0,
+        extraDeduction: 0,
+        settlementId: `week-settlement-${index++}`,
+        createdAt: '2026-12-01T00:00:00.000Z',
+      });
+      if (!committed) continue;
+      total += committed.settlement.base;
+      state = committed.state;
     }
-    // 4 个整周 × (3500×7/30) + 2 个跨月周 × (3500×1/30)，期间独立舍入共 2 分漂移。
-    expect(round2(total)).toBe(3500.02);
-    // 对照：同一批工记按整月结算仍是 3500（修复前周结按整月封顶，合计 4772.74）。
+    // 累计封顶：30 天 x 3500/22 的 raw 合计 4772.74，各期合计被压回整月 3500。
+    // 每期独立 round2 会带来分币级漂移（本算式 1 分），不应超过 5 分。
+    const sum = round2(total);
+    expect(sum).toBeGreaterThanOrEqual(3499.95);
+    expect(sum).toBeLessThanOrEqual(3500.05);
+    // 对照：同一批工记按整月结算仍是 3500。
     const monthlyJob = job({ cycle: 'monthly', rule: fixedRule });
     const monthlyDraft = buildSettlementDraft(
       monthlyJob,
@@ -1153,7 +1171,7 @@ describe('PAY-01 / 02 / 05 / 09 / 10 / 12 计薪口径回归', () => {
     );
   });
 
-  it('结算周期显式开 periodShareCap 时按周期占比封顶，与结算单一致', () => {
+  it('结算周期改为累计封顶后，与展示窗口的周期占比口径分离', () => {
     const week = periodOf('weekly', '2026-11-04', 1);
     const entries = ['02', '03', '04', '05', '06', '07', '08'].map((day, index) =>
       entry({
@@ -1164,15 +1182,112 @@ describe('PAY-01 / 02 / 05 / 09 / 10 / 12 计薪口径回归', () => {
       }),
     );
     const shares = dailyBaseSeries(entries, week, { periodShareCap: true });
-    // 7 天全勤 raw = 7×3500/22 = 1113.64，封顶 = 3500×7/30 = 816.67。
+    // 展示窗口仍按「周期占当月天数」估算：7 天 raw = 1113.64，封顶 = 3500×7/30 = 816.67。
     expect(round2(shares.reduce((sum, share) => sum + share.base, 0))).toBe(816.67);
+    // B01：实际结算走累计封顶——该月此前没有已结算期时，本期应发整周 raw 1113.64，
+    // 不再被日历天占比压到 816.67；同月后续各期只能拿剩余额度。
     const draft = buildSettlementDraft(
       job({ cycle: 'weekly', rule: fixedRule }),
       entries,
       [],
       week,
     );
-    expect(draft.base).toBe(816.67);
+    expect(draft.base).toBe(1113.64);
+  });
+});
+
+describe('B02 / B03 回归（第三轮审计）', () => {
+  const monthlyFixed = rule({
+    payType: 'monthly',
+    rate: 3500,
+    expectedDays: 22,
+    monthlyMode: 'fixed',
+    otEnabled: false,
+  });
+
+  it('B02：超休额度取工记快照，结算前改岗位设置不会追溯多扣', () => {
+    const snapshot = { ...monthlyFixed, restDaysPerMonth: 5, overRestDeduct: true };
+    const changed = { ...snapshot, restDaysPerMonth: 3 };
+    const target = job({ id: 'job-1', cycle: 'monthly', rule: changed });
+    const entries = [entry({ id: 'snap-1', date: '2026-11-03', rule: snapshot })];
+    const restDays: RestDay[] = Array.from({ length: 6 }, (_, index) => ({
+      id: `rest-${index}`,
+      jobId: target.id,
+      date: `2026-11-${String(index + 3).padStart(2, '0')}`,
+      days: 1,
+      createdAt: '2026-11-03T00:00:00.000Z',
+    }));
+    const draft = buildSettlementDraft(
+      target,
+      entries,
+      [],
+      periodOf('monthly', '2026-11-15', 1),
+      0,
+      0,
+      restDays,
+      true,
+    );
+    // 工记快照额度 5 天、休 6 天 → 超休 1 天；若取当前设置的 3 天会错算成 3 天。
+    expect(draft.overRestDays).toBe(1);
+  });
+
+  it('B01：未结合计按累计封顶逐期试算，不因每期都拿满月薪而高估', () => {
+    const weeklyJob = job({ id: 'job-1', cycle: 'weekly', rule: monthlyFixed });
+    const entries = Array.from({ length: 30 }, (_, index) =>
+      entry({
+        id: `out-${index + 1}`,
+        date: `2026-11-${String(index + 1).padStart(2, '0')}`,
+        hours: 6,
+        rule: monthlyFixed,
+      }),
+    );
+    const outstanding = computeOutstanding(makeState({ jobs: [weeklyJob], entries }));
+    // 30 天 raw 4772.74，累计封顶后未结合计应回到整月 3500（±分币舍入）。
+    expect(round2(outstanding.net)).toBeGreaterThanOrEqual(3499.95);
+    expect(round2(outstanding.net)).toBeLessThanOrEqual(3500.05);
+  });
+
+  it('B03：借支大于应发时超出部分结转下期，而不是随结算一笔勾销', () => {
+    const target = job({ id: 'job-1', cycle: 'weekly', rule: monthlyFixed });
+    const entries = [entry({ id: 'b03-1', date: '2026-11-02', hours: 1, rule: monthlyFixed })];
+    const advances: Advance[] = [
+      {
+        id: 'adv-1',
+        jobId: target.id,
+        date: '2026-11-02',
+        amount: 1000,
+        createdAt: '2026-11-02T00:00:00.000Z',
+      },
+    ];
+    const first = commitSettlement(makeState({ jobs: [target], entries, advances }), {
+      jobId: target.id,
+      period: periodOf('weekly', '2026-11-02', 1),
+      extraBonus: 0,
+      extraDeduction: 0,
+      settlementId: 'b03-s1',
+      createdAt: '2026-11-08T00:00:00.000Z',
+    });
+    expect(first).not.toBeNull();
+    // 应发 3500/22=159.09，借支 1000 → 净额 -840.91。
+    expect(first!.settlement.net).toBe(-840.91);
+    const carry = first!.state.advances.find((item) => item.id === 'carry-b03-s1');
+    expect(carry?.amount).toBe(840.91);
+    expect(carry?.settlementId).toBeUndefined();
+
+    // 下一期只剩 159.09 可发，必须先把上期结转的 840.91 抵扣掉。
+    const decEntry = entry({ id: 'b03-2', date: '2026-12-02', hours: 1, rule: monthlyFixed });
+    const second = commitSettlement(
+      { ...first!.state, entries: [...first!.state.entries, decEntry] },
+      {
+        jobId: target.id,
+        period: periodOf('weekly', '2026-12-02', 1),
+        extraBonus: 0,
+        extraDeduction: 0,
+        settlementId: 'b03-s2',
+        createdAt: '2026-11-15T00:00:00.000Z',
+      },
+    );
+    expect(second!.settlement.advanceTotal).toBe(840.91);
   });
 });
 

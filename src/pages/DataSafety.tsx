@@ -34,6 +34,7 @@ import {
   type AutoBackupSettings,
 } from '../lib/autoBackup';
 import {
+  clearSnapshots,
   formatBytes,
   listSnapshots,
   saveSnapshot,
@@ -64,6 +65,8 @@ export function DataSafety({
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveMode, setMoveMode] = useState<'export' | 'import'>('export');
   const [clearOpen, setClearOpen] = useState(false);
+  /** 「清空所有数据」时是否连历史快照一起删（默认不勾，与 Profile 口径一致） */
+  const [clearSnapshotsToo, setClearSnapshotsToo] = useState(false);
   const native = isNativeApp();
 
   // 快照列表是异步 IndexedDB 查询：用序号守卫避免先发后至的旧结果覆盖新结果（UI-30）。
@@ -217,14 +220,31 @@ export function DataSafety({
 
   const clearAll = async () => {
     if (busy) return;
+    const removeSnapshots = clearSnapshotsToo;
     setClearOpen(false);
+    setClearSnapshotsToo(false);
     setBusy(true);
     try {
       const backup = await saveSnapshot(state, 'before-clear');
       // D17：清空前快照已写入成功，仅旧快照清理失败时提示，不取消清空。
       if (backup?.warning) toast(`旧快照清理失败：${backup.warning}`, 'info');
       resetAll();
-      toast('数据已清空，可在本机时光机找回清空前快照', 'info');
+      if (removeSnapshots) {
+        // 快照里含完整金额和备注：勾选「同时删除」时连清空前快照一起抹掉。
+        try {
+          await clearSnapshots();
+          toast('数据与全部历史快照已清空', 'info');
+        } catch (error) {
+          toast(
+            error instanceof Error
+              ? `数据已清空，但历史快照删除失败：${error.message}`
+              : '数据已清空，但历史快照删除失败，请到「数据与安全」页手动删除',
+            'error',
+          );
+        }
+      } else {
+        toast('数据已清空，可在本机时光机找回清空前快照', 'info');
+      }
       refresh();
     } catch (error) {
       toast(
@@ -526,10 +546,27 @@ export function DataSafety({
       <ConfirmDialog
         open={clearOpen}
         title="清空所有数据？"
-        description="工作、工记、休息、借支和结算会全部删除，考勤照片也会一起清理。清空前会自动存一张本机快照；快照不含照片。"
+        description={
+          <>
+            工作、工记、休息、借支和结算会全部删除，考勤照片也会一起清理。清空前会自动存一张本机快照；快照不含照片。
+            <br />
+            此前保存的历史快照（含完整金额与备注）默认仍留在这台设备。
+            <label className="payslip-option" style={{ marginTop: 10 }}>
+              <input
+                type="checkbox"
+                checked={clearSnapshotsToo}
+                onChange={(event) => setClearSnapshotsToo(event.target.checked)}
+              />
+              <span>同时删除全部历史快照（快照删除后不可恢复）</span>
+            </label>
+          </>
+        }
         confirmLabel="全部清空"
         danger
-        onCancel={() => setClearOpen(false)}
+        onCancel={() => {
+          setClearOpen(false);
+          setClearSnapshotsToo(false);
+        }}
         onConfirm={() => void clearAll()}
       />
     </SubPage>

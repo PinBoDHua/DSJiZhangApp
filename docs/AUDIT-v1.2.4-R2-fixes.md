@@ -3,7 +3,7 @@
 > 修复日期：2026-11-17（Asia/Shanghai）
 > 依据：docs/AUDIT-v1.2.4-R2.md（第二轮审计，119 条：P0×0 / P1×9 / P2×29 / P3×81）
 > 代码基线：git HEAD 6c0f682（v1.2.4）；修复版本：v1.2.5 / versionCode 1205 / SW v32
-> 验证：typecheck 0 错误、43 个测试文件 / 384 用例全绿、vite build 通过、check:release 15 PASS / 0 FAIL、离线+CSP 构建校验 16 PASS；签名 APK/AAB 已构建，并在雷电模拟器覆盖安装 + 启动 + 首屏冒烟通过（见第十一节）
+> 验证：typecheck 0 错误、43 个测试文件 / 384 用例全绿、vite build 通过、check:release 16 PASS / 0 FAIL、离线+CSP 构建校验 16 PASS；签名 APK/AAB 已构建，并在雷电模拟器覆盖安装 + 启动 + 首屏冒烟通过（见第十一节）
 
 ## 一、总览
 
@@ -14,7 +14,7 @@
 | P3 | 81 | 约 70 | 若干（见第九节） | 11（依赖升级 / 真机验证 / 性能改造 / Git LFS 等） |
 | 依赖漏洞 | 29（dev 链） | 0 | — | 3 条（DEP-01/02/03，需联网升级 + 回归，未在本轮擅自升级） |
 
-本轮新增测试 102 个（282 → 384），新增测试文件 5 个；新增构建校验脚本 scripts/check-offline-csp.mjs；check-release 由 8 项扩展到 15 项。
+本轮新增测试 102 个（282 → 384），新增测试文件 5 个；新增构建校验脚本 scripts/check-offline-csp.mjs；check-release 由 8 项扩展到 16 项。
 
 ## 二、P1（9 条）
 
@@ -51,8 +51,8 @@ UI 组：UI-14 至 UI-42（UI-28 / UI-40 maskable 图标等少数子项延后，
 | npx tsc --noEmit | 0 错误 |
 | npx vitest run --no-file-parallelism | 43 文件 / 384 用例全部通过（基线 38 / 282） |
 | npx vite build（含 tsc 由 pnpm build 执行） | 通过，约 2.8s；dist 已重建 |
-| node scripts/check-release-config.mjs | 15 PASS / 0 FAIL（NOTE：占位邮箱、无 SDK 无法 aapt2 badging） |
-| node scripts/check-offline-csp.mjs | 16 项全 PASS（预缓存 42 项、CSP hash 匹配、manifest id、SW v31） |
+| node scripts/check-release-config.mjs | 16 PASS / 0 FAIL（NOTE：占位邮箱、无 SDK 无法 aapt2 badging） |
+| node scripts/check-offline-csp.mjs | 16 项全 PASS（预缓存 42 项、CSP hash 匹配、manifest id、SW v32） |
 | node --check scripts/*.mjs | 全部通过（含 28 个 functional + 28 个截图/审计脚本） |
 | git diff --check | 无空白错误；无 CRLF 整文件噪声 |
 

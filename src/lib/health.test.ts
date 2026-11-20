@@ -35,6 +35,18 @@ describe('账本体检', () => {
     expect(report.counts.warning).toBe(0);
   });
 
+  // A04：backup-stale 必须走注入的 today，不能读真实时钟。
+  // 这条用例把 today 固定在 2026-11-05、lastBackupAt 同日，任何「今天」跑都必须绿；
+  // 再把 today 推进 15 天，必须开始报过期——两条一起钉住时间炸弹不复现。
+  it('备份过期按注入的 today 判定，不随真实时钟漂移', () => {
+    expect(codes(healthyState())).not.toContain('backup-stale');
+    const later = checkLedger(healthyState(), {
+      today: '2026-11-20',
+      lastBackupAt,
+    });
+    expect(later.issues.map((issue) => issue.code)).toContain('backup-stale');
+  });
+
   it('结算净额与分项不一致', () => {
     const state = healthyState();
     state.settlements[0].net = 199;

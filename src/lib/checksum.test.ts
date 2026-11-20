@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Settlement } from '../types';
 import {
   legacySettlementChecksum,
+  paymentChecksum,
   settlementChecksum,
   verifySettlementChecksum,
 } from './checksum';
@@ -32,11 +33,11 @@ const settlement = {
 describe('结算校验码', () => {
   it('新版 sha256 短码带算法前缀，结果稳定且与独立实现一致', () => {
     const code = settlementChecksum(settlement);
-    expect(code).toBe('sha256:24bd8bf73414f1db');
+    expect(code).toBe('sha256:c406018e54504a97');
     expect(settlementChecksum({ ...settlement })).toBe(code);
   });
 
-  it('改分项但 net 不变时校验码也会变化', () => {
+  it('改分项但 net 不变时校验码也会变化；收款字段不改变结算码（B04）', () => {
     const code = settlementChecksum(settlement);
     // base 减 0.01、bonus 加 0.01：分项变了、net 不变。
     expect(settlementChecksum({ ...settlement, base: 3499.99, bonus: 0.01 })).not.toBe(code);
@@ -44,11 +45,22 @@ describe('结算校验码', () => {
     expect(
       settlementChecksum({ ...settlement, extraBonus: 1, extraDeduction: 1 }),
     ).not.toBe(code);
-    // 收款字段不在 net 内，也必须被覆盖。
-    expect(settlementChecksum({ ...settlement, paidAmount: 0.01 })).not.toBe(code);
-    expect(settlementChecksum({ ...settlement, paymentStatus: 'partial' })).not.toBe(code);
     expect(settlementChecksum({ ...settlement, hours: 12.5 })).not.toBe(code);
     expect(settlementChecksum({ ...settlement, overRestDeduction: 0.01 })).not.toBe(code);
+    // B04：收款字段不属于结算内容——登记收款前后结算码必须一致，旧导出的码仍可核对。
+    expect(settlementChecksum({ ...settlement, paidAmount: 0.01 })).toBe(code);
+    expect(settlementChecksum({ ...settlement, paymentStatus: 'partial' })).toBe(code);
+    // 收款码单独覆盖收款字段，用于核对「何时收了多少钱」。
+    expect(paymentChecksum({ ...settlement, paidAmount: 0.01 })).not.toBe(
+      paymentChecksum(settlement),
+    );
+    expect(paymentChecksum({ ...settlement, paymentStatus: 'partial' })).not.toBe(
+      paymentChecksum(settlement),
+    );
+  });
+
+  it('v1.2.5 的含收款字段旧码仍可验证', () => {
+    expect(verifySettlementChecksum(settlement, paymentChecksum(settlement))).toBe(true);
   });
 
   it('旧版无前缀校验码继续按旧算法兼容验证', () => {

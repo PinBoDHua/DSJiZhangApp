@@ -3,11 +3,18 @@ import type { AppState, Job } from '../types';
 import {
   LEGACY_STORAGE_KEYS,
   STORAGE_KEY,
+  THEME_KEY,
   buildExportPayload,
+  clearStoredState,
   createEmptyState,
   loadStateDetailed,
   validateImport,
 } from './storage';
+import { LAST_BACKUP_KEY } from './backupStatus';
+import { BATCH_TEMPLATE_KEY } from './batchTemplates';
+import { PRIVACY_CONSENT_KEY } from './compliance';
+import { PAYSLIP_OPTIONS_KEY } from './payslipOptions';
+import { REMINDER_LAST_KEY } from './reminder';
 import { makeAdvance, makeEntry, makeSettlement } from './testFixtures';
 
 /** 回收站用例必须用相对时间：写死日期会在 30 天保留期过后变成时间炸弹。 */
@@ -715,6 +722,38 @@ describe('本机账本读取与旧键迁移', () => {
     expect(storage.values.has(legacyKey)).toBe(false);
     expect(storage.writes.filter((key) => key === STORAGE_KEY)).toHaveLength(1);
     expect(storage.writes).not.toContain(legacyKey);
+  });
+});
+
+describe('清空所有数据（A06）', () => {
+  it('clearStoredState 清掉全部附属键，但保留跨标签页 epoch 键', () => {
+    const storage = new MemoryStorage();
+    // 未导出常量的侧键直接写真实键名：实现里漏掉或拼错时这里会立刻变红。
+    const shouldClear = [
+      STORAGE_KEY,
+      ...LEGACY_STORAGE_KEYS,
+      THEME_KEY,
+      LAST_BACKUP_KEY,
+      BATCH_TEMPLATE_KEY,
+      PRIVACY_CONSENT_KEY,
+      PAYSLIP_OPTIONS_KEY,
+      REMINDER_LAST_KEY,
+      'xinshi.autoBackup',
+      'xinshi.autoBackupFailures',
+      'xinshi.budgetAlert',
+      'xinshi.snapshotDailyAt',
+      'xinshi.snapshotLastError',
+      'xinshi.planJobId',
+    ];
+    const ledgerEpochKey = 'xinshi.ledgerEpoch';
+    for (const key of [...shouldClear, ledgerEpochKey]) storage.values.set(key, '1');
+    vi.stubGlobal('localStorage', storage);
+
+    clearStoredState();
+
+    // 只剩 epoch：清空账本后 store 还要靠它广播「整包替换」，不能被一起删掉（D09）。
+    expect([...storage.values.keys()]).toEqual([ledgerEpochKey]);
+    for (const key of shouldClear) expect(storage.values.has(key)).toBe(false);
   });
 });
 

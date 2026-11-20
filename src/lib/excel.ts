@@ -4,7 +4,13 @@ import { round2 } from './money';
 import { payForEntry } from './pay';
 import { paidAmountOf, paymentStatusOf, remainingAmountOf } from './payment';
 import { restDayAmount } from './rest';
-import { buildSettlementDraft, dailyBaseEntryIds, totalAdvanceAmount } from './settlement';
+import {
+  addSettledUsage,
+  buildSettlementDraft,
+  dailyBaseEntryIds,
+  settledBaseByMonth,
+  totalAdvanceAmount,
+} from './settlement';
 import { buildXlsx, type XlsxCellValue, type XlsxSheet } from './xlsx';
 
 function money(value: number): XlsxCellValue {
@@ -170,6 +176,8 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
       if (!periods.has(period.key)) periods.set(period.key, period);
     }
     let firstKey: string | null = null;
+    // B01：Excel 预估与结算同一口径——按结算顺序累计消耗同月额度，避免每期都拿满月薪。
+    const simulated = settledBaseByMonth(state.entries, job.id);
     for (const period of Array.from(periods.values()).sort(comparePeriods)) {
       const draft = buildSettlementDraft(
         job,
@@ -180,8 +188,11 @@ export function buildLedgerSheets(state: AppState): XlsxSheet[] {
         0,
         state.restDays,
         job.rule.overRestDeduct,
+        undefined,
+        simulated,
       );
       if (draft.entries.length === 0) continue;
+      addSettledUsage(simulated, job.id, draft.entries);
       const month = monthKey(period.end);
       const key = `${month}|${job.id}`;
       if (!firstKey) firstKey = key;

@@ -76,13 +76,18 @@ export function settledEntryIds(settlements: Settlement[]): Set<string> {
 /**
  * 撤销结算会丢失的收款登记说明（PAY-28）。
  * 没有收款登记时返回 null；净额 ≤ 0 的「0 元标记结清」不算收款，不提示。
+ * C08：hideAmounts 为真时不输出收款额，避免隐藏金额在撤销确认框里被明文暴露。
  */
-export function undoLostPaymentNotice(settlement: Settlement): string | null {
+export function undoLostPaymentNotice(
+  settlement: Settlement,
+  hideAmounts = false,
+): string | null {
   const paid = round2(Math.max(0, settlement.paidAmount ?? 0));
   if (paid <= 0) return null;
   const method = settlement.paymentMethod ? ` · ${settlement.paymentMethod}` : '';
   const when = settlement.paidAt ? `（${settlement.paidAt}${method}）` : '';
-  return `这张结算单已登记收款 ¥${paid}${when}，撤销后收款登记会一并丢失，需要重新登记。`;
+  const amount = hideAmounts ? '（金额已隐藏）' : ` ¥${paid}`;
+  return `这张结算单已登记收款${amount}${when}，撤销后收款登记会一并丢失，需要重新登记。`;
 }
 
 /** 超休区块展示口径（PAY-02）：非整月周期额度按当期折算展示，且不自动扣款。 */

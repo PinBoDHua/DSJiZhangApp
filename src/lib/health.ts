@@ -1,6 +1,6 @@
 import type { AppState } from '../types';
 import { round2 } from './money';
-import { todayISO } from './date';
+import { toISODate, todayISO } from './date';
 
 export type HealthSeverity = 'critical' | 'warning' | 'info';
 
@@ -337,10 +337,12 @@ export function checkLedger(state: AppState, options: HealthOptions = {}): Healt
 
   if (state.entries.length > 0) {
     const lastBackup = options.lastBackupAt ? new Date(options.lastBackupAt) : null;
+    // A04：时间判定必须走注入的 today，不能用 Date.now()——否则 lastBackupAt 固定的
+    // 用例会在第 14 天后自动变红，且体检结果无法在测试/跨时区场景复现。
     const staleBackup =
       !lastBackup ||
       Number.isNaN(lastBackup.getTime()) ||
-      Date.now() - lastBackup.getTime() > 14 * 86_400_000;
+      daysBetween(toISODate(lastBackup), today) > 14;
     if (staleBackup) {
       add(issues, {
         code: 'backup-stale',

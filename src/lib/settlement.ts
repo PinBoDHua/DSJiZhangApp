@@ -120,11 +120,17 @@ export interface SumEntriesOptions {
    */
   monthlyFullMonth?: boolean;
   /**
-   * 是否按「周期落在该自然月的天数 / 当月天数」折算每期封顶（PAY-01）。
-   * 结算周期（buildSettlementDraft）传 true；统计窗口不传，保持按窗口原口径，
-   * 避免周档 / 任意分析窗口的金额被结算口径改写。
+   * 是否按「周期落在该自然月的天数 / 当月天数」折算每期封顶（PAY-01 旧口径）。
+   * 仅统计窗口使用；结算已改走 cumulativeCap（B01），不再用它。
    */
   periodShareCap?: boolean;
+  /**
+   * 累计封顶（B01）：同一岗位同一自然月内「已结算周期占用的基础工资 + 本期」不超过月薪。
+   * 与 periodShareCap 互斥，结算时优先生效；需要 settledBaseByMonth 提供已结算占用。
+   */
+  cumulativeCap?: boolean;
+  /** 已结算周期占用的基础工资，key = `${jobId}|${monthKey}`（仅 cumulativeCap 使用）。 */
+  settledBaseByMonth?: Record<string, number>;
 }
 
 function isWholeCalendarMonth(period?: Period, options: SumEntriesOptions = {}): boolean {
@@ -202,21 +208,22 @@ export function sumEntriesCapped(
     const capBase = sameTerms
       ? rate
       : Math.max(...dailyRules.map((entry) => Math.max(0, entry.rule.rate)), 0);
-    // PAY-01：周结 / 日结的固定月薪若按整月月薪封顶，一个周期最多 7 天永远触不到 cap，
-    // 同一自然月拆成多期后合计可超整月工资（最高 +41%）。结算周期（periodShareCap）下把 cap
-    // 按「周期落在该月的天数 / 当月天数」折算，各期合计回到整月月薪；整月周期 share 恰为 1。
-    let periodShare = 1;
-    if (options.periodShareCap && period) {
-      const groupMonth = monthKey(first.date);
+    const groupMonth = monthKey(first.date);
+    let cap = capBase;
+    if (options.cumulativeCap) {
+      // B01：累计封顶。同一岗位同一自然月内，把「已结算周期占用的基础工资」从月薪封顶里
+      // 扣掉；日结 / 周结各期合计因此恒不超过整月月薪，且短周期不会再被日历天占比压到 1/30。
+      const used = options.settledBaseByMonth?.[`${first.jobId}|${groupMonth}`] ?? 0;
+      cap = Math.max(0, capBase - used);
+    } else if (options.periodShareCap && period) {
+      // PAY-01 旧口径：仅供统计窗口（周档等）展示，结算已改用 cumulativeCap。
       const daysInPeriodMonth = eachDay(period.start, period.end).filter(
         (day) => monthKey(day) === groupMonth,
       ).length;
-      periodShare = Math.min(
-        1,
-        daysInPeriodMonth / Math.max(1, daysInMonth(`${groupMonth}-01`)),
-      );
+      cap =
+        capBase *
+        Math.min(1, daysInPeriodMonth / Math.max(1, daysInMonth(`${groupMonth}-01`)));
     }
-    const cap = capBase * periodShare;
     const fullFixedMonth =
       sameTerms && first.rule.monthlyMode === 'fixed' && wholeCalendarMonth;
     const paidBase = fullFixedMonth ? rate : Math.min(rawBase, cap);
@@ -336,6 +343,8 @@ export function summarizeUnsettledJob(
   }
   const sorted = Array.from(periods.values()).sort(comparePeriods);
   const restDays = options.includeRestDeduction === false ? [] : state.restDays;
+  // B01：逐期试算必须按结算顺序累计消耗同月额度，否则每期都拿满 3500 会高估未结合计。
+  const simulated = settledBaseByMonth(state.entries, job.id);
   let total = 0;
   let overRestDeduction = 0;
   let firstDraft: SettlementDraft | null = null;
@@ -349,11 +358,14 @@ export function summarizeUnsettledJob(
       0,
       restDays,
       job.rule.overRestDeduct,
+      undefined,
+      simulated,
     );
     if (draft.entries.length === 0) continue;
     if (!firstDraft) firstDraft = draft;
     total += draft.net;
     overRestDeduction += draft.overRestDeduction;
+    addSettledUsage(simulated, job.id, draft.entries);
   }
   return {
     total: round2(total),
@@ -362,6 +374,38 @@ export function summarizeUnsettledJob(
     firstPeriod: sorted[0] ?? null,
     firstDraft,
   };
+}
+
+/**
+ * 已结算/已模拟的周期在每个自然月占用的基础工资（B01 累计封顶用）。
+ * 用「未舍入的日/月薪份额」累计：已结算部分实际只付了 min(raw, cap)，但占用取 raw 更保守——
+ * 某个已被封顶的月份会直接把额度用满，后续周期不会再重复发放。
+ */
+export function addSettledUsage(
+  map: Record<string, number>,
+  jobId: string,
+  entries: Entry[],
+): void {
+  for (const entry of entries) {
+    const key = `${jobId}|${monthKey(entry.date)}`;
+    // 与 sumEntriesCapped 里 rawBase 的计算式保持一致（不先 round2），否则「已占用」会
+    // 比 raw 略小，导致累计封顶在月末多放出几分钱。
+    const expectedDays = entry.rule.expectedDays > 0 ? entry.rule.expectedDays : 22;
+    map[key] = (map[key] ?? 0) + Math.max(0, entry.rule.rate) / expectedDays;
+  }
+}
+
+/** 已结算工记在每个自然月占用的基础工资（按 settlementId 判定）。 */
+export function settledBaseByMonth(
+  entries: Entry[],
+  jobId: string,
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const entry of entries) {
+    if (entry.jobId !== jobId || !entry.settlementId) continue;
+    addSettledUsage(map, jobId, [entry]);
+  }
+  return map;
 }
 
 export function buildSettlementDraft(
@@ -374,6 +418,7 @@ export function buildSettlementDraft(
   restDays: RestDay[] = [],
   overRestEnabled = true,
   overRestAmount?: number,
+  simulatedSettledBase: Record<string, number> = {},
 ): SettlementDraft {
   const jobEntries = entries
     .filter(
@@ -391,10 +436,16 @@ export function buildSettlementDraft(
     )
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  // B01：结算走累计封顶。simulatedSettledBase 供「未结预估 / Excel」在逐期试算时
+  // 模拟前面各期已经消耗掉的月度额度，保证预估合计与实际逐期结算一致。
+  const settledBase = settledBaseByMonth(entries, job.id);
+  for (const [key, value] of Object.entries(simulatedSettledBase)) {
+    settledBase[key] = (settledBase[key] ?? 0) + value;
+  }
   const totals = sumEntriesCapped(jobEntries, period, {
     monthlyFullMonth: job.cycle === 'monthly',
-    // 结算周期一律按周期占当月比例折算封顶，月结 / 周结 / 日结 / 导入的任意区间单同口径。
-    periodShareCap: true,
+    cumulativeCap: true,
+    settledBaseByMonth: settledBase,
   });
   const advanceTotal = totalAdvanceAmount(includedAdvances);
   const safeBonus = round2(Math.max(0, extraBonus));
@@ -425,8 +476,10 @@ export function buildSettlementDraft(
     Array.from(restAmountByDate.values()).reduce((sum, amount) => sum + amount, 0),
   );
   const isFixedMonthly = payType === 'monthly' && monthlyMode === 'fixed';
-  const policy = job.rule;
-  const historicalPolicy = latestEntry?.rule ?? job.rule;
+  // B02：超休额度 / 休息规则取「工记快照」，而不是岗位当前设置——否则结算前把月休额度
+  // 从 5 改成 3，旧周期会被追溯多扣。只有不含工记的周期（纯借支）才回退到岗位当前值。
+  const policy = latestEntry?.rule ?? job.rule;
+  const historicalPolicy = policy;
   const isFlexibleRest =
     isFixedMonthly && (policy.restPolicy ?? 'quota') === 'flexible';
   // 超休额度是「每月」口径。非整月周期按周期占当月比例折算，但只用于展示（页面提示本期额度），
@@ -660,23 +713,52 @@ export function commitSettlement(
     input.createdAt,
     input.note?.trim() || undefined,
   );
-  const entryIds = new Set(draft.entryIds);
-  const advanceIds = new Set(draft.advanceIds);
-  return {
-    settlement,
-    state: {
-      ...state,
-      settlements: [settlement, ...state.settlements],
-      entries: state.entries.map((entry) =>
-        entryIds.has(entry.id)
-          ? { ...entry, settlementId: settlement.id, updatedAt: input.createdAt }
-          : entry,
-      ),
-      advances: state.advances.map((advance) =>
-        advanceIds.has(advance.id) ? { ...advance, settlementId: settlement.id } : advance,
-      ),
-    },
+  return { settlement, state: applySettlementToState(state, settlement) };
+}
+
+/**
+ * 把一张结算单原子地应用到账本：写入结算单、锁定工记 / 借支、负净额自动结转（B03）。
+ * 幂等：同一张单重复应用不会重复锁定，也不会重复生成结转借支。
+ */
+export function applySettlementToState(state: AppState, settlement: Settlement): AppState {
+  const entryIds = new Set(settlement.entryIds);
+  const advanceIds = new Set(settlement.advanceIds);
+  const alreadyApplied = state.settlements.some((item) => item.id === settlement.id);
+  const next: AppState = {
+    ...state,
+    settlements: alreadyApplied ? state.settlements : [settlement, ...state.settlements],
+    entries: state.entries.map((entry) =>
+      !entry.settlementId && entryIds.has(entry.id)
+        ? { ...entry, settlementId: settlement.id, updatedAt: settlement.createdAt }
+        : entry,
+    ),
+    advances: state.advances.map((advance) =>
+      !advance.settlementId && advanceIds.has(advance.id)
+        ? { ...advance, settlementId: settlement.id }
+        : advance,
+    ),
   };
+  return withCarryAdvance(next, settlement);
+}
+
+/**
+ * B03：借支大于本期应发时净额为负。超出部分不能随结算一笔勾销，否则下期会把已经
+ * 借出的钱再发一次。把「倒欠金额」落成一张未锁定的结转借支，下一期结算自动抵扣。
+ */
+function withCarryAdvance(state: AppState, settlement: Settlement): AppState {
+  const carry = round2(-settlement.net);
+  if (carry <= 0) return state;
+  const id = `carry-${settlement.id}`;
+  if (state.advances.some((advance) => advance.id === id)) return state;
+  const advance: Advance = {
+    id,
+    jobId: settlement.jobId,
+    date: settlement.periodEnd,
+    amount: carry,
+    note: '上期应发不足，自动结转',
+    createdAt: settlement.createdAt,
+  };
+  return { ...state, advances: [advance, ...state.advances] };
 }
 
 export interface DailyPoint {

@@ -12281,13 +12281,14 @@ html[data-theme="dark"] .bar-peak {
   }
 }
 
-/* 本机存储写入失败：常驻告警条（覆盖在所有页面顶部，但低于弹层） */
+/* C03：本机存储写入失败：常驻告警条。
+   改成 sticky 占位：在文档流顶部占一行高度（不再盖住首页头像 / 返回键），滚动时吸附在顶部；
+   子页是 fixed 全屏层，由下面两条规则按 --storage-banner-h 整体下移，返回键保持可点。
+   层级卡在「底栏 / FAB 之上、子页 30 / 弹层 50+ 之下」，不会再压住任何可点元素。 */
 .app-storage-banner {
-  position: fixed;
-  left: 0;
-  right: 0;
+  position: sticky;
   top: 0;
-  z-index: 60;
+  z-index: 25;
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px;
   background: var(--danger, #b3261e);
   color: #fff;
@@ -12295,6 +12296,16 @@ html[data-theme="dark"] .bar-peak {
   line-height: 1.45;
   text-align: center;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+/* 告警条占位时，fixed 子页从告警条下沿开始，返回键与标题不被遮挡（无告警条时回落到 0）。 */
+.subpage {
+  top: var(--storage-banner-h, 0px);
+}
+
+.subpage-inner {
+  height: calc(100dvh - var(--storage-banner-h, 0px));
+  min-height: calc(100dvh - var(--storage-banner-h, 0px));
 }
 
 /* UI-06：隐藏金额只影响 App 内展示，导出 / 分享仍是明文，入口处需要醒目提示 */

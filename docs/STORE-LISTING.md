@@ -1,7 +1,7 @@
-# 薪时 v1.0.0 · 上架材料与合规清单
+# 薪时 v1.2.5 · 上架材料与合规清单
 
 > 用途：提交 Google Play 与国内 Android 商店时直接取用。
-> 版本：1.0.0（versionCode 1000）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-06
+> 版本：1.2.5（versionCode 1205）｜ 包名：`com.xinshi.app`｜ 更新：2026-11-17
 >
 > 所有文案都按「不收集、不上传、无账号、无广告、无统计」的真实行为编写；
 > 改代码后若行为变化，必须同步改本文和隐私政策。
@@ -14,7 +14,7 @@
 | --- | --- |
 | 应用名 | 薪时 |
 | 包名 | `com.xinshi.app` |
-| 版本 | 1.0.0（versionCode 1000） |
+| 版本 | 1.2.5（versionCode 1205） |
 | 分类 | 工具 / 效率（Google Play：Tools） |
 | 价格 | 免费，无广告，无内购 |
 | 登录 | 不需要，全部功能免登录 |
@@ -139,15 +139,15 @@ gradlew.bat bundleRelease
 - 产物：
   - `android/app/build/outputs/apk/release/app-release.apk`
   - `android/app/build/outputs/bundle/release/app-release.aab`
-- 复制并重命名到 `release/xinshi-v1.0.0.apk` / `release/xinshi-v1.0.0.aab`。
+- 复制并重命名到 `release/xinshi-v1.2.5.apk` / `release/xinshi-v1.2.5.aab`。
 - 发布 SOP：只从 `release/` 取带版本号 + SHA-256 登记的成品；`android/aligned.apk` 这类 zipalign 中间产物已删除，不要从 `android/` 根目录取 APK 分发。
 - 校验：
 
 ```bash
-apksigner verify --print-certs release/xinshi-v1.0.0.apk
-jarsigner -verify -verbose -certs release/xinshi-v1.0.0.aab
-aapt dump badging release/xinshi-v1.0.0.apk | findstr "package versionCode targetSdkVersion"
-aapt dump permissions release/xinshi-v1.0.0.apk
+apksigner verify --print-certs release/xinshi-v1.2.5.apk
+jarsigner -verify -verbose -certs release/xinshi-v1.2.5.aab
+aapt dump badging release/xinshi-v1.2.5.apk | findstr "package versionCode targetSdkVersion"
+aapt dump permissions release/xinshi-v1.2.5.apk
 ```
 
 - keystore 必须离线备份两份；丢失后无法覆盖升级。
@@ -163,7 +163,7 @@ aapt dump permissions release/xinshi-v1.0.0.apk
 - [ ] Data safety 按第 3 节填写。
 - [ ] 内容分级问卷完成。
 - [ ] 目标受众与广告声明：无广告、非儿童向。
-- [ ] 上传签名 AAB；versionCode 1000；targetSdk 36。
+- [ ] 上传签名 AAB；versionCode 1205；targetSdk 36。
 - [ ] 应用访问权限：无需登录，审核员可直接进入。
 - [ ] 提供审核说明：离线应用，无服务器，无账号；可用「先看看示例数据」体验。
 - [ ] 测试轨道先内测，确认安装、离线、导出、恢复。
@@ -229,9 +229,25 @@ VITE_PRIVACY_URL=https://your.site/privacy-policy.html
 
 ---
 
-## 10. 发布记录（2026-11-06）
+## 10. 发布记录（2026-11-17）
 
-### v1.0.0（当前）
+### v1.2.5（当前）
+
+| 项 | 内容 |
+| --- | --- |
+| 版本 | 1.2.5（1205） |
+| 构建时间 | 2026-11-17 20:19（Asia/Shanghai） |
+| APK | `release/xinshi-v1.2.5.apk`（3,369,731 B / 约 3.21MiB） |
+| AAB | `release/xinshi-v1.2.5.aab`（3,848,997 B / 约 3.67MiB） |
+| APK SHA-256 | `BEE4A4CC0E3EF5FAC3405F54B0CEACDFC94AB6B19C379EEF6D10973050427582` |
+| AAB SHA-256 | `388993AFF4E5CEFF41E7CF48CF6074CC2A42A1F97DFF66E9ED61504D6632D330` |
+| 签名证书 SHA-256 | `A5:B8:51:4A:16:5A:78:49:A4:07:3B:D0:0A:94:75:9F:CB:95:7A:A0:2F:83:97:00:12:EB:72:F2:51:85:D6:06` |
+| 权限 | `POST_NOTIFICATIONS`、`RECEIVE_BOOT_COMPLETED`、`WAKE_LOCK`；无 INTERNET / CAMERA；另有 AndroidX 自动生成的应用私有签名权限 |
+| 验证 | `aapt2` 校验 versionCode / versionName；`apksigner` 证书一致；`pnpm check:release` 断言产物版本 / 签名 / `dist` ↔ assets 同源 |
+| 发布说明 | [RELEASE-NOTES-v1.2.5](RELEASE-NOTES-v1.2.5.md) |
+| 已知限制 | 见 README「已知限制」 |
+
+### v1.0.0（历史）
 
 | 项 | 内容 |
 | --- | --- |

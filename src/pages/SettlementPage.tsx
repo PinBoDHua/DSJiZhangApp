@@ -154,6 +154,8 @@ export function SettlementDraftPage({
   onOpenEntry,
 }: DraftPageProps) {
   const { state, settleJob, deleteAdvance, restoreAdvance, toast } = useStore();
+  // C08：隐藏金额时超休扣款输入框的占位不能带出自动扣款数字。
+  const hideAmounts = usePrivacy();
   const [extraBonus, setExtraBonus] = useState('');
   const [extraDeduction, setExtraDeduction] = useState('');
   const [note, setNote] = useState('');
@@ -681,9 +683,11 @@ export function SettlementDraftPage({
                     onChange={(event) => setOverRestAmount(event.target.value)}
                     // 与 draft 实际扣款同一口径（含历史工记快照费率），不再用当前岗位单价自行推算。
                     placeholder={
-                      draft.overRestDeduction > 0
-                        ? draft.overRestDeduction.toFixed(2)
-                        : '自动'
+                      hideAmounts
+                        ? '扣款金额'
+                        : draft.overRestDeduction > 0
+                          ? draft.overRestDeduction.toFixed(2)
+                          : '自动'
                     }
                     inputMode="decimal"
                   />
@@ -955,7 +959,8 @@ export function SettlementRecordPage({ settlementId, onBack }: RecordPageProps) 
     entries,
   );
   // PAY-28：撤销会丢弃已登记的收款，有快照也要在确认框里明确警告。
-  const lostPayment = undoLostPaymentNotice(settlement);
+  // C08：隐藏金额时只提示「已登记收款」，不写具体金额。
+  const lostPayment = undoLostPaymentNotice(settlement, hiddenAmounts);
 
   const handleCopy = async () => {
     const ok = await copyText(settlementCopyText(settlement));

@@ -3,7 +3,7 @@ import { Briefcase, ChevronRight, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
 import { EmptyState } from '../components/EmptyState';
 import { JobDot } from '../components/JobDot';
-import { Money } from '../components/Money';
+import { Money, usePrivacy } from '../components/Money';
 import { SubPage } from '../components/SubPage';
 import { TrashSheet } from '../components/TrashSheet';
 import { CYCLE_LABEL, jobColor, rateLabel } from '../lib/meta';
@@ -19,6 +19,8 @@ interface JobsProps {
 
 export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
   const { state } = useStore();
+  // C01：隐藏金额时岗位卡单价也不能明文出现，与首页岗位卡 / 计时弹层同一口径。
+  const hideAmounts = usePrivacy();
   const [showArchived, setShowArchived] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const overview = getSettlementOverview(state);
@@ -59,8 +61,12 @@ export function Jobs({ onBack, onAdd, onTemplate, onEdit }: JobsProps) {
           </span>
           {job.employer ? <span className="job-manage-employer">{job.employer}</span> : null}
           <span className="job-manage-meta">
-            {rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)} ·{' '}
-            {CYCLE_LABEL[job.cycle]} ·{' '}
+            {hideAmounts ? (
+              <Money value={job.rule.rate} />
+            ) : (
+              rateLabel(job.rule.payType, job.rule.rate, job.rule.unitLabel)
+            )}{' '}
+            · {CYCLE_LABEL[job.cycle]} ·{' '}
             {job.rule.otEnabled ? `加班 ${job.rule.weekdayOT}× 起` : '不含加班费'}
           </span>
         </span>

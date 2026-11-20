@@ -23,6 +23,11 @@ import type {
 import { JOB_COLORS } from './meta';
 import { nowISO } from './date';
 import { limitTrash, purgeExpiredTrash } from './trash';
+import { LAST_BACKUP_KEY } from './backupStatus';
+import { BATCH_TEMPLATE_KEY } from './batchTemplates';
+import { PRIVACY_CONSENT_KEY } from './compliance';
+import { PAYSLIP_OPTIONS_KEY } from './payslipOptions';
+import { REMINDER_LAST_KEY } from './reminder';
 
 export const STORAGE_KEY = 'xinshi.state.v7';
 export const LEGACY_STORAGE_KEYS = ['xinshi.state.v6', 'xinshi.state.v5', 'xinshi.state.v4', 'xinshi.state.v3', 'xinshi.state.v2', 'xinshi.state.v1'];
@@ -133,12 +138,31 @@ export function saveState(state: AppState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+/**
+ * 没有导出 key 常量、或直接导入常量会形成循环依赖的附属本地存储键。
+ * 新增侧键时必须同步加到这里，否则「清空所有数据」仍会残留。
+ */
+const MODULE_SIDE_KEYS = [
+  'xinshi.autoBackup', // autoBackup.ts AUTO_BACKUP_KEY（导入会让 storage ↔ autoBackup 互相依赖）
+  'xinshi.autoBackupFailures', // autoBackup.ts AUTO_BACKUP_FAILURE_KEY（同上）
+  'xinshi.budgetAlert', // budget.ts BUDGET_ALERT_KEY（未导出）
+  'xinshi.snapshotDailyAt', // hooks/useAutoSnapshot.ts DAILY_KEY（未导出）
+  'xinshi.snapshotLastError', // hooks/useAutoSnapshot.ts ERROR_KEY（未导出）
+  'xinshi.planJobId', // pages/Home.tsx PLAN_JOB_KEY（未导出）
+];
+
 export function clearStoredState(): void {
   localStorage.removeItem(STORAGE_KEY);
   for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
   localStorage.removeItem(THEME_KEY);
-  localStorage.removeItem('xinshi.lastBackup');
-  localStorage.removeItem('xinshi.budgetAlert');
+  localStorage.removeItem(LAST_BACKUP_KEY);
+  localStorage.removeItem(BATCH_TEMPLATE_KEY);
+  localStorage.removeItem(PRIVACY_CONSENT_KEY);
+  localStorage.removeItem(PAYSLIP_OPTIONS_KEY);
+  localStorage.removeItem(REMINDER_LAST_KEY);
+  for (const key of MODULE_SIDE_KEYS) localStorage.removeItem(key);
+  // 不清 xinshi.ledgerEpoch：清空账本后 store 仍要靠它广播「整包替换」，
+  // 否则其他标签页可能把刚清掉的旧账本再写回来（D09）。
 }
 
 export function backupFileName(now = new Date(), encrypted = false): string {

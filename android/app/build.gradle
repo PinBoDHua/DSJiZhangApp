@@ -8,6 +8,7 @@ if (keystorePropertiesFile.exists()) {
 
 // 诊断用开关：-Pxinshi.versionCode=1001 覆盖版本号；-Pxinshi.noMinify 关闭 R8 以对比排查；
 // -Pxinshi.debuggable 让 release 包带 WebView 调试（仅本地排查用，发布包绝不能带）。
+// -Pxinshi.diag 让 release 包把诊断写到公共 Download（正式包禁止，见下方 release 守卫）。
 def xinshiVersionCode = project.hasProperty('xinshi.versionCode')
     ? project.property('xinshi.versionCode').toString().toInteger()
     : 1205
@@ -94,6 +95,17 @@ gradle.taskGraph.whenReady { graph ->
             "拒绝构建可调试 release：检测到 ${flags.join(' / ')}。\n" +
             "这些开关会让 release 包 debuggable=true（run-as 可读账本、WebView 远程调试开启），" +
             "正式包禁止使用；本地排查请改用 debug 构建，或移除参数后重新执行 ${releaseTask.name}。"
+        )
+    }
+    // 拒绝诊断 release：-Pxinshi.diag 会把 BuildConfig.XINSHI_DIAG 置为 true，
+    // 正式包每次启动 / 回前台 / 页面加载 / 崩溃都会把崩溃栈与设备信息写入公共 Download/Xinshi/xinshi-diag.txt
+    // （Android 5–9 写入应用私有 Android/data 目录，其余版本在公共 Download），属隐私泄露。
+    // 本地排查需要诊断请改用 debug 构建（不受本守卫影响）。
+    if (xinshiDiag) {
+        throw new GradleException(
+            "拒绝构建诊断 release：检测到 -Pxinshi.diag。\n" +
+            "该开关会让正式包把崩溃栈 / 设备信息写到公共 Download/Xinshi/xinshi-diag.txt，" +
+            "属隐私泄露，正式包禁止使用；本地排查请改用 debug 构建，或移除参数后重新执行 ${releaseTask.name}。"
         )
     }
     if (!signingPropertiesFile.exists()) {
